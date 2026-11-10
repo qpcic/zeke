@@ -120,7 +120,7 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
 
     case 'daily':
     case 'weekly':
-      return withNote(only(service.personalRecap(await target(), req.name)));
+      return withNote(await service.personalRecap(await target(), req.name));
 
     case 'leaderboard':
       return service.leaderboard(needGuild(), req.period ?? 'daily');

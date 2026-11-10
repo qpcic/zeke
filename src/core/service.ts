@@ -8,6 +8,7 @@ import { buildGameEmbed } from '../render/gameEmbed.ts';
 import type { Sink } from '../sinks/sink.ts';
 import { computeDigest, playerStats, type Digest, type PlayerDigest } from './digest.ts';
 import { renderLeaderboard, type LeaderboardRow } from '../render/image/leaderboard.ts';
+import { renderRecap, type RecapGame, type RecapHeader } from '../render/image/recap.ts';
 import { formatRank } from './rank.ts';
 import { previousDay, previousWeek, thisWeek, today, zonedParts } from './time.ts';
 import type { GameResult } from './events.ts';
@@ -211,18 +212,70 @@ export class Service {
     };
   }
 
-  personalRecap(player: PlayerRow, kind: 'daily' | 'weekly', tz = this.defaultTz): Embed {
+  /** Data behind the personal recap image (exposed for tests). Null when there are no games. */
+  recapData(player: PlayerRow, kind: 'daily' | 'weekly', tz = this.defaultTz): { header: RecapHeader; games: RecapGame[] } | null {
     const period = kind === 'daily' ? today(this.now(), tz) : thisWeek(this.now(), tz);
     const stats = playerStats(this.repo, player, period);
-    const rows = this.repo.doneMatchesBetween(player.puuid, period.from, period.to).reverse();
-    return buildPersonalRecapEmbed({
-      player,
-      periodLabel: kind === 'daily' ? 'Today' : 'This week',
-      stats,
-      games: rows.map((row) => ({ row, match: this.repo.getCachedMatch(row.match_id) })),
-      pending: this.repo.pendingMatches(player.puuid).length,
+    const rows = this.repo.doneMatchesBetween(player.puuid, period.from, period.to).reverse(); // newest first
+    if (!rows.length) return null;
+    const MAX_ROWS = 20;
+    const games: RecapGame[] = rows.slice(0, MAX_ROWS).map((row) => {
+      const m = this.repo.getCachedMatch(row.match_id);
+      const me = m?.info.participants.find((p) => p.puuid === player.puuid);
+      return {
+        championId: me?.championId ?? 0,
+        championName: me?.championName ?? '?',
+        gameVersion: m?.info.gameVersion ?? '0.0',
+        kills: me?.kills ?? 0, deaths: me?.deaths ?? 0, assists: me?.assists ?? 0,
+        result: row.remake ? 'remake' : row.win ? 'win' : 'loss',
+        lpDelta: row.lp_delta,
+        lpNote: row.note === 'batched' ? 'batched' : row.note === 'placement' ? 'placement' : undefined,
+      };
     });
+    // header rank = queue with the most games in the period
+    const byQ = new Map<number, number>();
+    for (const r of rows) byQ.set(r.queue_id, (byQ.get(r.queue_id) ?? 0) + 1);
+    const mainQ = [...byQ.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 420;
+    const snap = stats.ranks.find((r) => r.queue_type === (QUEUE_TYPE_BY_ID[mainQ] ?? 'RANKED_SOLO_5x5'));
+    const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' });
+    return {
+      header: {
+        name: player.game_name, tag: player.tag_line, title: kind === 'daily' ? 'Today' : 'This week',
+        subtitle: kind === 'daily' ? fmt.format(period.from) : `${fmt.format(period.from)} – ${fmt.format(period.to - 1)}`,
+        games: stats.games, wins: stats.wins, losses: stats.losses, lpNet: stats.lpNet,
+        rank: snap ? { tier: snap.tier, division: snap.division, lp: snap.lp, queue: mainQ === 440 ? 'Flex' : 'Solo/Duo' } : null,
+        hiddenCount: Math.max(0, rows.length - MAX_ROWS),
+        pending: this.repo.pendingMatches(player.puuid).length,
+      },
+      games,
+    };
   }
+
+  /** Personal daily/weekly recap: rendered list of games (champ, KDA, W/L, LP). */
+  async personalRecap(player: PlayerRow, kind: 'daily' | 'weekly', tz = this.defaultTz): Promise<Reply> {
+    const data = this.recapData(player, kind, tz);
+    const title = kind === 'daily' ? 'Today' : 'This week';
+    if (!data) {
+      const pending = this.repo.pendingMatches(player.puuid).length;
+      const desc = `No ranked games ${kind === 'daily' ? 'today' : 'this week'} yet. 💤` + (pending ? `\n_${pending} game${pending === 1 ? '' : 's'} waiting for LP to update_` : '');
+      return { embed: { author: { name: `${player.game_name}#${player.tag_line} · ${PLATFORM_LABEL[player.platform]}` }, title, description: desc, color: 0x5865f2 }, files: [] };
+    }
+    const lpNet = data.header.lpNet;
+    try {
+      const png = await renderRecap(data.header, data.games, this.assets);
+      const name = `${kind}.png`;
+      return { embed: { color: lpNet > 0 ? 0x2ecc71 : lpNet < 0 ? 0xe74c3c : 0x5865f2, image: { url: `attachment://${name}` } }, files: [{ name, data: png }] };
+    } catch (e) {
+      this.log(`recap render failed, using text: ${(e as Error).message}`);
+      const period = kind === 'daily' ? today(this.now(), tz) : thisWeek(this.now(), tz);
+      const rows = this.repo.doneMatchesBetween(player.puuid, period.from, period.to).reverse();
+      return {
+        embed: buildPersonalRecapEmbed({ player, periodLabel: title, stats: playerStats(this.repo, player, period), games: rows.map((row) => ({ row, match: this.repo.getCachedMatch(row.match_id) })), pending: data.header.pending }),
+        files: [],
+      };
+    }
+  }
+
 
   /** Server leaderboard image: only accounts that played in the period, sorted by LP gained. */
   async leaderboard(guildId: string, kind: 'daily' | 'weekly'): Promise<Reply> {

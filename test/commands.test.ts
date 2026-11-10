@@ -78,26 +78,34 @@ test('/recent: recorded game shows LP; game before tracking says unrecorded; nor
   assert.deepEqual(validateEmbed(e), []);
 });
 
-test('/daily and /weekly personal recaps', async () => {
+test('/daily and /weekly personal recaps render as images', async () => {
   const { mock, service, clock } = setup(Date.UTC(2026, 10, 10, 8, 0, 0)); // Tue 09:00 local
   const a = mock.addAccount('Daily', 'EUW', 'EUW1', ranks('GOLD', 'II', 50));
   const { player } = await service.linkUser('u1', 'EUW', 'Daily#EUW');
-  for (const [win, lp] of [[true, 21], [false, -17], [true, 19]] as const) {
+
+  const none = await service.personalRecap(player, 'daily');
+  assert.equal(none.files.length, 0);
+  assert.match(none.embed.description!, /No ranked games today yet/);
+
+  for (const [win, lp, champ] of [[true, 21, 'Ahri'], [false, -17, 'Jinx'], [true, 19, 'Lux']] as const) {
     clock.advance(35 * MIN);
-    mock.play({ players: [{ puuid: a.puuid, team: 100 }], winner: win ? 100 : 200, lp: { [a.puuid]: lp } });
+    mock.play({ players: [{ puuid: a.puuid, team: 100, champion: champ }], winner: win ? 100 : 200, lp: { [a.puuid]: lp } });
     await service.tick();
   }
-  const d = service.personalRecap(player, 'daily');
-  assert.equal(d.title, 'Today');
-  assert.match(d.description!, /\*\*3\*\* games · 2W 1L \(67%\) · \*\*\+23 LP\*\*/);
-  const games = d.fields!.find((f) => f.name === 'Games')!.value.split('\n');
-  assert.equal(games.length, 3);
-  assert.match(games[0]!, /^🟩 .* \+19 LP$/); // newest first
-  assert.deepEqual(validateEmbed(d), []);
+  const d = service.recapData(player, 'daily')!;
+  assert.deepEqual([d.header.title, d.header.games, d.header.wins, d.header.losses, d.header.lpNet], ['Today', 3, 2, 1, 23]);
+  assert.deepEqual(d.games.map((g) => [g.championName, g.result, g.lpDelta]), [['Lux', 'win', 19], ['Jinx', 'loss', -17], ['Ahri', 'win', 21]], 'newest first');
+  assert.deepEqual(d.header.rank, { tier: 'GOLD', division: 'II', lp: 73, queue: 'Solo/Duo' });
+
+  const img = await service.personalRecap(player, 'daily');
+  assert.equal(img.files[0]!.name, 'daily.png');
+  assert.equal(img.files[0]!.data.subarray(1, 4).toString(), 'PNG');
+  assert.equal(img.embed.image!.url, 'attachment://daily.png');
 
   clock.advance(24 * 60 * MIN); // Wednesday: daily resets, weekly keeps
-  assert.match(service.personalRecap(player, 'daily').description!, /No ranked games/);
-  assert.match(service.personalRecap(player, 'weekly').description!, /\+23 LP/);
+  assert.equal(service.recapData(player, 'daily'), null);
+  assert.equal(service.recapData(player, 'weekly')!.header.lpNet, 23);
+  assert.equal((await service.personalRecap(player, 'weekly')).files[0]!.name, 'weekly.png');
 });
 
 test('/leaderboard: image of accounts that played, zero-game accounts hidden', async () => {

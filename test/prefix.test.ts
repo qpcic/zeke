@@ -73,6 +73,7 @@ test('global tracking: look up anyone by Riot ID from any server; region only ne
   await assert.rejects(run('$daily Global Guy#EUW'), /don't know \*\*Global Guy#EUW\*\* yet. Add the region/);
   const first = await run('$daily Global Guy#EUW euw');
   assert.match(first.embed.description!, /Started tracking \*\*Global Guy#EUW\*\*/);
+  assert.match(first.embed.description!, /No ranked games today/);
   assert.equal(repo.activePlayers().length, 1);
 
   clock.advance(30 * 60_000);
@@ -81,8 +82,9 @@ test('global tracking: look up anyone by Riot ID from any server; region only ne
 
   // another server, no region, different casing: already known, game recorded
   const other = await run('$daily global guy#euw', { guildId: 'g2' });
-  assert.doesNotMatch(other.embed.description!, /Started tracking/);
-  assert.match(other.embed.description!, /\+21 LP/);
+  assert.equal(other.embed.description, undefined, 'known account: no "started tracking" note');
+  assert.equal(other.files[0]!.name, 'daily.png');
+  assert.equal(service.recapData(repo.findPlayerByRiotId('global guy', 'euw')!, 'daily')!.header.lpNet, 21);
   const rec = await run('$recent global guy#euw', { guildId: 'g2' });
   assert.match(rec.embed.description!, /\+21 LP/);
 
@@ -90,5 +92,6 @@ test('global tracking: look up anyone by Riot ID from any server; region only ne
   await run('$track add EUW Global Guy#EUW', { canManageGuild: true });
   const rm = await run('$track remove Global Guy#EUW', { canManageGuild: true });
   assert.match(rm.embed.description!, /still tracked globally/);
-  assert.match((await run('$weekly Global Guy#EUW')).embed.description!, /\+21 LP/);
+  assert.equal((await run('$weekly Global Guy#EUW')).files[0]!.name, 'weekly.png');
+  assert.equal(service.recapData(repo.findPlayerByRiotId('Global Guy', 'EUW')!, 'weekly')!.header.lpNet, 21);
 });
