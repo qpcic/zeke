@@ -9,7 +9,7 @@ const ranks = (tier: string, rank: string, lp: number) => [{ queueType: 'RANKED_
 
 test('command definitions are valid and scoped right', () => {
   const names = commands.map((c) => c.name).sort();
-  assert.deepEqual(names, ['daily', 'leaderboard', 'link', 'recent', 'track', 'unlink', 'weekly']);
+  assert.deepEqual(names, ['daily', 'graph', 'leaderboard', 'link', 'recent', 'track', 'unlink', 'weekly']);
   const byName = Object.fromEntries(commands.map((c) => [c.name, c]));
   assert.deepEqual(byName.link!.integration_types, [0, 1]);
   assert.deepEqual(byName.recent!.contexts, [0, 1, 2]);
@@ -52,19 +52,24 @@ test('/recent: recorded game shows LP; game before tracking says unrecorded; nor
   clock.advance(MIN);
   const { player } = await service.linkUser('u1', 'EUW', 'Recent#EUW');
 
-  let e = await service.recent(player);
-  assert.match(e.description!, /LP not recorded/);
+  let rep = await service.recent(player);
+  let e = rep.embed;
+  assert.match(e.description!, /LP n\/a/);
+  assert.equal(rep.files[0]!.name, 'scoreboard.png');
+  assert.equal(rep.files[0]!.data.subarray(1, 4).toString(), 'PNG');
+  assert.equal(e.image!.url, 'attachment://scoreboard.png');
+  assert.equal(e.fields, undefined, 'no text scoreboard when the image is attached');
 
   clock.advance(30 * MIN);
   mock.play({ players: [{ puuid: a.puuid, team: 100, champion: 'Jinx' }], winner: 100, lp: { [a.puuid]: 24 } });
   await service.tick();
-  e = await service.recent(player);
+  e = (await service.recent(player)).embed;
   assert.match(e.title!, /Victory · Jinx/);
   assert.match(e.description!, /\+24 LP/);
 
   clock.advance(30 * MIN);
   mock.play({ players: [{ puuid: a.puuid, team: 100, champion: 'Lux' }], winner: 200, queueId: 450 });
-  e = await service.recent(player);
+  e = (await service.recent(player)).embed;
   assert.match(e.title!, /Defeat · Lux/);
   assert.equal(e.description, undefined);
   assert.match(e.footer!.text, /ARAM/);
@@ -110,4 +115,26 @@ test('/leaderboard lists every tracked account, sorted by LP then rank', async (
   assert.match(table[2]!, /Idle Iron .*I2 5/);
   assert.match(e.description!, /1\/3 active/);
   assert.deepEqual(validateEmbed(e), []);
+});
+
+test('/graph: needs 2+ points, then renders a PNG over recorded games', async () => {
+  const { mock, service, clock } = setup();
+  const a = mock.addAccount('Grapher', 'EUW', 'EUW1', ranks('GOLD', 'I', 80));
+  const { player } = await service.linkUser('u1', 'EUW', 'Grapher#EUW');
+  await assert.rejects(service.graph(player, 420, 50), /Not enough recorded/);
+  for (const [w, lp] of [[true, 22], [true, 20], [false, -18]] as const) {
+    clock.advance(40 * MIN);
+    mock.play({ players: [{ puuid: a.puuid, team: 100 }], winner: w ? 100 : 200, lp: { [a.puuid]: lp } });
+    await service.tick();
+  }
+  const g = await service.graph(player, 420, 50);
+  assert.equal(g.files[0]!.data.subarray(1, 4).toString(), 'PNG');
+  assert.match(g.embed.footer!.text, /Only 3 games recorded/);
+});
+
+test('text tables are CJK-width aware', async () => {
+  const { cell, displayWidth } = await import('../src/render/format.ts');
+  assert.equal(displayWidth('아무것도'), 8);
+  assert.equal(displayWidth(cell('아무것도 아님', 10)), 10);
+  assert.equal(displayWidth(cell('Munja', 10)), 10);
 });

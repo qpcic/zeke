@@ -3,6 +3,7 @@ import type { GuildRow } from '../src/db/repo.ts';
 import { MockRiot, mulberry32 } from '../src/dev/mockRiot.ts';
 import type { Embed } from '../src/render/embed.ts';
 import type { Sink } from '../src/sinks/sink.ts';
+import { FakeAssets } from '../src/dev/fakeAssets.ts';
 
 export class CaptureSink implements Sink {
   sent: { guild: string; kind: string; embeds: Embed[] }[] = [];
@@ -26,6 +27,7 @@ export function setup(startMs = Date.UTC(2026, 10, 10, 12, 0, 0)) {
     dbPath: ':memory:',
     now: clock.now,
     sink,
+    assets: new FakeAssets(),
     riot: { apiKey: 'test', fetch: mock.fetch, baseUrl: (h) => `http://mock/${h}` },
   });
   return { clock, mock, sink, ...app };

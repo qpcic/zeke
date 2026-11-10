@@ -21,6 +21,10 @@ export function mulberry32(seed: number): () => number {
 const CHAMPS = ['Ahri', 'LeeSin', 'Jinx', 'Thresh', 'Darius', 'Lux', 'Yasuo', 'Kaisa', 'Nautilus', 'Viego', 'Orianna', 'Ezreal', 'Leona', 'Garen', 'Sylas', 'Vi', 'Caitlyn', 'Lulu', 'Aatrox', 'Syndra'];
 const NAMES = ['Kebab Enjoyer', 'xXSlayerXx', 'MidOrFeed', 'Baron Steal', 'tilted again', 'NoFlashNoProb', 'Ward Bot', 'Jungle Diff', 'gg ff 15', 'Pentaless'];
 const POSITIONS = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];
+const SPELLS: Record<string, [number, number]> = { TOP: [4, 12], JUNGLE: [4, 11], MIDDLE: [4, 14], BOTTOM: [4, 7], UTILITY: [4, 3] };
+const KEYSTONES: [number, number][] = [[8000, 8010], [8000, 8005], [8100, 8112], [8100, 8128], [8200, 8229], [8200, 8214], [8400, 8437]];
+const SECONDARY = [8000, 8100, 8200, 8300, 8400];
+const ITEMS = [3031, 3089, 3157, 6672, 3006, 3020, 3047, 3071, 3053, 3864, 3165, 6653, 3135, 3036, 3065, 3075, 2003, 0];
 
 function rankFromAbs(abs: number): { tier: string; rank: string; leaguePoints: number } {
   if (abs >= 2800) return { tier: 'MASTER', rank: 'I', leaguePoints: abs - 2800 };
@@ -116,7 +120,15 @@ export class MockRiot {
           goldEarned: r(8000, 16000),
           totalDamageDealtToChampions: support ? r(6000, 14000) : r(14000, 38000),
           visionScore: support ? r(50, 90) : r(12, 40),
-          item0: 0, item1: 0, item2: 0, item3: 0, item4: 0, item5: 0, item6: 0,
+          item0: ITEMS[r(0, 16)]!, item1: ITEMS[r(0, 16)]!, item2: ITEMS[r(0, 16)]!, item3: ITEMS[r(0, 17)]!, item4: ITEMS[r(0, 17)]!, item5: ITEMS[r(0, 17)]!,
+          item6: support ? 3364 : 3340,
+          summoner1Id: SPELLS[pos]![0], summoner2Id: SPELLS[pos]![1],
+          perks: (() => {
+            const [style, keystone] = KEYSTONES[r(0, KEYSTONES.length - 1)]!;
+            const sub = SECONDARY.filter((x) => x !== style)[r(0, 3)]!;
+            return { styles: [{ description: 'primaryStyle', style, selections: [{ perk: keystone }] }, { description: 'subStyle', style: sub, selections: [] }] };
+          })(),
+          wardsPlaced: r(5, 40),
           gameEndedInEarlySurrender: !!o.remake,
           gameEndedInSurrender: !o.remake && dur < 1700,
           pentaKills: 0, quadraKills: 0, tripleKills: 0, doubleKills: r(0, 2),
@@ -132,7 +144,18 @@ export class MockRiot {
         gameCreation: start - 30_000, gameStartTimestamp: start, gameEndTimestamp: end, gameDuration: dur,
         gameMode: 'CLASSIC', gameVersion: '15.22.723.4211', queueId, platformId: platform, endOfGameResult: 'GameComplete',
         participants,
-        teams: [100, 200].map((t) => ({ teamId: t as 100 | 200, win: !o.remake && t === o.winner })),
+        teams: [100, 200].map((t) => {
+          const won = !o.remake && t === o.winner;
+          const n = (a: number, b: number) => (o.remake ? 0 : a + Math.floor(this.rng() * (b - a + 1)));
+          return {
+            teamId: t as 100 | 200, win: won,
+            objectives: {
+              tower: { kills: won ? n(7, 11) : n(1, 6) }, dragon: { kills: won ? n(2, 4) : n(0, 2) },
+              baron: { kills: won ? n(0, 2) : n(0, 1) }, riftHerald: { kills: n(0, 1) }, horde: { kills: n(0, 6) },
+              atakhan: { kills: won ? n(0, 1) : 0 }, inhibitor: { kills: won ? n(1, 3) : n(0, 1) }, champion: { kills: 0 },
+            },
+          };
+        }),
       },
     };
     this.matches.set(matchId, m);

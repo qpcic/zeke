@@ -45,6 +45,11 @@ export interface ParticipantDto {
   totalDamageDealtToChampions: number;
   visionScore: number;
   item0: number; item1: number; item2: number; item3: number; item4: number; item5: number; item6: number;
+  summoner1Id: number;
+  summoner2Id: number;
+  perks?: { styles: { description: string; style: number; selections: { perk: number }[] }[] };
+  wardsPlaced?: number;
+  challenges?: { kda?: number; killParticipation?: number; teamDamagePercentage?: number };
   gameEndedInEarlySurrender: boolean;
   gameEndedInSurrender: boolean;
   pentaKills: number;
@@ -61,6 +66,10 @@ export interface TeamDto {
     dragon?: { kills: number };
     tower?: { kills: number };
     champion?: { kills: number };
+    riftHerald?: { kills: number };
+    horde?: { kills: number }; // void grubs
+    atakhan?: { kills: number };
+    inhibitor?: { kills: number };
   };
 }
 

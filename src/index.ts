@@ -1,7 +1,8 @@
-import { Client, Events, GatewayIntentBits } from 'discord.js';
+import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
 import { bootstrap, log } from './bootstrap.ts';
 import { config, requireDiscord } from './config.ts';
 import { createInteractionHandler } from './discord/handlers.ts';
+import { createPrefixHandler } from './discord/prefix.ts';
 import { LogSink } from './sinks/logSink.ts';
 import { TerminalSink } from './sinks/terminalSink.ts';
 
@@ -15,10 +16,19 @@ const { service, repo, db } = bootstrap({
   sink: config.previewGames ? new TerminalSink(config.previewDir) : new LogSink(log),
 });
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+// Text commands need the privileged Message Content intent (Developer Portal -> Bot -> Message Content Intent).
+const prefixOn = config.prefix.length > 0;
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    ...(prefixOn ? [GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent] : []),
+  ],
+  partials: prefixOn ? [Partials.Channel] : [], // DM channels arrive uncached
+});
 client.on(Events.InteractionCreate, createInteractionHandler(service, log));
+if (prefixOn) client.on(Events.MessageCreate, createPrefixHandler(service, config.prefix, () => client.user?.id, log));
 client.once(Events.ClientReady, (c) => {
-  log(`Discord: logged in as ${c.user.tag} · ${c.guilds.cache.size} server(s)`);
+  log(`Discord: logged in as ${c.user.tag} · ${c.guilds.cache.size} server(s)${prefixOn ? ` · prefix "${config.prefix}"` : ''}`);
 });
 
 let stopping = false;
@@ -61,5 +71,13 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 log(`LeagueBot · polling every ${config.pollIntervalSec}s · queues ${config.trackedQueues.join(',')} · ${repo.activePlayers().length} players`);
-await client.login(token);
+try {
+  await client.login(token);
+} catch (e) {
+  if (/disallowed intents/i.test((e as Error).message)) {
+    log('Discord rejected the Message Content intent. Enable it in Developer Portal -> Bot -> Privileged Gateway Intents, or set PREFIX= (empty) in .env to disable $ commands.');
+    process.exit(1);
+  }
+  throw e;
+}
 void pollLoop();

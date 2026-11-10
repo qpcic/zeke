@@ -179,6 +179,14 @@ export class Repo {
   getPlayerMatch(matchId: string, puuid: string) {
     return this.db.prepare('SELECT * FROM player_matches WHERE match_id = ? AND puuid = ?').get(matchId, puuid) as PlayerMatchRow | undefined;
   }
+  /** Resolved games with a known post-game rank for one queue, oldest first (last `limit`). */
+  lpHistory(puuid: string, queueId: number, limit: number) {
+    return (this.db.prepare(`
+      SELECT * FROM player_matches
+      WHERE puuid = ? AND queue_id = ? AND status = 'done' AND remake = 0
+      ORDER BY game_end DESC LIMIT ?
+    `).all(puuid, queueId, limit) as unknown as PlayerMatchRow[]).reverse();
+  }
   latestDoneMatches(puuid: string, limit: number) {
     return this.db.prepare("SELECT * FROM player_matches WHERE puuid = ? AND status = 'done' ORDER BY game_end DESC LIMIT ?")
       .all(puuid, limit) as unknown as PlayerMatchRow[];

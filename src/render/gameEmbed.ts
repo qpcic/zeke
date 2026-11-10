@@ -6,6 +6,8 @@ import { championIcon, ddVersion, patchLabel } from './ddragon.ts';
 import { COLORS, type Embed } from './embed.ts';
 import { cell, fmtDuration, fmtK, kdaRatio } from './format.ts';
 
+const ROLE: Record<string, string> = { TOP: 'Top', JUNGLE: 'Jungle', MIDDLE: 'Mid', BOTTOM: 'Bot', UTILITY: 'Support' };
+
 function scoreboard(team: ParticipantDto[], highlight: Set<string>): string {
   const rows = team.map((p) => {
     const mark = highlight.has(p.puuid) ? '▶' : ' ';
@@ -27,7 +29,7 @@ function lpLine(r: GameResult): string {
     case 'pending':
       return 'LP updating… (ladder hasn\'t caught up yet)';
     case 'unrecorded':
-      return `LP not recorded (played before tracking started)${r.rankAfter ? ` · ${formatRank(r.rankAfter)}` : ''}`;
+      return `LP n/a (before tracking)${r.rankAfter ? ` · ${formatRank(r.rankAfter)}` : ''}`;
     case 'norank':
       return '';
     case 'unknown':
@@ -48,7 +50,15 @@ function lpLine(r: GameResult): string {
 /**
  * @param alsoTracked other tracked players' puuids in this guild, highlighted in the scoreboard
  */
-export function buildGameEmbed(r: GameResult, alsoTracked: Set<string> = new Set()): Embed {
+export interface GameEmbedOptions {
+  /** Image scoreboard attached: drop the text stat/scoreboard fields. */
+  compact?: boolean;
+  /** Champion display name ("Wukong" rather than "MonkeyKing"). */
+  championDisplay?: string;
+  badge?: 'MVP' | 'ACE' | null;
+}
+
+export function buildGameEmbed(r: GameResult, alsoTracked: Set<string> = new Set(), opt: GameEmbedOptions = {}): Embed {
   const { info, metadata } = r.match;
   const me = info.participants.find((p) => p.puuid === r.player.puuid)!;
   const ver = ddVersion(info.gameVersion);
@@ -71,12 +81,12 @@ export function buildGameEmbed(r: GameResult, alsoTracked: Set<string> = new Set
 
   const embed: Embed = {
     author: { name: `${r.player.game_name}#${r.player.tag_line} · ${PLATFORM_LABEL[r.player.platform]}` },
-    title: `${result} · ${me.championName}`,
+    title: `${result} · ${opt.championDisplay ?? me.championName}${opt.badge ? ` · ${opt.badge === 'MVP' ? '🏅 MVP' : '⭐ ACE'}` : ''}`,
     url: `https://www.leagueofgraphs.com/match/${PLATFORM_LABEL[r.player.platform].toLowerCase()}/${metadata.matchId.split('_')[1]}`,
     description: [lpLine(r), multi ? `🔥 **${multi}**` : ''].filter(Boolean).join('\n') || undefined,
     color,
     thumbnail: { url: championIcon(ver, me.championName) },
-    fields: r.remake ? [] : [
+    fields: r.remake || opt.compact ? [] : [
       { name: 'KDA', value: `${me.kills}/${me.deaths}/${me.assists} (${kdaRatio(me.kills, me.deaths, me.assists)}) · ${kp}% KP`, inline: true },
       { name: 'CS', value: `${cs} (${(cs / minutes).toFixed(1)}/m)`, inline: true },
       { name: 'Damage', value: fmtK(me.totalDamageDealtToChampions), inline: true },
@@ -85,7 +95,9 @@ export function buildGameEmbed(r: GameResult, alsoTracked: Set<string> = new Set
       { name: 'Duration', value: fmtDuration(info.gameDuration), inline: true },
     ],
   };
-  if (!r.remake) {
+  if (opt.compact) {
+    // scoreboard is in the image
+  } else if (!r.remake) {
     embed.fields!.push(
       { name: `${trophy(100)}Blue · ${teamKillsOf(blue)} kills`, value: scoreboard(blue, highlight) },
       { name: `${trophy(200)}Red · ${teamKillsOf(red)} kills`, value: scoreboard(red, highlight) },
@@ -93,8 +105,9 @@ export function buildGameEmbed(r: GameResult, alsoTracked: Set<string> = new Set
   } else {
     embed.fields!.push({ name: 'Duration', value: fmtDuration(info.gameDuration), inline: true });
   }
+  if (!embed.fields!.length) delete embed.fields;
   Object.assign(embed, {
-    footer: { text: `${QUEUE_LABEL[info.queueId] ?? `Queue ${info.queueId}`} · Patch ${patchLabel(info.gameVersion)} · ${metadata.matchId}` },
+    footer: { text: `${QUEUE_LABEL[info.queueId] ?? `Queue ${info.queueId}`} · ${me.teamPosition ? `${ROLE[me.teamPosition] ?? me.teamPosition} · ` : ''}${fmtDuration(info.gameDuration)} · Patch ${patchLabel(info.gameVersion)}` },
     timestamp: new Date(info.gameEndTimestamp ?? info.gameStartTimestamp + info.gameDuration * 1000).toISOString(),
   });
   return embed;

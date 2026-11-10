@@ -18,6 +18,7 @@
     "register": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --import tsx src/discord/register.ts"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.1.0",
     "discord.js": "^14.28.1",
     "node-cron": "^4.6.0"
   },

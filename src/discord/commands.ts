@@ -40,6 +40,12 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
   userOpt(new SlashCommandBuilder().setName('recent').setDescription('Show the most recent game'))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
+  userOpt(new SlashCommandBuilder().setName('graph').setDescription('LP graph over recorded games'))
+    .addStringOption((o) => o.setName('queue').setDescription('Queue (default Solo/Duo)')
+      .addChoices({ name: 'Solo/Duo', value: '420' }, { name: 'Flex', value: '440' }))
+    .addIntegerOption((o) => o.setName('games').setDescription('How many recent games (default 50)').setMinValue(5).setMaxValue(200))
+    .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
+
   userOpt(new SlashCommandBuilder().setName('daily').setDescription("Today's games and LP"))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 

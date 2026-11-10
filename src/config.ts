@@ -21,6 +21,8 @@ export const config = {
   discordToken: process.env.DISCORD_TOKEN ?? '',
   discordClientId: process.env.DISCORD_CLIENT_ID ?? '',
   devGuildId: process.env.DEV_GUILD_ID ?? '',
+  /** Message prefix for text commands ("$recent"). Empty string disables (and drops the Message Content intent). */
+  prefix: process.env.PREFIX ?? '$',
   /** Also render every resolved game to terminal + previews/ (debugging). */
   previewGames: process.env.PREVIEW_GAMES === '1',
 } as const;

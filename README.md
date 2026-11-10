@@ -10,7 +10,8 @@ The bot never posts on its own. A background poller records every ranked game an
 |---|---|---|
 | `/link region riot_id` | anywhere | Link your Riot account (one per Discord user) |
 | `/unlink` | anywhere | Remove your link |
-| `/recent [user]` | anywhere | Most recent game; LP shown if it was recorded |
+| `/recent [user]` | anywhere | Most recent game as a rendered scoreboard image; LP shown if it was recorded |
+| `/graph [user] [queue] [games]` | anywhere | LP-over-games chart on tier bands, with peak, current rank and W/L strip |
 | `/daily [user]` | anywhere | Today's games, W/L and LP |
 | `/weekly [user]` | anywhere | This week's (Mon–Sun) games, W/L and LP |
 | `/track add region riot_id` | server, Manage Server | Track an account in this server |
@@ -20,13 +21,22 @@ The bot never posts on its own. A background poller records every ranked game an
 
 "Anywhere" means servers, the bot's DMs and group DMs. That needs the app to be user-installable.
 
+### Text commands (`$` prefix)
+
+Every command also works as a message: `$recent`, `$graph flex 30 @friend`, `$link EUNE ferks kitten#retro`, `$track add EUW Name#TAG`, `$lb week`, `$help`.
+- **Aliases:** `$r` = recent, `$g` = graph, `$d` = daily, `$w` = weekly, `$lb` = leaderboard.
+- Only known command names trigger a reply, and each user has a 2.5s cooldown.
+- They work only where the bot is a member (servers it's in, and its DMs), not where the app is just user-installed.
+- They need the **Message Content** privileged intent. Change the prefix with `PREFIX=` in `.env`; set it to empty to turn text commands off.
+
 ## Discord setup (once)
 
 1. Developer Portal → your app → **Installation**: enable both **User Install** and **Guild Install**. Install link: *Discord Provided Link*. Guild Install scopes: `applications.commands` and `bot`, with permissions `View Channels`, `Send Messages` and `Embed Links`.
 2. Put `DISCORD_TOKEN` and `DISCORD_CLIENT_ID` in `.env`.
 3. `npm run register` registers the global commands. Re-run it whenever command definitions change.
-4. Add the bot to a server with the install link, or user-install it to get the personal commands everywhere.
-5. `npm run dev`.
+4. For `$` commands: **Bot** tab → *Privileged Gateway Intents* → turn on **Message Content Intent**.
+5. Add the bot to a server with the install link, or user-install it to get the personal commands everywhere.
+6. `npm run dev`.
 
 ## Requirements
 
@@ -54,6 +64,15 @@ The CLI still works for debugging without Discord: `npm run cli -- add EUW "Name
 1. rendered in the terminal,
 2. written to `previews/<guild>/<timestamp>-<label>.json` as a webhook payload. Paste it into [Discohook](https://discohook.org) (JSON Data Editor) to see exactly what Discord will show,
 3. added to `previews/index.html`, an offline Discord-style page of all messages so far.
+
+## Images
+
+Scoreboards and graphs are drawn with `@napi-rs/canvas`, which ships prebuilt binaries (no compiler needed).
+- **Icons:** champion, item, summoner spell and rune icons come from Data Dragon (matched to the game's patch). Rank emblems come from CommunityDragon. Everything is cached in `data/cache/`. A missing icon renders as a placeholder, and if rendering fails the bot falls back to the text scoreboard.
+- **Fonts:** Inter is bundled in `assets/fonts` (OFL). CJK names fall back to system fonts (Malgun Gothic on Windows). On a Linux server, install `fonts-noto-cjk`.
+- **MVP / ACE:** a simple score from KDA, kill participation, and damage/vision/gold share. MVP is the best player on the winning team, ACE the best on the losing team.
+
+The graph only covers games recorded while an account is linked or tracked, because Riot keeps no LP history.
 
 ## How LP tracking works
 
@@ -86,6 +105,8 @@ src/
   db/        node:sqlite schema + migrations, typed repo
   core/      tracker (polling + LP attribution), digest, rank math, timezone math, service
   render/    embed builders (Discord APIEmbed shape), terminal + HTML preview renderers
+  render/image/  canvas scoreboard + LP graph
+  assets/    Data Dragon / CommunityDragon client with disk cache
   discord/   slash command definitions, interaction handlers, registration script
   sinks/     where resolved games go (LogSink by default, TerminalSink for previews)
   dev/       mock Riot API used by tests and demo

@@ -13,9 +13,18 @@ import type { GameResult } from './events.ts';
 import { QUEUE_TYPE_BY_ID } from '../riot/types.ts';
 import { buildLeaderboardEmbed, buildPersonalRecapEmbed } from '../render/statsEmbeds.ts';
 import type { Embed } from '../render/embed.ts';
+import type { AssetSource } from '../assets/ddragon.ts';
+import { championName } from '../assets/ddragon.ts';
+import { performances } from './performance.ts';
+import { renderScoreboard } from '../render/image/scoreboard.ts';
+import { pointsFromHistory, renderLpGraph } from '../render/image/lpGraph.ts';
+import { QUEUE_LABEL } from '../riot/types.ts';
 import type { Tracker } from './tracker.ts';
 
 export class UserError extends Error {}
+
+/** A reply: embed plus optional PNG attachments referenced as attachment://<name>. */
+export interface Reply { embed: Embed; files: { name: string; data: Buffer }[] }
 
 /** If the bot was down at midnight, still post the digest if we come back within this window. */
 const DIGEST_CATCHUP_HOURS = 6;
@@ -33,6 +42,7 @@ export class Service {
     private readonly defaultTz: string,
     private readonly log: (msg: string) => void = console.log,
     private readonly now: () => number = Date.now,
+    private readonly assets: AssetSource | null = null,
   ) {}
 
   guild(guildId: string): GuildRow {
@@ -97,14 +107,14 @@ export class Service {
   }
 
   /** The account a command should act on: the given Discord user's link (or the caller's). */
-  linkedOrThrow(discordUserId: string, isSelf: boolean): PlayerRow {
+  linkedOrThrow(discordUserId: string, isSelf: boolean, style = '/'): PlayerRow {
     const p = this.repo.linkedPlayer(discordUserId);
-    if (!p) throw new UserError(isSelf ? 'You have no linked account. Use `/link` first.' : 'That user has no linked account.');
+    if (!p) throw new UserError(isSelf ? `You have no linked account. Use \`${style}link\` first.` : 'That user has no linked account.');
     return p;
   }
 
   /** Most recent game of any queue, with LP if the tracker resolved it. */
-  async recent(player: PlayerRow): Promise<Embed> {
+  async recent(player: PlayerRow): Promise<Reply> {
     const [id] = await this.riot.getMatchIds(player.platform, player.puuid, { count: 1 });
     if (!id) throw new UserError(`No games found for **${player.game_name}#${player.tag_line}**.`);
     const match = this.repo.getCachedMatch(id) ?? (await this.riot.getMatch(player.platform, id));
@@ -131,7 +141,53 @@ export class Service {
     } else {
       r.note = qt ? 'unrecorded' : 'norank';
     }
-    return buildGameEmbed(r);
+    return this.gameReply(r);
+  }
+
+  /**
+   * Game embed with the rendered scoreboard image. Falls back to the text
+   * scoreboard if rendering fails (missing native module, bad data…).
+   */
+  async gameReply(r: GameResult, alsoTracked: Set<string> = new Set()): Promise<Reply> {
+    const sd = this.assets ? await this.assets.staticData(r.match.info.gameVersion).catch(() => null) : null;
+    const self = r.match.info.participants.find((p) => p.puuid === r.player.puuid)!;
+    const display = championName(sd, self.championId, self.championName);
+    const badge = r.remake ? null : performances(r.match).get(r.player.puuid)?.badge ?? null;
+
+    if (this.assets) {
+      try {
+        const png = await renderScoreboard(r.match, this.assets, { focus: r.player.puuid, alsoTracked });
+        const embed = buildGameEmbed(r, alsoTracked, { compact: true, championDisplay: display, badge });
+        embed.image = { url: 'attachment://scoreboard.png' };
+        if (sd) embed.thumbnail = { url: this.assets.championUrl(sd, self.championId, self.championName) };
+        const rank = r.rankAfter ?? r.rankBefore;
+        const emblem = rank ? await this.assets.emblemUrl(rank.tier).catch(() => null) : null;
+        if (emblem && embed.author) embed.author.icon_url = emblem;
+        return { embed, files: [{ name: 'scoreboard.png', data: png }] };
+      } catch (e) {
+        this.log(`scoreboard render failed, using text: ${(e as Error).message}`);
+      }
+    }
+    return { embed: buildGameEmbed(r, alsoTracked, { championDisplay: display, badge }), files: [] };
+  }
+
+  /** LP graph for the last `games` recorded games in a queue. */
+  async graph(player: PlayerRow, queueId: number, games: number, tz = this.defaultTz): Promise<Reply> {
+    const rows = this.repo.lpHistory(player.puuid, queueId, games);
+    const pts = pointsFromHistory(rows);
+    if (pts.length < 2) {
+      throw new UserError(`Not enough recorded ${QUEUE_LABEL[queueId] ?? ''} games for **${player.game_name}#${player.tag_line}** yet. The graph fills up as games are played while linked/tracked.`);
+    }
+    const png = renderLpGraph(pts, { name: `${player.game_name}#${player.tag_line}`, queueLabel: QUEUE_LABEL[queueId] ?? `Queue ${queueId}`, tz, results: rows.map((r) => !!r.win) });
+    const net = pts[pts.length - 1]!.abs - pts[0]!.abs;
+    return {
+      embed: {
+        color: net > 0 ? 0x2ecc71 : net < 0 ? 0xe74c3c : 0x5865f2,
+        image: { url: 'attachment://lp-graph.png' },
+        footer: { text: rows.length < games ? `Only ${rows.length} game${rows.length === 1 ? '' : 's'} recorded so far` : `Last ${rows.length} games` },
+      },
+      files: [{ name: 'lp-graph.png', data: png }],
+    };
   }
 
   personalRecap(player: PlayerRow, kind: 'daily' | 'weekly', tz = this.defaultTz): Embed {
