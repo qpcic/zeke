@@ -1,0 +1,248 @@
+import { tx } from '../db/db.ts';
+import type { PlayerMatchRow, PlayerRow, Repo, SnapshotRow } from '../db/repo.ts';
+import type { RiotClient } from '../riot/client.ts';
+import { QUEUE_TYPE_BY_ID, type LeagueEntryDto, type MatchDto } from '../riot/types.ts';
+import type { GameNote, GameResult, LpAdjustment } from './events.ts';
+import { absoluteLp, compareDivision, type Rank } from './rank.ts';
+
+export interface TrackerOptions {
+  trackedQueues: number[];
+  lpSettleTimeoutSec: number;
+  rankRefreshSec: number;
+  now?: () => number;
+  log?: (msg: string) => void;
+}
+
+export interface TickResult {
+  games: GameResult[];
+  adjustments: LpAdjustment[];
+  requests: number;
+}
+
+/**
+ * match-v5 `startTime` filters on game START, so a game in progress during the previous
+ * tick started before last_match_check. Look back far enough to cover the longest games;
+ * it's still one request, and dedup against player_matches handles the overlap.
+ */
+const START_OVERLAP_SEC = 2 * 60 * 60;
+
+const toRank = (s: { tier: string; division?: string; rank?: string; lp?: number; leaguePoints?: number }): Rank => ({
+  tier: s.tier,
+  division: s.division ?? s.rank ?? '',
+  lp: s.lp ?? s.leaguePoints ?? 0,
+});
+
+/** Remakes (early surrender vote) give no W/L and no LP, except a penalty for the AFK player. */
+export function isRemake(m: MatchDto, puuid: string): boolean {
+  return !!m.info.participants.find((x) => x.puuid === puuid)?.gameEndedInEarlySurrender;
+}
+
+export class Tracker {
+  private readonly now: () => number;
+  private readonly log: (msg: string) => void;
+  private readonly rankedOnly: boolean;
+
+  constructor(
+    private readonly repo: Repo,
+    private readonly riot: RiotClient,
+    private readonly opts: TrackerOptions,
+  ) {
+    this.now = opts.now ?? Date.now;
+    this.log = opts.log ?? (() => {});
+    this.rankedOnly = opts.trackedQueues.every((q) => q in QUEUE_TYPE_BY_ID);
+  }
+
+  /** Snapshot current rank so the first tracked game has a baseline. Call when a player is added. */
+  async baseline(player: PlayerRow): Promise<LeagueEntryDto[]> {
+    const entries = await this.riot.getLeagueEntries(player.platform, player.puuid);
+    tx(this.repo.db, () => {
+      for (const e of entries) this.repo.putSnapshot(this.snapFromEntry(player.puuid, e));
+      this.repo.setLastRankCheck(player.puuid, this.now());
+    });
+    return entries;
+  }
+
+  /** One polling pass over every tracked player. */
+  async tick(): Promise<TickResult> {
+    const before = this.riot.requestCount;
+    const games: GameResult[] = [];
+    const adjustments: LpAdjustment[] = [];
+    for (const player of this.repo.activePlayers()) {
+      try {
+        const r = await this.pollPlayer(player);
+        games.push(...r.games);
+        adjustments.push(...r.adjustments);
+      } catch (err) {
+        this.log(`poll failed for ${player.game_name}#${player.tag_line}: ${(err as Error).message}`);
+      }
+    }
+    games.sort((a, b) => (a.match.info.gameEndTimestamp ?? 0) - (b.match.info.gameEndTimestamp ?? 0));
+    return { games, adjustments, requests: this.riot.requestCount - before };
+  }
+
+  async pollPlayer(player: PlayerRow): Promise<{ games: GameResult[]; adjustments: LpAdjustment[] }> {
+    const tickStartSec = Math.floor(this.now() / 1000);
+
+    // 1. discover new match IDs
+    const ids = await this.riot.getMatchIds(player.platform, player.puuid, {
+      startTime: Math.max(0, player.last_match_check - START_OVERLAP_SEC),
+      type: this.rankedOnly ? 'ranked' : undefined,
+      count: 20,
+    });
+    const known = this.repo.knownMatchIds(player.puuid, ids);
+    const fresh = ids.filter((id) => !known.has(id)).reverse(); // oldest first
+
+    for (const id of fresh) {
+      const m = await this.getMatch(player, id);
+      if (!m) continue;
+      const gameEnd = m.info.gameEndTimestamp ?? m.info.gameStartTimestamp + m.info.gameDuration * 1000;
+      // The look-back window reaches before tracking began; those games were already in the baseline.
+      const tracked = this.opts.trackedQueues.includes(m.info.queueId) && gameEnd >= player.created_at;
+      const p = m.info.participants.find((x) => x.puuid === player.puuid);
+      this.repo.insertPlayerMatch({
+        match_id: id,
+        puuid: player.puuid,
+        queue_id: m.info.queueId,
+        status: tracked && p ? 'pending' : 'ignored',
+        win: p?.win ? 1 : 0,
+        remake: isRemake(m, player.puuid) ? 1 : 0,
+        game_end: gameEnd,
+      });
+    }
+    this.repo.setLastMatchCheck(player.puuid, tickStartSec);
+
+    // 2. reconcile LP if there's anything pending, or periodically to catch dodges/decay
+    const pending = this.repo.pendingMatches(player.puuid);
+    const rankDue = this.now() - player.last_rank_check >= this.opts.rankRefreshSec * 1000;
+    if (!pending.length && !rankDue) return { games: [], adjustments: [] };
+
+    const entries = await this.riot.getLeagueEntries(player.platform, player.puuid);
+    this.repo.setLastRankCheck(player.puuid, this.now());
+    return this.reconcile(player, pending, entries);
+  }
+
+  private async getMatch(player: PlayerRow, matchId: string): Promise<MatchDto | null> {
+    const cached = this.repo.getCachedMatch(matchId);
+    if (cached) return cached;
+    const m = await this.riot.getMatch(player.platform, matchId);
+    if (m) this.repo.cacheMatch(m);
+    return m;
+  }
+
+  private snapFromEntry(puuid: string, e: LeagueEntryDto): SnapshotRow {
+    return { puuid, queue_type: e.queueType, tier: e.tier, division: e.rank, lp: e.leaguePoints, wins: e.wins, losses: e.losses, taken_at: this.now() };
+  }
+
+  /**
+   * Core LP attribution. league-v4 lags match-v5 by seconds to minutes, so a game
+   * is only resolved once wins+losses for its queue has gone up. Per queue:
+   *   gamesDelta = (W+L)_now - (W+L)_snapshot
+   *   - remakes: resolved immediately, never counted in W+L
+   *   - gamesDelta == 0: league not updated yet -> keep pending (until timeout)
+   *   - gamesDelta >= 1: oldest `gamesDelta` pending games are covered by lpDelta;
+   *     exactly one -> exact LP, more -> batched (sum only)
+   *   - no pending but LP moved: adjustment (dodge, decay, leaver penalty)
+   */
+  reconcile(player: PlayerRow, pending: PlayerMatchRow[], entries: LeagueEntryDto[]): { games: GameResult[]; adjustments: LpAdjustment[] } {
+    const games: GameResult[] = [];
+    const adjustments: LpAdjustment[] = [];
+    const now = this.now();
+    const timedOut = (m: PlayerMatchRow) => now - m.first_seen >= this.opts.lpSettleTimeoutSec * 1000;
+
+    const queueTypes = new Set<string>([
+      ...this.opts.trackedQueues.map((q) => QUEUE_TYPE_BY_ID[q]).filter((x): x is string => !!x),
+    ]);
+
+    // Non-ranked tracked queues (ARAM etc.) have no LP: resolve immediately.
+    for (const m of pending.filter((m) => !QUEUE_TYPE_BY_ID[m.queue_id])) {
+      games.push(this.finalize(player, m, null, null, null, m.remake ? 'remake' : null));
+    }
+
+    tx(this.repo.db, () => {
+      for (const qt of queueTypes) {
+        const qPending = pending.filter((m) => QUEUE_TYPE_BY_ID[m.queue_id] === qt);
+        const entry = entries.find((e) => e.queueType === qt);
+        const snap = this.repo.getSnapshot(player.puuid, qt);
+        const before = snap ? toRank(snap) : null;
+        const after = entry ? toRank(entry) : null;
+
+        // Remakes: never touch W/L; LP loss (if they were the leaver) shows up as an adjustment.
+        for (const m of qPending.filter((m) => m.remake)) games.push(this.finalize(player, m, 0, before, before, 'remake'));
+        const real = qPending.filter((m) => !m.remake);
+
+        if (!entry) {
+          // Still unranked / in placements: no LP to diff.
+          for (const m of real.filter(timedOut)) games.push(this.finalize(player, m, null, null, null, 'unranked'));
+          continue;
+        }
+
+        if (!snap) {
+          // First time this queue has an entry (placements just finished, or we never had a baseline).
+          for (const m of real) games.push(this.finalize(player, m, null, null, after, 'placement'));
+          this.repo.putSnapshot(this.snapFromEntry(player.puuid, entry));
+          continue;
+        }
+
+        const gamesDelta = entry.wins + entry.losses - (snap.wins + snap.losses);
+        const lpDelta = absoluteLp(after!) - absoluteLp(before!);
+
+        if (gamesDelta < 0) {
+          // Season/split reset: W/L zeroed. Re-baseline, nothing to attribute.
+          this.log(`${player.game_name}: ${qt} W/L went backwards (reset?), re-baselining`);
+          for (const m of real) games.push(this.finalize(player, m, null, null, after, 'unknown'));
+          this.repo.putSnapshot(this.snapFromEntry(player.puuid, entry));
+          continue;
+        }
+
+        if (gamesDelta === 0) {
+          if (!real.length && lpDelta !== 0) {
+            this.repo.addLpEvent({ puuid: player.puuid, queueType: qt, delta: lpDelta, kind: 'adjustment', at: now });
+            adjustments.push({ player, queueType: qt, delta: lpDelta, rankBefore: before!, rankAfter: after! });
+            this.repo.putSnapshot(this.snapFromEntry(player.puuid, entry));
+          }
+          for (const m of real.filter(timedOut)) games.push(this.finalize(player, m, null, before, before, 'unknown'));
+          continue;
+        }
+
+        // gamesDelta >= 1
+        if (gamesDelta > real.length) {
+          // Games we never saw (played before baseline, outside the ids window, or a dodge+game combo).
+          this.log(`${player.game_name}: ${qt} +${gamesDelta} games on ladder but only ${real.length} pending`);
+        }
+        const covered = real.slice(0, Math.min(gamesDelta, real.length));
+        if (covered.length === 1 && gamesDelta === 1) {
+          const m = covered[0]!;
+          const cmp = compareDivision(after!, before!);
+          const note: GameNote = cmp > 0 ? 'promoted' : cmp < 0 ? 'demoted' : null;
+          this.repo.addLpEvent({ puuid: player.puuid, queueType: qt, delta: lpDelta, kind: 'game', matchId: m.match_id, at: m.game_end });
+          games.push(this.finalize(player, m, lpDelta, before, after, note));
+        } else if (covered.length) {
+          // Several games finished between two league reads: only the sum is knowable.
+          const last = covered[covered.length - 1]!;
+          this.repo.addLpEvent({ puuid: player.puuid, queueType: qt, delta: lpDelta, kind: 'game', matchId: last.match_id, at: last.game_end });
+          for (const m of covered) {
+            const g = this.finalize(player, m, m === last ? lpDelta : null, before, after, 'batched');
+            g.batchSize = covered.length;
+            games.push(g);
+          }
+        } else {
+          // LP moved with W/L but we have no pending game to pin it on.
+          this.repo.addLpEvent({ puuid: player.puuid, queueType: qt, delta: lpDelta, kind: 'adjustment', at: now });
+          if (lpDelta) adjustments.push({ player, queueType: qt, delta: lpDelta, rankBefore: before!, rankAfter: after! });
+        }
+        this.repo.putSnapshot(this.snapFromEntry(player.puuid, entry));
+      }
+    });
+
+    return { games, adjustments };
+  }
+
+  private finalize(player: PlayerRow, m: PlayerMatchRow, lpDelta: number | null, before: Rank | null, after: Rank | null, note: GameNote): GameResult {
+    this.repo.finalizeMatch(m.match_id, m.puuid, {
+      lpDelta, note,
+      tier: after?.tier, division: after?.division, lp: after?.lp,
+    });
+    const match = this.repo.getCachedMatch(m.match_id)!;
+    return { player, match, queueId: m.queue_id, win: !!m.win, remake: !!m.remake, lpDelta, note, rankBefore: before, rankAfter: after };
+  }
+}
