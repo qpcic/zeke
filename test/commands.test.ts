@@ -18,7 +18,7 @@ test('command definitions are valid and scoped right', () => {
   assert.ok(asGuildCommands().every((c) => !('integration_types' in c) && !('contexts' in c)));
 });
 
-test('/link: one account per user, relink replaces, unlink stops polling', async () => {
+test('/link: one account per user, relink replaces, unlink keeps the account tracked globally', async () => {
   const { mock, service, repo } = setup();
   mock.addAccount('Main Acc', 'EUW', 'EUW1', ranks('GOLD', 'II', 10));
   mock.addAccount('Smurf', 'EUW', 'EUW1', ranks('PLATINUM', 'IV', 50));
@@ -29,10 +29,12 @@ test('/link: one account per user, relink replaces, unlink stops polling', async
 
   const b = await service.linkUser('u1', 'EUW1', 'Smurf#EUW');
   assert.equal(b.previous?.game_name, 'Main Acc');
-  assert.deepEqual(repo.activePlayers().map((p) => p.game_name), ['Smurf'], 'old account dropped from poll set');
+  assert.equal(repo.linkedPlayer('u1')!.game_name, 'Smurf');
+  assert.equal(repo.activePlayers().length, 2, 'previous account keeps being tracked');
 
   service.unlinkUser('u1');
-  assert.equal(repo.activePlayers().length, 0);
+  assert.equal(repo.linkedPlayer('u1'), undefined);
+  assert.equal(repo.activePlayers().length, 2, 'players are never dropped');
   assert.throws(() => service.unlinkUser('u1'), /no linked account/);
 });
 
@@ -137,4 +139,30 @@ test('text tables are CJK-width aware', async () => {
   assert.equal(displayWidth('아무것도'), 8);
   assert.equal(displayWidth(cell('아무것도 아님', 10)), 10);
   assert.equal(displayWidth(cell('Munja', 10)), 10);
+});
+
+test('adaptive polling: active every tick, idle linked 10 min, idle looked-up 30 min', async () => {
+  const { pollIntervalMs } = await import('../src/core/tracker.ts');
+  const now = Date.UTC(2026, 10, 10);
+  assert.equal(pollIntervalMs(now - 60 * MIN, now, false, false), 0);
+  assert.equal(pollIntervalMs(now - 5 * 24 * 60 * MIN, now, false, true), 10 * MIN);
+  assert.equal(pollIntervalMs(now - 5 * 24 * 60 * MIN, now, false, false), 30 * MIN);
+  assert.equal(pollIntervalMs(0, now, true, false), 0, 'pending game: poll until resolved');
+});
+
+test('idle players are skipped until due', async () => {
+  const { mock, service, clock, repo } = setup();
+  const a = mock.addAccount('Sleeper', 'EUW', 'EUW1', ranks('GOLD', 'II', 10));
+  await service.linkUser('u1', 'EUW', 'Sleeper#EUW');
+  clock.advance(4 * 60 * MIN); // past the "new account" window
+  await service.tick(); // polled (due), then scheduled +10 min
+  mock.calls = [];
+  clock.advance(2 * MIN);
+  await service.tick();
+  assert.equal(mock.calls.length, 0, 'not due yet');
+  clock.advance(9 * MIN);
+  mock.play({ players: [{ puuid: a.puuid, team: 100 }], winner: 100, lp: { [a.puuid]: 20 } });
+  await service.tick();
+  assert.ok(mock.calls.some((c) => c.endsWith('/ids')));
+  assert.equal(repo.getPlayer(a.puuid)!.next_poll_at, clock.now(), 'just played: back to every tick');
 });

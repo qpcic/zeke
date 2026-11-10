@@ -6,6 +6,7 @@ export interface GuildRow { guild_id: string; log_channel_id: string | null; tim
 export interface PlayerRow {
   puuid: string; platform: Platform; game_name: string; tag_line: string;
   last_match_check: number; last_rank_check: number; created_at: number;
+  next_poll_at: number; last_game_at: number;
 }
 export interface SnapshotRow {
   puuid: string; queue_type: string; tier: string; division: string; lp: number; wins: number; losses: number; taken_at: number;
@@ -50,18 +51,30 @@ export class Repo {
   getPlayer(puuid: string) {
     return this.db.prepare('SELECT * FROM players WHERE puuid = ?').get(puuid) as PlayerRow | undefined;
   }
-  findPlayerByRiotId(gameName: string, tagLine: string) {
-    return this.db.prepare('SELECT * FROM players WHERE lower(game_name) = lower(?) AND lower(tag_line) = lower(?)')
-      .get(gameName, tagLine) as PlayerRow | undefined;
-  }
-  /** Players tracked by at least one guild or linked by at least one user: the poll set. */
-  activePlayers() {
+  /** Case-insensitive Riot ID lookup; Riot IDs are globally unique, platform only narrows it. */
+  findPlayerByRiotId(gameName: string, tagLine: string, platform?: string) {
     return this.db.prepare(`
-      SELECT p.* FROM players p
-      WHERE EXISTS (SELECT 1 FROM tracked t WHERE t.puuid = p.puuid)
-         OR EXISTS (SELECT 1 FROM links l WHERE l.puuid = p.puuid)
-      ORDER BY p.created_at
-    `).all() as unknown as PlayerRow[];
+      SELECT * FROM players WHERE lower(game_name) = lower(?) AND lower(tag_line) = lower(?) AND (? IS NULL OR platform = ?)
+      ORDER BY created_at LIMIT 1
+    `).get(gameName, tagLine, platform ?? null, platform ?? null) as PlayerRow | undefined;
+  }
+  /** Every known player. Players are global: once added (any server, link or lookup) they stay tracked. */
+  activePlayers() {
+    return this.db.prepare('SELECT * FROM players ORDER BY created_at').all() as unknown as PlayerRow[];
+  }
+  /** Players whose next poll is due. */
+  duePlayers(nowMs: number) {
+    return this.db.prepare('SELECT * FROM players WHERE next_poll_at <= ? ORDER BY next_poll_at, created_at').all(nowMs) as unknown as PlayerRow[];
+  }
+  /** Linked by someone or on a server leaderboard. */
+  isAnchored(puuid: string): boolean {
+    return !!this.db.prepare('SELECT 1 FROM tracked WHERE puuid = ? UNION SELECT 1 FROM links WHERE puuid = ? LIMIT 1').get(puuid, puuid);
+  }
+  setNextPoll(puuid: string, ms: number) {
+    this.db.prepare('UPDATE players SET next_poll_at = ? WHERE puuid = ?').run(ms, puuid);
+  }
+  bumpLastGame(puuid: string, gameEndMs: number) {
+    this.db.prepare('UPDATE players SET last_game_at = MAX(last_game_at, ?) WHERE puuid = ?').run(gameEndMs, puuid);
   }
   renamePlayer(puuid: string, gameName: string, tagLine: string) {
     this.db.prepare('UPDATE players SET game_name = ?, tag_line = ? WHERE puuid = ?').run(gameName, tagLine, puuid);
@@ -78,18 +91,10 @@ export class Repo {
       .run(guildId, puuid, addedBy ?? null, this.now());
     return r.changes > 0;
   }
+  /** Removes the account from this server's leaderboard only; the player and their history stay. */
   untrack(guildId: string, puuid: string): boolean {
     const r = this.db.prepare('DELETE FROM tracked WHERE guild_id = ? AND puuid = ?').run(guildId, puuid);
-    this.dropIfOrphaned(puuid);
     return r.changes > 0;
-  }
-  /** Stop polling (and forget history of) a player nobody tracks or links anymore. */
-  private dropIfOrphaned(puuid: string) {
-    this.db.prepare(`
-      DELETE FROM players WHERE puuid = ?
-        AND NOT EXISTS (SELECT 1 FROM tracked WHERE puuid = ?)
-        AND NOT EXISTS (SELECT 1 FROM links WHERE puuid = ?)
-    `).run(puuid, puuid, puuid);
   }
 
   // ---- links ----
@@ -100,7 +105,6 @@ export class Repo {
       INSERT INTO links (discord_user_id, puuid, linked_at) VALUES (?, ?, ?)
       ON CONFLICT(discord_user_id) DO UPDATE SET puuid = excluded.puuid, linked_at = excluded.linked_at
     `).run(discordUserId, puuid, this.now());
-    if (prev && prev.puuid !== puuid) this.dropIfOrphaned(prev.puuid);
     return prev?.puuid ?? null;
   }
   unlink(discordUserId: string): PlayerRow | null {
@@ -108,7 +112,6 @@ export class Repo {
     if (!prev) return null;
     const player = this.getPlayer(prev.puuid) ?? null;
     this.db.prepare('DELETE FROM links WHERE discord_user_id = ?').run(discordUserId);
-    this.dropIfOrphaned(prev.puuid);
     return player;
   }
   getLink(discordUserId: string) {

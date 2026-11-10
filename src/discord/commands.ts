@@ -27,8 +27,12 @@ const withRegionAndId = (b: SlashCommandBuilder) =>
     .addStringOption((o) => o.setName('region').setDescription('Server the account plays on').setRequired(true).addChoices(...regionChoices))
     .addStringOption((o) => o.setName('riot_id').setDescription('Riot ID, e.g. Faker#KR1').setRequired(true).setMinLength(5).setMaxLength(22));
 
+/** Who to show: a Discord user's linked account, or any Riot ID (+region if the bot hasn't seen it). */
 const userOpt = (b: SlashCommandBuilder) =>
-  b.addUserOption((o) => o.setName('user').setDescription('Show someone else (must have /link-ed)'));
+  b
+    .addUserOption((o) => o.setName('user').setDescription('Show a Discord user (their /link-ed account)'))
+    .addStringOption((o) => o.setName('riot_id').setDescription('Or any Riot ID, e.g. Faker#KR1').setMinLength(5).setMaxLength(22))
+    .addStringOption((o) => o.setName('region').setDescription('Region, only needed for accounts the bot has never seen').addChoices(...regionChoices));
 
 export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
   withRegionAndId(new SlashCommandBuilder().setName('link').setDescription('Link your Riot account to your Discord user'))

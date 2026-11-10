@@ -48,9 +48,47 @@ test('prefix flow end to end: link, recent, track needs Manage Server, server-on
   const added = await run('$track add EUNE ferks kitten#retro', { canManageGuild: true });
   assert.match(added.embed.title!, /Now tracking/);
   assert.match((await run('$track')).embed.title!, /Tracked accounts \(1\)/, 'list needs no permission');
-  assert.match((await run('$track remove FERKS KITTEN#RETRO', { canManageGuild: true })).embed.title!, /Stopped tracking/);
+  assert.match((await run('$track remove FERKS KITTEN#RETRO', { canManageGuild: true })).embed.title!, /Removed from this server/);
 
   await assert.rejects(run('$leaderboard', { guildId: null }), /only works in a server/);
   await assert.rejects(run('$link EUNE'), /Usage: `\$link <region> <Name#TAG>`/);
   assert.match((await run('$help')).embed.description!, /\$graph \[solo\|flex\]/);
+});
+
+test('extractRiotId handles spaces, keywords and regions around the ID', async () => {
+  const { extractRiotId } = await import('../src/discord/prefix.ts');
+  assert.deepEqual(extractRiotId(['ferks', 'kitten#retro', 'eune', 'flex', '30']), { riotId: 'ferks kitten#retro', rest: ['eune', 'flex', '30'] });
+  assert.deepEqual(extractRiotId(['flex', '30', 'ferks', 'kitten#retro']), { riotId: 'ferks kitten#retro', rest: ['flex', '30'] });
+  assert.deepEqual(extractRiotId(['tilted', 'luka#420']), { riotId: 'tilted luka#420', rest: [] });
+  assert.deepEqual(extractRiotId(['flex']), { rest: ['flex'] });
+  const g = parsePrefix('$g EUNE ferks kitten#retro flex 20', '$', ctx)!;
+  assert.deepEqual([g.riotId, g.region, g.queue, g.games], ['ferks kitten#retro', 'EUNE', 440, 20]);
+});
+
+test('global tracking: look up anyone by Riot ID from any server; region only needed the first time', async () => {
+  const { mock, service, repo, clock } = setup();
+  const a = mock.addAccount('Global Guy', 'EUW', 'EUW1', [{ queueType: 'RANKED_SOLO_5x5', tier: 'GOLD', rank: 'II', lp: 50, wins: 1, losses: 1 }]);
+  const run = (text: string, extra: Partial<typeof ctx> = {}) => runCommand(service, parsePrefix(text, '$', { ...ctx, ...extra })!);
+
+  await assert.rejects(run('$daily Global Guy#EUW'), /don't know \*\*Global Guy#EUW\*\* yet. Add the region/);
+  const first = await run('$daily Global Guy#EUW euw');
+  assert.match(first.embed.description!, /Started tracking \*\*Global Guy#EUW\*\*/);
+  assert.equal(repo.activePlayers().length, 1);
+
+  clock.advance(30 * 60_000);
+  mock.play({ players: [{ puuid: a.puuid, team: 100 }], winner: 100, lp: { [a.puuid]: 21 } });
+  await service.tick();
+
+  // another server, no region, different casing: already known, game recorded
+  const other = await run('$daily global guy#euw', { guildId: 'g2' });
+  assert.doesNotMatch(other.embed.description!, /Started tracking/);
+  assert.match(other.embed.description!, /\+21 LP/);
+  const rec = await run('$recent global guy#euw', { guildId: 'g2' });
+  assert.match(rec.embed.description!, /\+21 LP/);
+
+  // removing from a server keeps the player and history
+  await run('$track add EUW Global Guy#EUW', { canManageGuild: true });
+  const rm = await run('$track remove Global Guy#EUW', { canManageGuild: true });
+  assert.match(rm.embed.description!, /still tracked globally/);
+  assert.match((await run('$weekly Global Guy#EUW')).embed.description!, /\+21 LP/);
 });

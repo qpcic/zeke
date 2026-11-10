@@ -2,7 +2,14 @@
 
 Discord bot that tracks League of Legends accounts and answers slash commands with game embeds (result, scoreboard, LP change), personal daily/weekly recaps and per-server LP leaderboards.
 
-The bot never posts on its own. A background poller records every ranked game and LP change for linked and tracked accounts, so the commands have data.
+The bot never posts on its own. A background poller records every ranked game and LP change, so the commands have data.
+
+**Accounts are global.** Any account that was ever linked, tracked or looked up stays tracked for good, in every server. `/graph riot_id:Name#TAG` works in any server, even one where nobody ran `/track add`. Removing an account from a server only takes it off that server's leaderboard, and unlinking only removes your link; the history is kept.
+
+**Adaptive polling** keeps that cheap:
+- Accounts that played in the last 3 hours (or have a game waiting for LP) are checked every poll.
+- Idle linked or tracked accounts are checked every 10 min. A ranked game takes longer than that, so each game still gets its exact LP.
+- Idle accounts that were only looked up are checked every 30 min.
 
 ## Commands
 
@@ -10,12 +17,12 @@ The bot never posts on its own. A background poller records every ranked game an
 |---|---|---|
 | `/link region riot_id` | anywhere | Link your Riot account (one per Discord user) |
 | `/unlink` | anywhere | Remove your link |
-| `/recent [user]` | anywhere | Most recent game as a rendered scoreboard image; LP shown if it was recorded |
-| `/graph [user] [queue] [games]` | anywhere | LP-over-games chart on tier bands, with peak, current rank and W/L strip |
-| `/daily [user]` | anywhere | Today's games, W/L and LP |
-| `/weekly [user]` | anywhere | This week's (Mon–Sun) games, W/L and LP |
+| `/recent [user\|riot_id] [region]` | anywhere | Most recent game as a rendered scoreboard image; LP shown if it was recorded |
+| `/graph [user\|riot_id] [region] [queue] [games]` | anywhere | LP-over-games chart on tier bands, with peak, current rank and W/L strip |
+| `/daily [user\|riot_id] [region]` | anywhere | Today's games, W/L and LP |
+| `/weekly [user\|riot_id] [region]` | anywhere | This week's (Mon–Sun) games, W/L and LP |
 | `/track add region riot_id` | server, Manage Server | Track an account in this server |
-| `/track remove account` | server, Manage Server | Stop tracking (autocomplete) |
+| `/track remove account` | server, Manage Server | Remove from this server's leaderboard (autocomplete) |
 | `/track list` | server, Manage Server | List tracked accounts |
 | `/leaderboard period` | server | LP leaderboard of tracked accounts, today or this week |
 
@@ -64,6 +71,39 @@ The CLI still works for debugging without Discord: `npm run cli -- add EUW "Name
 1. rendered in the terminal,
 2. written to `previews/<guild>/<timestamp>-<label>.json` as a webhook payload. Paste it into [Discohook](https://discohook.org) (JSON Data Editor) to see exactly what Discord will show,
 3. added to `previews/index.html`, an offline Discord-style page of all messages so far.
+
+## Hosting (24/7)
+
+The bot is one Node process plus a SQLite file (~100 MB RAM), so the smallest VM is enough. Ballpark options in 2026 (check current terms):
+- **Hetzner CX22 (or similar) VPS:** roughly €4–5/month. The simplest reliable option.
+- **Oracle Cloud Always Free:** Ampere A1 (arm64) is now capped at 2 OCPU / 12 GB total. Capacity is often unavailable, and idle instances can be reclaimed.
+- **Google Cloud Always Free:** one e2-micro (1 GB RAM) in us-west1, us-central1 or us-east1, with 1 GB/month of free egress. Each scoreboard image sent to Discord counts toward that.
+
+### Docker (recommended)
+
+```bash
+# on the server (Debian/Ubuntu): install Docker, then
+git clone https://github.com/qpcic/leaguebot.git && cd leaguebot
+cp .env.example .env && nano .env        # RIOT_API_KEY (personal key!), DISCORD_TOKEN, DISCORD_CLIENT_ID
+# optional: copy your existing data/ folder here (stop the bot on your PC first)
+docker compose up -d --build
+docker compose run --rm bot node dist/discord/register.js   # (re)register slash commands
+docker compose logs -f
+```
+
+- **Data:** the database and icon cache live in `./data` on the host, so they survive rebuilds. To back up, stop the bot (`docker compose stop`) and copy `data/`.
+- **Updating:** `git pull && docker compose up -d --build`. Or switch `docker-compose.yml` to the `ghcr.io/qpcic/leaguebot:latest` image that CI publishes, and run `docker compose pull && docker compose up -d`. Make the GHCR package public, or `docker login ghcr.io`.
+- **Architectures:** the image builds for amd64 and arm64 (Oracle Ampere, Raspberry Pi).
+- **One instance only:** stop the bot on your PC once the server copy runs.
+- **Riot key:** development keys expire every 24 hours. For 24/7 use, register a **personal** key (developer.riotgames.com → Register Product → Personal).
+
+### Without Docker
+
+Install Node 22.13+ and `fonts-noto-cjk`, then run `npm ci && npm run build && npm start` under systemd or pm2.
+
+## CI
+
+`.github/workflows/ci.yml` runs on every push and PR: typecheck, tests and build on Node 22 and 24, the offline demo, then a Docker build. `docker-publish.yml` pushes multi-arch images to GHCR on every push to `main`.
 
 ## Images
 

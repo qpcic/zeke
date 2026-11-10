@@ -13,6 +13,18 @@ export interface TrackerOptions {
   log?: (msg: string) => void;
 }
 
+/**
+ * Poll interval by recency of the player's last game. Players in a session get
+ * checked every tick; dormant accounts barely cost anything.
+ */
+export function pollIntervalMs(lastActivity: number, now: number, hasPending: boolean, anchored: boolean): number {
+  if (hasPending) return 0;
+  if (now - lastActivity < 3 * 3600_000) return 0; // in a session: every tick
+  // A ranked game takes >15 min, so 10 min keeps per-game LP exact for linked/tracked accounts.
+  // Accounts that were only looked up are checked less often; worst case two games get batched.
+  return anchored ? 10 * 60_000 : 30 * 60_000;
+}
+
 export interface TickResult {
   games: GameResult[];
   adjustments: LpAdjustment[];
@@ -67,13 +79,19 @@ export class Tracker {
     const before = this.riot.requestCount;
     const games: GameResult[] = [];
     const adjustments: LpAdjustment[] = [];
-    for (const player of this.repo.activePlayers()) {
+    for (const player of this.repo.duePlayers(this.now())) {
       try {
         const r = await this.pollPlayer(player);
         games.push(...r.games);
         adjustments.push(...r.adjustments);
       } catch (err) {
         this.log(`poll failed for ${player.game_name}#${player.tag_line}: ${(err as Error).message}`);
+      }
+      const fresh = this.repo.getPlayer(player.puuid);
+      if (fresh) {
+        const pending = this.repo.pendingMatches(player.puuid).length > 0;
+        const activity = Math.max(fresh.last_game_at, fresh.created_at);
+        this.repo.setNextPoll(player.puuid, this.now() + pollIntervalMs(activity, this.now(), pending, this.repo.isAnchored(player.puuid)));
       }
     }
     games.sort((a, b) => (a.match.info.gameEndTimestamp ?? 0) - (b.match.info.gameEndTimestamp ?? 0));
@@ -108,6 +126,7 @@ export class Tracker {
         remake: isRemake(m, player.puuid) ? 1 : 0,
         game_end: gameEnd,
       });
+      if (tracked && p) this.repo.bumpLastGame(player.puuid, gameEnd);
     }
     this.repo.setLastMatchCheck(player.puuid, tickStartSec);
 

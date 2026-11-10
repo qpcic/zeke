@@ -50,9 +50,10 @@ export function helpEmbed(p: string): Embed {
   return info('LeagueBot commands', [
     `${c('link <region> <Name#TAG>')} link your Riot account`,
     `${c('unlink')} remove your link`,
-    `${c('recent [@user]')} latest game scoreboard`,
-    `${c('graph [solo|flex] [games] [@user]')} LP graph`,
-    `${c('daily [@user]')} · ${c('weekly [@user]')} your games and LP`,
+    `${c('recent [@user | Name#TAG [region]]')} latest game scoreboard`,
+    `${c('graph [solo|flex] [games] [@user | Name#TAG [region]]')} LP graph`,
+    `${c('daily')} · ${c('weekly')} games and LP (same targets as above)`,
+    '_Accounts are tracked globally: once anyone adds or looks one up, its games are recorded everywhere._',
     '',
     '**Server only**',
     `${c('leaderboard [daily|weekly]')} LP leaderboard`,
@@ -64,9 +65,20 @@ export function helpEmbed(p: string): Embed {
 
 export async function runCommand(service: Service, req: CommandRequest): Promise<Reply> {
   const p = req.style;
-  const target = () => {
+  let newNote = '';
+  const target = async () => {
+    if (req.riotId) {
+      const r = await service.lookup(req.riotId, req.region);
+      if (r.isNew) newNote = `Started tracking **${tag(r.player)}**; their games are recorded from now on.`;
+      return r.player;
+    }
     const id = req.targetUserId ?? req.callerId;
     return service.linkedOrThrow(id, id === req.callerId, p);
+  };
+  /** First lookup of a new account: mention that tracking started (graphs/recaps fill from now). */
+  const withNote = (r: Reply): Reply => {
+    if (newNote) r.embed.description = [r.embed.description, `_${newNote}_`].filter(Boolean).join('\n');
+    return r;
   };
   const needGuild = () => {
     if (!req.guildId) throw new UserError('This command only works in a server.');
@@ -94,14 +106,21 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
     }
 
     case 'recent':
-      return service.recent(target());
+      return withNote(await service.recent(await target()));
 
-    case 'graph':
-      return service.graph(target(), req.queue ?? 420, Math.min(200, Math.max(5, req.games ?? 50)));
+    case 'graph': {
+      const pl = await target();
+      try {
+        return withNote(await service.graph(pl, req.queue ?? 420, Math.min(200, Math.max(5, req.games ?? 50))));
+      } catch (e) {
+        if (newNote && e instanceof UserError) throw new UserError(`${newNote} The graph fills up as they play.`);
+        throw e;
+      }
+    }
 
     case 'daily':
     case 'weekly':
-      return only(service.personalRecap(target(), req.name));
+      return withNote(only(service.personalRecap(await target(), req.name)));
 
     case 'leaderboard':
       return only(service.leaderboard(needGuild(), req.period ?? 'daily'));
@@ -119,7 +138,7 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
       if (sub === 'remove') {
         const acc = need(req.account, 'track remove <Name#TAG>');
         const pl = acc.includes('#') ? service.removePlayer(guildId, acc) : service.removeTracked(guildId, acc);
-        return only(info('Stopped tracking', `**${tag(pl)}**`));
+        return only(info('Removed from this server', `**${tag(pl)}** is off this server's leaderboard. Their history is kept and they're still tracked globally.`));
       }
       const rows = service.listPlayers(guildId);
       const body = rows.length

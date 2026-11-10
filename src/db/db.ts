@@ -111,6 +111,12 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX links_puuid ON links(puuid);
   `,
+  /* 3 */ `
+  -- Players are global and never dropped; polling frequency adapts to activity.
+  ALTER TABLE players ADD COLUMN next_poll_at INTEGER NOT NULL DEFAULT 0;   -- epoch ms
+  ALTER TABLE players ADD COLUMN last_game_at INTEGER NOT NULL DEFAULT 0;   -- epoch ms of newest seen game
+  UPDATE players SET last_game_at = COALESCE((SELECT MAX(game_end) FROM player_matches pm WHERE pm.puuid = players.puuid), 0);
+  `,
 ];
 
 export type DB = DatabaseSync;

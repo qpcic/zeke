@@ -106,6 +106,26 @@ export class Service {
     return p;
   }
 
+  /**
+   * Find an account by Riot ID. Known accounts need no region. Unknown ones are
+   * resolved (region required) and from then on tracked globally like everyone else.
+   */
+  async lookup(riotIdInput: string, regionInput?: string): Promise<{ player: PlayerRow; isNew: boolean }> {
+    let id;
+    try {
+      id = parseRiotId(riotIdInput);
+    } catch (e) {
+      throw new UserError((e as Error).message);
+    }
+    const platform = regionInput ? parsePlatform(regionInput) : null;
+    if (regionInput && !platform) throw new UserError(`Unknown region "${regionInput}". Use one of: ${Object.values(PLATFORM_LABEL).join(', ')}`);
+    const known = this.repo.findPlayerByRiotId(id.gameName, id.tagLine, platform ?? undefined);
+    if (known) return { player: known, isNew: false };
+    if (!platform) throw new UserError(`I don't know **${formatRiotId(id)}** yet. Add the region, e.g. \`${formatRiotId(id)} EUW\`.`);
+    const r = await this.resolvePlayer(platform, riotIdInput, () => true);
+    return { player: r.player, isNew: true };
+  }
+
   /** The account a command should act on: the given Discord user's link (or the caller's). */
   linkedOrThrow(discordUserId: string, isSelf: boolean, style = '/'): PlayerRow {
     const p = this.repo.linkedPlayer(discordUserId);

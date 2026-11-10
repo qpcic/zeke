@@ -1,6 +1,7 @@
 import { PermissionFlagsBits, type Message } from 'discord.js';
 import { UserError, type Service } from '../core/service.ts';
 import { runCommand, type CommandName, type CommandRequest } from './actions.ts';
+import { parsePlatform } from '../riot/regions.ts';
 import { errorEmbed, payload } from './handlers.ts';
 
 /**
@@ -18,6 +19,21 @@ const ALIASES: Record<string, CommandName> = {
   track: 'track',
   help: 'help', commands: 'help',
 };
+
+const KEYWORDS = new Set(['flex', 'solo', 'soloq', 'duo', 'daily', 'weekly', 'week', 'w', 'today']);
+const isKeyword = (w: string) => KEYWORDS.has(w.toLowerCase()) || /^\d+$/.test(w) || !!parsePlatform(w);
+
+/**
+ * Pull "Name With Spaces#TAG" out of free-form args: the token with '#' plus the
+ * non-keyword tokens directly before it. Returns the riot id and remaining words.
+ */
+export function extractRiotId(words: string[]): { riotId?: string; rest: string[] } {
+  const k = words.findIndex((w) => w.includes('#'));
+  if (k < 0) return { rest: words };
+  let start = k;
+  while (start > 0 && !isKeyword(words[start - 1]!)) start--;
+  return { riotId: words.slice(start, k + 1).join(' '), rest: [...words.slice(0, start), ...words.slice(k + 1)] };
+}
 
 /** Exported for tests: turn message text into a request (without Discord objects). */
 export function parsePrefix(
@@ -40,7 +56,18 @@ export function parsePrefix(
     canManageGuild: ctx.canManageGuild,
     style: prefix,
   };
-  const words = rest.filter(Boolean);
+  let words = rest.filter(Boolean);
+
+  // Target lookups: "$graph ferks kitten#retro eune flex 30"
+  if (name === 'recent' || name === 'graph' || name === 'daily' || name === 'weekly') {
+    const ex = extractRiotId(words);
+    if (ex.riotId) {
+      req.riotId = ex.riotId;
+      const region = ex.rest.find((w) => parsePlatform(w));
+      if (region) req.region = region;
+      words = ex.rest.filter((w) => w !== region);
+    }
+  }
 
   switch (name) {
     case 'link': {
