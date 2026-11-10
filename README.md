@@ -51,6 +51,7 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 |---|---|
 | `/link <region> <Name#TAG>` | Link your Riot account to your Discord user |
 | `/unlink` | Remove your link |
+| `/mode [solo\|flex]` | Set your default queue for stats commands (Solo/Duo unless changed) · `$mode flex` |
 | `/profile [@user \| Name#TAG]` | Profile card: ranks, W/L, ladder position, top champions · `$p` |
 | `/recent [@user \| Name#TAG] [solo\|flex]` | Scoreboard of the latest game · `$rs` |
 | `/daily [@user \| Name#TAG] [solo\|flex]` | Today's games and LP · `$d` |
@@ -68,7 +69,7 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 | `/track list` | Show tracked accounts |
 
 **Good to know**
-- **Queue** is always the last argument and defaults to Solo/Duo: `$daily @friend flex`, `$lb week flex`.
+- **Queue** is always the last argument: `$daily @friend flex`, `$lb week flex`. Without one, your `/mode` is used, which is Solo/Duo unless you change it.
 - **Region** is only needed the first time Zeke sees an account: `$p ferks kitten#retro eune`. Game names with spaces work.
 - **Accounts are tracked across servers:** once anyone links, tracks or looks up an account, its games are recorded everywhere. Removing it from a server only takes it off that server's leaderboard.
 - **History starts when tracking does.** Riot doesn't keep LP history, so graphs and recaps fill up from the moment an account is first added.

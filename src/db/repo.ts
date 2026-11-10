@@ -209,6 +209,17 @@ export class Repo {
       .all(puuid, fromMs, toMs) as unknown as { queue_type: string; delta: number; kind: string; match_id: string | null; at: number }[];
   }
 
+  // ---- user prefs ----
+  getDefaultQueue(discordUserId: string): number | null {
+    return (this.db.prepare('SELECT default_queue FROM user_prefs WHERE discord_user_id = ?').get(discordUserId) as { default_queue: number } | undefined)?.default_queue ?? null;
+  }
+  setDefaultQueue(discordUserId: string, queueId: number) {
+    this.db.prepare(`
+      INSERT INTO user_prefs (discord_user_id, default_queue, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(discord_user_id) DO UPDATE SET default_queue = excluded.default_queue, updated_at = excluded.updated_at
+    `).run(discordUserId, queueId, this.now());
+  }
+
   // ---- kv ----
   getKv(key: string): string | null {
     return (this.db.prepare('SELECT value FROM kv WHERE key = ?').get(key) as { value: string } | undefined)?.value ?? null;

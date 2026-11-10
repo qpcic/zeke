@@ -228,6 +228,15 @@ export class Service {
     };
   }
 
+  /** Queue for a command: explicit argument, else the caller's /mode preference, else Solo/Duo. */
+  queueFor(discordUserId: string, explicit?: number): number {
+    return explicit ?? this.repo.getDefaultQueue(discordUserId) ?? SOLO;
+  }
+  setDefaultQueue(discordUserId: string, queueId: number) {
+    if (queueId !== SOLO && queueId !== FLEX) throw new UserError('Mode must be `solo` or `flex`.');
+    this.repo.setDefaultQueue(discordUserId, queueId);
+  }
+
   /** The account a command should act on: the given Discord user's link (or the caller's). */
   linkedOrThrow(discordUserId: string, isSelf: boolean, style = '/'): PlayerRow {
     const p = this.repo.linkedPlayer(discordUserId);

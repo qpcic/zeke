@@ -101,3 +101,26 @@ test('global tracking: look up anyone by Riot ID from any server; region only ne
   assert.equal((await run('$weekly Global Guy#EUW')).files[0]!.name, 'weekly.png');
   assert.equal(service.recapData(repo.findPlayerByRiotId('Global Guy', 'EUW')!, 'weekly')!.header.lpNet, 21);
 });
+
+test('$mode: per-user default queue, used when no queue is given, explicit queue still wins', async () => {
+  const { mock, service, clock } = setup(Date.UTC(2026, 10, 10, 8, 0, 0));
+  const a = mock.addAccount('Mode Guy', 'EUW', 'EUW1', [
+    { queueType: 'RANKED_SOLO_5x5', tier: 'GOLD', rank: 'II', lp: 50, wins: 1, losses: 1 },
+    { queueType: 'RANKED_FLEX_SR', tier: 'SILVER', rank: 'I', lp: 20, wins: 1, losses: 1 },
+  ]);
+  const run = (text: string, extra: Partial<typeof ctx> = {}) => runCommand(service, parsePrefix(text, '$', { ...ctx, ...extra })!);
+  await run('$link EUW Mode Guy#EUW');
+  clock.advance(35 * 60_000);
+  mock.play({ players: [{ puuid: a.puuid, team: 100 }], winner: 100, queueId: 440, lp: { [a.puuid]: 18 } });
+  await service.tick();
+
+  assert.match((await run('$mode')).embed.title!, /Default mode: Solo\/Duo/);
+  assert.match((await run('$daily')).embed.description!, /No Solo\/Duo games/, 'default is solo');
+
+  assert.match((await run('$mode flex')).embed.title!, /set to Flex/);
+  assert.equal(service.queueFor('u1'), 440);
+  assert.equal((await run('$daily')).files[0]!.name, 'daily.png', 'flex game shows without typing flex');
+  assert.match((await run('$daily solo')).embed.description!, /No Solo\/Duo games/, 'explicit queue overrides the mode');
+  assert.equal(service.queueFor('someone-else'), 420, 'preference is per user');
+  assert.match((await run('$mode')).embed.title!, /Default mode: Flex/);
+});

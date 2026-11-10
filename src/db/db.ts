@@ -126,6 +126,14 @@ const MIGRATIONS: string[] = [
     updated_at INTEGER NOT NULL
   );
   `,
+  /* 5 */ `
+  -- Per-Discord-user preferences (default queue for stats commands).
+  CREATE TABLE user_prefs (
+    discord_user_id TEXT PRIMARY KEY,
+    default_queue   INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL
+  );
+  `,
 ];
 
 export type DB = DatabaseSync;
