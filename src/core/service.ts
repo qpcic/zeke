@@ -10,6 +10,9 @@ import { computeDigest, playerStats, type Digest, type PlayerDigest } from './di
 import { renderLeaderboard, type LeaderboardRow } from '../render/image/leaderboard.ts';
 import { renderRecap, type RecapGame, type RecapHeader } from '../render/image/recap.ts';
 import { renderBanPlan } from '../render/image/banplan.ts';
+import { renderProfile, type ProfileData, type QueueCard } from '../render/image/profile.ts';
+import { approxTopPercent, formatTopPercent } from './ladder.ts';
+import { isApex } from './rank.ts';
 import { scoutTeam } from './scout.ts';
 import { formatRank } from './rank.ts';
 import { previousDay, previousWeek, thisWeek, today, zonedParts } from './time.ts';
@@ -168,6 +171,61 @@ export class Service {
     return {
       embed: { color: 0xe74c3c, image: { url: 'attachment://banplan.png' }, footer: { text: bans ? `Priority bans: ${bans}` : 'No ban suggestions' } },
       files: [{ name: 'banplan.png', data: png }],
+    };
+  }
+
+  private apexCache = new Map<string, { at: number; ranking: Map<string, number>; total: number }>();
+
+  /** Position on the Master+ ladder (all apex players sorted by LP), cached 30 min per platform+queue. */
+  private async apexPosition(platform: Platform, queue: string, puuid: string): Promise<{ pos: number; total: number } | null> {
+    const key = `${platform}:${queue}`;
+    let c = this.apexCache.get(key);
+    if (!c || this.now() - c.at > 30 * 60_000) {
+      const lists = await Promise.all((['challenger', 'grandmaster', 'master'] as const).map((t) => this.riot.getApexLeague(platform, t, queue).catch(() => null)));
+      const all = lists.flatMap((l) => l?.entries ?? []).sort((a, b) => b.leaguePoints - a.leaguePoints);
+      c = { at: this.now(), ranking: new Map(all.map((e, i) => [e.puuid, i + 1])), total: all.length };
+      this.apexCache.set(key, c);
+    }
+    const pos = c.ranking.get(puuid);
+    return pos ? { pos, total: c.total } : null;
+  }
+
+  /** Profile card: identity, Solo/Flex rank with W/L and ladder position, top mastery champions. */
+  async profile(player: PlayerRow): Promise<Reply> {
+    const [summoner, entries, mastery] = await Promise.all([
+      this.riot.getSummoner(player.platform, player.puuid).catch(() => null),
+      this.riot.getLeagueEntries(player.platform, player.puuid),
+      this.riot.getTopMastery(player.platform, player.puuid, 5).catch(() => []),
+    ]);
+    const card = async (queueType: string, label: string): Promise<QueueCard> => {
+      const e = entries.find((x) => x.queueType === queueType);
+      if (!e) return { label, rank: null, wins: 0, losses: 0, ladderPos: null, topPercent: null, hotStreak: false };
+      const rank = { tier: e.tier, division: e.rank, lp: e.leaguePoints };
+      let ladderPos: string | null = null;
+      let topPercent: string | null = null;
+      if (isApex(e.tier)) {
+        const ap = await this.apexPosition(player.platform, queueType, player.puuid).catch(() => null);
+        if (ap) ladderPos = `#${ap.pos.toLocaleString('en-US')} on ${PLATFORM_LABEL[player.platform]}`;
+      }
+      if (queueType === 'RANKED_SOLO_5x5') topPercent = `${isApex(e.tier) ? 'top' : '≈ top'} ${formatTopPercent(approxTopPercent(rank))}%`;
+      return { label, rank, wins: e.wins, losses: e.losses, ladderPos, topPercent, hotStreak: e.hotStreak };
+    };
+    const [solo, flex] = await Promise.all([card('RANKED_SOLO_5x5', 'Solo/Duo'), card('RANKED_FLEX_SR', 'Flex')]);
+    const recent = this.repo.lpHistory(player.puuid, SOLO, 10).map((r) => !!r.win);
+    const latest = this.repo.latestDoneMatches(player.puuid, 1)[0];
+    const version = (latest && this.repo.getCachedMatch(latest.match_id)?.info.gameVersion) || '99.99';
+    const data: ProfileData = {
+      name: player.game_name, tag: player.tag_line, region: PLATFORM_LABEL[player.platform],
+      level: summoner?.summonerLevel ?? null, iconId: summoner?.profileIconId ?? null,
+      solo, flex,
+      champs: mastery.map((m) => ({ championId: m.championId, points: m.championPoints, level: m.championLevel })),
+      recent, version,
+    };
+    const png = await renderProfile(data, this.assets);
+    const main = solo.rank ?? flex.rank;
+    return {
+      embed: { color: main ? 0x5865f2 : 0x4f545c, image: { url: 'attachment://profile.png' }, footer: { text: 'Top % below Master is an estimate from public rank distribution data' } },
+      files: [{ name: 'profile.png', data: png }],
     };
   }
 

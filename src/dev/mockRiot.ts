@@ -231,6 +231,23 @@ export class MockRiot {
       while (q.length && q[0]!.readsLeft <= 0) q.shift()!.apply();
       return json(structuredClone(this.league.get(puuid) ?? []));
     }
+    if ((m = path.match(/^\/lol\/summoner\/v4\/summoners\/by-puuid\/(\w+)$/))) {
+      const a = this.accounts.get(m[1]!);
+      return a ? json({ puuid: a.puuid, profileIconId: 4568, summonerLevel: 487 }) : notFound();
+    }
+    if ((m = path.match(/^\/lol\/champion-mastery\/v4\/champion-masteries\/by-puuid\/(\w+)\/top$/))) {
+      if (!this.accounts.has(m[1]!)) return notFound();
+      return json([[112, 812_344, 42], [103, 401_112, 28], [134, 220_970, 19], [61, 98_012, 11], [127, 41_500, 7]]
+        .map(([championId, championPoints, championLevel]) => ({ puuid: m![1], championId, championPoints, championLevel })));
+    }
+    if ((m = path.match(/^\/lol\/league\/v4\/(challenger|grandmaster|master)leagues\/by-queue\/(\w+)$/))) {
+      const tier = m[1]!.toUpperCase();
+      const entries = [...this.league.values()].flat().filter((e) => e.queueType === m![2] && e.tier === tier)
+        .map((e) => ({ puuid: e.puuid, leaguePoints: e.leaguePoints, wins: e.wins, losses: e.losses, rank: 'I' }));
+      // pad with fake apex players so positions look realistic
+      const fake = tier === 'MASTER' ? Array.from({ length: 40 }, (_, i) => ({ puuid: `fake${i}`, leaguePoints: 1000 - i * 20, wins: 100, losses: 90, rank: 'I' })) : [];
+      return json({ tier, queue: m[2], entries: [...entries, ...fake] });
+    }
     if ((m = path.match(/^\/lol\/match\/v5\/matches\/by-puuid\/(\w+)\/ids$/))) {
       const startTime = Number(url.searchParams.get('startTime') ?? 0) * 1000;
       const count = Number(url.searchParams.get('count') ?? 20);

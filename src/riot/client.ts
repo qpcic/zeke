@@ -1,6 +1,6 @@
 import { parseLimitHeader, SlidingWindowLimiter, type Window } from './rateLimiter.ts';
 import { accountRegion, matchRegion, type Platform } from './regions.ts';
-import type { AccountDto, LeagueEntryDto, MatchDto } from './types.ts';
+import type { AccountDto, ChampionMasteryDto, LeagueEntryDto, LeagueListDto, MatchDto, SummonerDto } from './types.ts';
 
 export class RiotApiError extends Error {
   constructor(
@@ -153,6 +153,19 @@ export class RiotClient {
     q: { startTime?: number; endTime?: number; queue?: number; type?: 'ranked' | 'normal' | 'tourney' | 'tutorial'; start?: number; count?: number } = {},
   ): Promise<string[]> {
     return (await this.request<string[]>(matchRegion(platform), 'match-v5.idsByPuuid', `/lol/match/v5/matches/by-puuid/${puuid}/ids`, q)) ?? [];
+  }
+
+  getSummoner(platform: Platform, puuid: string) {
+    return this.request<SummonerDto>(platform.toLowerCase(), 'summoner-v4.byPuuid', `/lol/summoner/v4/summoners/by-puuid/${puuid}`);
+  }
+
+  async getTopMastery(platform: Platform, puuid: string, count = 5): Promise<ChampionMasteryDto[]> {
+    return (await this.request<ChampionMasteryDto[]>(platform.toLowerCase(), 'champion-mastery-v4.top', `/lol/champion-mastery/v4/champion-masteries/by-puuid/${puuid}/top`, { count })) ?? [];
+  }
+
+  /** Apex ladders: tier = challenger | grandmaster | master. */
+  getApexLeague(platform: Platform, tier: 'challenger' | 'grandmaster' | 'master', queue: string) {
+    return this.request<LeagueListDto>(platform.toLowerCase(), `league-v4.${tier}`, `/lol/league/v4/${tier}leagues/by-queue/${queue}`);
   }
 
   getMatch(platform: Platform, matchId: string) {

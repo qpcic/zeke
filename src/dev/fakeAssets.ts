@@ -19,6 +19,7 @@ export class FakeAssets implements AssetSource {
   }
   championUrl(_sd: StaticData, id: number, name: string) { return `fake://champ/${id}/${name}`; }
   itemUrl(_sd: StaticData, id: number) { return `fake://item/${id}`; }
+  profileIconUrl(_sd: StaticData, id: number) { return `fake://icon/${id}`; }
   spellUrl(_sd: StaticData, id: number) { return `fake://spell/${id}`; }
   perkUrl(_sd: StaticData, id: number) { return `fake://perk/${id}`; }
   async emblemUrl() { return null; }

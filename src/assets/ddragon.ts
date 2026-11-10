@@ -31,6 +31,7 @@ export interface AssetSource {
   /** PNG bytes or null. */
   image(url: string): Promise<Buffer | null>;
   championUrl(sd: StaticData, championId: number, championName: string): string;
+  profileIconUrl(sd: StaticData, iconId: number): string;
   itemUrl(sd: StaticData, itemId: number): string;
   spellUrl(sd: StaticData, spellId: number): string | null;
   perkUrl(sd: StaticData, perkId: number): string | null;
@@ -144,6 +145,9 @@ export class DDragon implements AssetSource {
   championUrl(sd: StaticData, championId: number, championName: string): string {
     const c = sd.champions.get(championId) ?? sd.championsById.get(championName);
     return `${DD}/cdn/${sd.version}/img/champion/${c?.image ?? `${championName}.png`}`;
+  }
+  profileIconUrl(sd: StaticData, iconId: number): string {
+    return `${DD}/cdn/${sd.version}/img/profileicon/${iconId}.png`;
   }
   itemUrl(sd: StaticData, itemId: number): string {
     return `${DD}/cdn/${sd.version}/img/item/${itemId}.png`;

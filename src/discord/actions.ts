@@ -9,7 +9,7 @@ import type { LeagueEntryDto } from '../riot/types.ts';
  * Transport-agnostic command logic. Slash commands and $prefix messages both
  * parse into a CommandRequest and render the returned Reply.
  */
-export type CommandName = 'link' | 'unlink' | 'recent' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'banfor' | 'help';
+export type CommandName = 'link' | 'unlink' | 'profile' | 'recent' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'banfor' | 'help';
 
 export interface CommandRequest {
   name: CommandName;
@@ -50,6 +50,7 @@ export function helpEmbed(p: string): Embed {
   return info('Zeke commands', [
     `${c('link <region> <Name#TAG>')} link your Riot account`,
     `${c('unlink')} remove your link`,
+    `${c('profile [@user | Name#TAG [region]]')} rank, W/L, ladder position, top champions`,
     `${c('recent [@user | Name#TAG [region]] [solo|flex]')} latest game scoreboard`,
     `${c('graph [@user | Name#TAG [region]] [games] [solo|flex]')} LP graph`,
     `${c('daily')} · ${c('weekly')} games and LP (same arguments as recent)`,
@@ -106,6 +107,9 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
       const pl = service.unlinkUser(req.callerId);
       return only(info('Unlinked', `**${tag(pl)}** is no longer linked to you.`));
     }
+
+    case 'profile':
+      return withNote(await service.profile(await target()));
 
     case 'recent':
       return withNote(await service.recent(await target(), req.queue ?? SOLO));

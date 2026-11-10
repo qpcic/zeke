@@ -17,6 +17,7 @@ The bot never posts on its own. A background poller records every ranked game an
 |---|---|---|
 | `/link region riot_id` | anywhere | Link your Riot account (one per Discord user) |
 | `/unlink` | anywhere | Remove your link |
+| `/profile [user\|riot_id] [region]` | anywhere | Profile card: icon, level, region, Solo/Flex rank with W/L, ladder position, top mastery champions (`$profile`, `$p`) |
 | `/recent [user\|riot_id] [region] [queue]` | anywhere | Most recent game as a rendered scoreboard image; LP shown if it was recorded |
 | `/graph [user\|riot_id] [region] [games] [queue]` | anywhere | LP-over-games chart on tier bands, with peak, current rank and W/L strip |
 | `/daily [user\|riot_id] [region] [queue]` | anywhere | Today's games, W/L and LP |
@@ -34,7 +35,7 @@ The bot never posts on its own. A background poller records every ranked game an
 ### Text commands (`$` prefix)
 
 Every command also works as a message: `$recent`, `$graph flex 30 @friend`, `$link EUNE ferks kitten#retro`, `$track add EUW Name#TAG`, `$lb week`, `$help`.
-- **Aliases:** `$r` / `$rs` = recent, `$g` = graph, `$d` = daily, `$w` = weekly, `$lb` = leaderboard.
+- **Aliases:** `$p` / `$pf` = profile, `$r` / `$rs` = recent, `$g` = graph, `$d` = daily, `$w` = weekly, `$lb` = leaderboard.
 - Only known command names trigger a reply, and each user has a 2.5s cooldown.
 - They work only where the bot is a member (servers it's in, and its DMs), not where the app is just user-installed.
 - They need the **Message Content** privileged intent. Change the prefix with `PREFIX=` in `.env`; set it to empty to turn text commands off.
@@ -74,6 +75,11 @@ The CLI still works for debugging without Discord: `npm run cli -- add EUW "Name
 1. rendered in the terminal,
 2. written to `previews/<guild>/<timestamp>-<label>.json` as a webhook payload. Paste it into [Discohook](https://discohook.org) (JSON Data Editor) to see exactly what Discord will show,
 3. added to `previews/index.html`, an offline Discord-style page of all messages so far.
+
+## Profile ladder position
+
+- **Master, Grandmaster, Challenger:** the exact position ("#152 on EUNE"), from Riot's apex ladders (3 requests, cached 30 min).
+- **Below Master:** Riot has no endpoint, so the card shows **≈ top X%**, interpolated by LP from a public Solo/Duo distribution census (Aug 2026, `src/core/ladder.ts`). Update the table there when you find fresher numbers.
 
 ## Ban plan (`$banfor Name#TAG [region]`)
 

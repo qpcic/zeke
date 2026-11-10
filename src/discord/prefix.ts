@@ -11,6 +11,7 @@ import { errorEmbed, payload } from './handlers.ts';
 
 const ALIASES: Record<string, CommandName> = {
   link: 'link', unlink: 'unlink',
+  profile: 'profile', p: 'profile', pf: 'profile', me: 'profile',
   recent: 'recent', r: 'recent', rs: 'recent', last: 'recent',
   graph: 'graph', g: 'graph',
   daily: 'daily', d: 'daily', today: 'daily',
@@ -78,7 +79,7 @@ export function parsePrefix(
   }
 
   // Target lookups: "$graph ferks kitten#retro eune flex 30"
-  if (name === 'recent' || name === 'graph' || name === 'daily' || name === 'weekly') {
+  if (name === 'recent' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'profile') {
     const ex = extractRiotId(words);
     if (ex.riotId) {
       req.riotId = ex.riotId;

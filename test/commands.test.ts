@@ -9,7 +9,7 @@ const ranks = (tier: string, rank: string, lp: number) => [{ queueType: 'RANKED_
 
 test('command definitions are valid and scoped right', () => {
   const names = commands.map((c) => c.name).sort();
-  assert.deepEqual(names, ['banfor', 'daily', 'graph', 'leaderboard', 'link', 'recent', 'track', 'unlink', 'weekly']);
+  assert.deepEqual(names, ['banfor', 'daily', 'graph', 'leaderboard', 'link', 'profile', 'recent', 'track', 'unlink', 'weekly']);
   const byName = Object.fromEntries(commands.map((c) => [c.name, c]));
   assert.deepEqual(byName.link!.integration_types, [0, 1]);
   assert.deepEqual(byName.recent!.contexts, [0, 1, 2]);
@@ -215,4 +215,21 @@ test('solo and flex are tracked separately in daily/weekly and leaderboard', asy
   const lbFlex = service.leaderboardRows(computeDigest((service as any).repo, 'g1', 'adhoc', period, 440).players, period, 440);
   assert.deepEqual([lbSolo[0]!.lpNet, lbSolo[0]!.queueLabel, lbSolo[0]!.results], [42, 'Solo/Duo', [true, true]]);
   assert.deepEqual([lbFlex[0]!.lpNet, lbFlex[0]!.queueLabel, lbFlex[0]!.results], [-31, 'Flex', [false, false]]);
+});
+
+test('/profile: rank cards, ladder position for Master+, estimate below, mastery champs', async () => {
+  const { approxTopPercent } = await import('../src/core/ladder.ts');
+  assert.ok(Math.abs(approxTopPercent({ tier: 'EMERALD', division: 'IV', lp: 0 }) - 16.09) < 0.01);
+  assert.ok(approxTopPercent({ tier: 'DIAMOND', division: 'I', lp: 99 }) < 0.75);
+  assert.ok(approxTopPercent({ tier: 'GOLD', division: 'II', lp: 50 }) > approxTopPercent({ tier: 'GOLD', division: 'I', lp: 0 }));
+
+  const { mock, service } = setup();
+  mock.addAccount('Apex Guy', 'EUNE', 'EUN1', [{ queueType: 'RANKED_SOLO_5x5', tier: 'MASTER', rank: 'I', lp: 984, wins: 251, losses: 219 }]);
+  const { player } = await service.linkUser('u1', 'EUNE', 'Apex Guy#EUNE');
+  const r = await service.profile(player);
+  assert.equal(r.files[0]!.name, 'profile.png');
+  assert.equal(r.files[0]!.data.subarray(1, 4).toString(), 'PNG');
+  // 984 LP sits behind fake0 (1000) -> #2
+  const pos = await (service as any).apexPosition('EUN1', 'RANKED_SOLO_5x5', player.puuid);
+  assert.deepEqual(pos, { pos: 2, total: 41 });
 });

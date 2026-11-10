@@ -47,6 +47,9 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
   new SlashCommandBuilder().setName('unlink').setDescription('Remove your linked Riot account')
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
+  userOpt(new SlashCommandBuilder().setName('profile').setDescription('Rank, W/L, ladder position and top champions'))
+    .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
+
   queueOpt(userOpt(new SlashCommandBuilder().setName('recent').setDescription('Show the most recent game')))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
