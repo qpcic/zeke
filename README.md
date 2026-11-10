@@ -115,6 +115,15 @@ docker compose logs -f
 - **One instance only:** stop the bot on your PC once the server copy runs.
 - **Riot key:** development keys expire every 24 hours. For 24/7 use, register a **personal** key (developer.riotgames.com → Register Product → Personal).
 
+### Railway
+
+1. New Project → Deploy from GitHub repo → this repo. Railway builds the `Dockerfile`.
+2. Variables: `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `RIOT_API_KEY`, `DEFAULT_REGION`, `PREFIX`.
+3. Add a **Volume** mounted at `/app/data`. Without it, every deploy wipes the database.
+4. Run `npm run register` once from your PC to register the slash commands. Stop any local copy of the bot.
+
+Pushing to `main` redeploys automatically.
+
 ### Without Docker
 
 Install Node 22.13+ and `fonts-noto-cjk`, then run `npm ci && npm run build && npm start` under systemd or pm2.
