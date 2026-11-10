@@ -78,9 +78,10 @@ test('scoutTeam: finds the five-stack, roles, picks and bans from one name', asy
   assert.equal(r.priorityBans.length, 5);
 });
 
-test('$banfor: renders a PNG, does not add the enemy to tracking, needs region for unknown players', async () => {
+test('$scout (and $banfor/$ban aliases): renders a PNG, does not add the enemy to tracking, needs region for unknown players', async () => {
   const { team, service, repo } = premade();
   const run = (text: string) => runCommand(service, parsePrefix(text, '$', { callerId: 'u', guildId: 'g', canManageGuild: false })!);
+  await assert.rejects(run('$scout Enemy Mid#EUNE'), /Add the region/);
   await assert.rejects(run('$banfor Enemy Mid#EUNE'), /Add the region/);
   const r = await run('$ban Enemy Mid#EUNE eune');
   assert.equal(r.files[0]!.name, 'banplan.png');

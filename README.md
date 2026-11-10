@@ -22,7 +22,7 @@ The bot never posts on its own. A background poller records every ranked game an
 | `/graph [user\|riot_id] [region] [games] [queue]` | anywhere | LP-over-games chart on tier bands, with peak, current rank and W/L strip |
 | `/daily [user\|riot_id] [region] [queue]` | anywhere | Today's games, W/L and LP |
 | `/weekly [user\|riot_id] [region] [queue]` | anywhere | This week's (Mon–Sun) games, W/L and LP |
-| `/banfor riot_id [region]` | anywhere | Ban plan vs that player's Flex / Ranked 5s team (`$banfor`, `$ban`) |
+| `/scout riot_id [region]` | anywhere | Ban plan vs that player's Flex / Ranked 5s team (`$scout`, aliases `$banfor`, `$ban`) |
 | `/track add region riot_id` | server, Manage Server | Track an account in this server |
 | `/track remove account` | server, Manage Server | Remove from this server's leaderboard (autocomplete) |
 | `/track list` | server, Manage Server | List tracked accounts |
@@ -80,7 +80,7 @@ The CLI still works for debugging without Discord: `npm run cli -- add EUW "Name
 
 For Master, Grandmaster and Challenger the card shows the exact ladder position ("#152 on EUNE"), from Riot's apex ladders (3 requests, cached 30 min). Below Master Riot has no ladder endpoint, so no position is shown.
 
-## Ban plan (`$banfor Name#TAG [region]`)
+## Ban plan (`$scout Name#TAG [region]`)
 
 Scouts a premade team from one name, using the player's last 50 Flex + Ranked 5s games:
 1. **Team:** the player plus the 4 allies who appear most often (at least 3 shared games).

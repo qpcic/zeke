@@ -22,7 +22,7 @@ const ALIASES: Record<string, CommandName> = {
   weekly: 'weekly', w: 'weekly', week: 'weekly',
   leaderboard: 'leaderboard', lb: 'leaderboard', top: 'leaderboard',
   track: 'track',
-  banfor: 'banfor', ban: 'banfor', bans: 'banfor', scout: 'banfor',
+  scout: 'scout', banfor: 'scout', ban: 'scout', bans: 'scout',
   help: 'help', commands: 'help',
 };
 
@@ -74,8 +74,8 @@ export function parsePrefix(
     }
   }
 
-  // "$banfor ferks kitten#retro eune": riot id (spaces allowed) + optional region
-  if (name === 'banfor') {
+  // "$scout ferks kitten#retro eune": riot id (spaces allowed) + optional region
+  if (name === 'scout') {
     const ex = extractRiotId(words);
     req.riotId = ex.riotId ?? (words.length ? words.join(' ') : undefined);
     const region = ex.rest.find((w) => parsePlatform(w));
@@ -170,7 +170,7 @@ export function createPrefixHandler(service: Service, prefix: string, botUserId:
     lastUse.set(msg.author.id, now);
     if (lastUse.size > 5000) lastUse.clear();
 
-    // Typing indicator lasts ~10s; keep it alive for slow commands ($banfor on a cold cache).
+    // Typing indicator lasts ~10s; keep it alive for slow commands ($scout on a cold cache).
     const typing = () => ('sendTyping' in msg.channel ? msg.channel.sendTyping().catch(() => {}) : undefined);
     void typing();
     const keepTyping = setInterval(typing, 8000);
