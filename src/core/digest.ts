@@ -50,7 +50,12 @@ export function playerStats(repo: Repo, player: PlayerRow, period: { from: numbe
 
 /** @param queueId only count this queue (420 solo, 440 flex); undefined = all ranked queues */
 export function computeDigest(repo: Repo, guildId: string, kind: Digest['kind'], period: Period, queueId?: number): Digest {
-  const players = repo.trackedInGuild(guildId).map((p) => playerStats(repo, p, period, queueId));
+  return digestFor(repo, repo.trackedInGuild(guildId), kind, period, queueId);
+}
+
+/** Same as computeDigest for an arbitrary set of players (e.g. everyone, for the admin global leaderboard). */
+export function digestFor(repo: Repo, list: PlayerRow[], kind: Digest['kind'], period: Period, queueId?: number): Digest {
+  const players = list.map((p) => playerStats(repo, p, period, queueId));
   players.sort((a, b) => b.lpNet - a.lpNet || b.games - a.games);
   const active = players.filter((p) => p.games || p.lpNet);
   return {

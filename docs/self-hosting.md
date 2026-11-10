@@ -38,7 +38,8 @@ cp .env.example .env
 | `RIOT_API_KEY` | ✔ | Riot API key |
 | `DEFAULT_REGION` | | Region assumed by `/scout` for unknown players, e.g. `EUNE` |
 | `PREFIX` | | Text command prefix (default `$`; empty turns `$` commands off) |
-| `OWNER_ID` | | Your Discord user ID; enables `$import` |
+| `OWNER_ID` | | Your Discord user ID; enables `$import` and `$admin` |
+| `CONSOLE_CHANNEL_ID` | | Channel where `$admin` commands work |
 | `DEFAULT_TZ` | | Timezone for "today" / "this week" (default `Europe/Ljubljana`) |
 | `DB_PATH` | | SQLite file (default `./data/leaguebot.db`) |
 | `POLL_INTERVAL_SEC` | | Seconds between polls (default `120`) |
@@ -97,6 +98,17 @@ Install Node 22.13+ and `fonts-noto-cjk` (so Korean, Japanese and Chinese names 
 1. On the old machine, stop the bot and run `npm run export-db`. It writes `data/zeke-export-<date>.db.gz` (links, tracked accounts, history, cached matches).
 2. On the new host, set `OWNER_ID` to your Discord user ID.
 3. DM the bot `$import` with the file attached. It checks the file, backs up the current database to `data/backups/`, swaps yours in and restarts.
+
+## Admin console
+
+With `OWNER_ID` and `CONSOLE_CHANNEL_ID` set, the owner can run these in that channel (anyone else, or anywhere else, gets no reply):
+
+| Command | What it does |
+|---|---|
+| `$admin list [page]` | All known accounts with games, links and servers |
+| `$admin links [page]` | Discord user → Riot account links, 10 per page |
+| `$admin globallb [daily\|weekly] [solo\|flex]` | Leaderboard of every known account |
+| `$admin remove <Name#TAG> [confirm]` | Delete an account's games, LP history, links and server tracks. Without `confirm` it only shows what would be deleted |
 
 ## Backups
 
