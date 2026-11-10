@@ -1,4 +1,5 @@
 import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
+import { resolve } from 'node:path';
 import { bootstrap, log } from './bootstrap.ts';
 import { config, requireDiscord } from './config.ts';
 import { createInteractionHandler } from './discord/handlers.ts';
@@ -71,6 +72,11 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 log(`Zeke · polling every ${config.pollIntervalSec}s · queues ${config.trackedQueues.join(',')} · ${repo.activePlayers().length} players`);
+// Persistence check: if these numbers drop to 0 after a redeploy, the volume isn't mounted at the DB's folder.
+{
+  const n = (t: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
+  log(`database ${resolve(config.dbPath)} · ${n('players')} players · ${n('links')} links · ${n('tracked')} server tracks · ${n('player_matches')} games`);
+}
 try {
   await client.login(token);
 } catch (e) {
