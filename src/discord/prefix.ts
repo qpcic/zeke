@@ -3,6 +3,10 @@ import { UserError, type Service } from '../core/service.ts';
 import { runCommand, type CommandName, type CommandRequest } from './actions.ts';
 import { parsePlatform } from '../riot/regions.ts';
 import { errorEmbed, payload } from './handlers.ts';
+import { stageImport } from '../core/dbImport.ts';
+import { config } from '../config.ts';
+import { COLORS } from '../render/embed.ts';
+import { info } from './actions.ts';
 
 /**
  * "$recent", "$graph flex 30 @friend", "$link EUW ferks kitten#retro", …
@@ -129,8 +133,29 @@ const COOLDOWN_MS = 2500;
 export function createPrefixHandler(service: Service, prefix: string, botUserId: () => string | undefined, log: (m: string) => void) {
   const lastUse = new Map<string, number>();
 
+  /** Owner-only: replace the database with an attached export (npm run export-db), then restart. */
+  async function handleImport(msg: Message): Promise<void> {
+    const reply = (title: string, desc: string, color: number = COLORS.info) => msg.reply({ embeds: [info(title, desc, color)], allowedMentions: { repliedUser: false } });
+    if (!config.ownerId) return void (await reply('Import disabled', 'Set `OWNER_ID` (your Discord user ID) in the bot\'s environment to enable `$import`.', COLORS.loss));
+    if (msg.author.id !== config.ownerId) return; // silently ignore everyone else
+    const file = msg.attachments.find((a) => /\.db(\.gz)?$/i.test(a.name));
+    if (!file) return void (await reply('Attach the export', 'Run `npm run export-db` on your PC and send the `.db.gz` file with the message `$import`.', COLORS.loss));
+    if (file.size > 50 * 1024 * 1024) return void (await reply('Too big', 'Export is over 50 MB.', COLORS.loss));
+    try {
+      const res = await fetch(file.url);
+      if (!res.ok) throw new Error(`download failed (${res.status})`);
+      const s = stageImport(config.dbPath, Buffer.from(await res.arrayBuffer()));
+      await reply('Import staged ✔', `${s.players} players · ${s.links} links · ${s.tracked} server tracks · ${s.games} recorded games\nRestarting to apply. The current database is backed up first. Back in a few seconds.`, COLORS.win);
+      log(`import staged by owner: ${JSON.stringify(s)}; exiting so the host restarts us`);
+      setTimeout(() => process.exit(1), 1500); // non-zero: Railway / docker restart policies bring us back
+    } catch (e) {
+      await reply('Import failed', (e as Error).message, COLORS.loss);
+    }
+  }
+
   return async function onMessage(msg: Message) {
     if (msg.author.bot || !msg.content.startsWith(prefix)) return;
+    if (msg.content.slice(prefix.length).trim().toLowerCase() === 'import') return void (await handleImport(msg));
     const mentioned = msg.mentions.users.find((u) => u.id !== botUserId());
     const req = parsePrefix(msg.content, prefix, {
       callerId: msg.author.id,

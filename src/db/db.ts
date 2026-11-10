@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { applyPendingImport } from '../core/dbImport.ts';
 
 const MIGRATIONS: string[] = [
   /* 1 */ `
@@ -130,7 +131,10 @@ const MIGRATIONS: string[] = [
 export type DB = DatabaseSync;
 
 export function openDb(path: string): DB {
-  if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
+  if (path !== ':memory:') {
+    mkdirSync(dirname(path), { recursive: true });
+    applyPendingImport(path);
+  }
   const db = new DatabaseSync(path);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   migrate(db);

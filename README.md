@@ -124,6 +124,14 @@ docker compose logs -f
 
 Pushing to `main` redeploys automatically.
 
+### Moving your data to a new host (`$import`)
+
+1. On the old machine, stop the bot and run `npm run export-db`. It writes `data/zeke-export-<date>.db.gz`, one compressed and consistent copy including all links, tracks, history and cached matches.
+2. On the new host, set `OWNER_ID` to your Discord user ID.
+3. DM the bot `$import` with the `.db.gz` file attached. It checks the file, stages it, and restarts. On startup it saves the current database to `data/backups/pre-import-*.db` and switches to the imported one.
+
+Only `OWNER_ID` can use `$import`; everyone else is ignored.
+
 ### Without Docker
 
 Install Node 22.13+ and `fonts-noto-cjk`, then run `npm ci && npm run build && npm start` under systemd or pm2.
