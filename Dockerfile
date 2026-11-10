@@ -20,8 +20,10 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY assets ./assets
-RUN mkdir -p /app/data && chown -R node:node /app/data
-USER node
-VOLUME ["/app/data"]
+# Data lives in /app/data. Mount persistent storage there:
+#  - docker compose: ./data:/app/data (see docker-compose.yml)
+#  - Railway: add a Volume with mount path /app/data
+# (No VOLUME/USER lines: Railway rejects VOLUME and mounts volumes as root.)
+RUN mkdir -p /app/data
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "--disable-warning=ExperimentalWarning", "dist/index.js"]

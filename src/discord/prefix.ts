@@ -11,16 +11,19 @@ import { errorEmbed, payload } from './handlers.ts';
 
 const ALIASES: Record<string, CommandName> = {
   link: 'link', unlink: 'unlink',
-  recent: 'recent', r: 'recent', last: 'recent',
+  profile: 'profile', p: 'profile', pf: 'profile', me: 'profile',
+  recent: 'recent', r: 'recent', rs: 'recent', last: 'recent',
   graph: 'graph', g: 'graph',
   daily: 'daily', d: 'daily', today: 'daily',
   weekly: 'weekly', w: 'weekly', week: 'weekly',
   leaderboard: 'leaderboard', lb: 'leaderboard', top: 'leaderboard',
   track: 'track',
+  banfor: 'banfor', ban: 'banfor', bans: 'banfor', scout: 'banfor',
   help: 'help', commands: 'help',
 };
 
-const KEYWORDS = new Set(['flex', 'solo', 'soloq', 'duo', 'daily', 'weekly', 'week', 'w', 'today']);
+const QUEUE_WORDS: Record<string, number> = { solo: 420, soloq: 420, solo_duo: 420, soloduo: 420, duo: 420, sd: 420, flex: 440 };
+const KEYWORDS = new Set([...Object.keys(QUEUE_WORDS), 'daily', 'weekly', 'week', 'w', 'today']);
 const isKeyword = (w: string) => KEYWORDS.has(w.toLowerCase()) || /^\d+$/.test(w) || !!parsePlatform(w);
 
 /**
@@ -58,8 +61,25 @@ export function parsePrefix(
   };
   let words = rest.filter(Boolean);
 
+  // Queue is always the LAST argument ("$daily @friend flex", "$lb week flex"); default Solo/Duo.
+  if (name === 'recent' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'leaderboard') {
+    const last = words[words.length - 1]?.toLowerCase();
+    if (last && last in QUEUE_WORDS) {
+      req.queue = QUEUE_WORDS[last];
+      words = words.slice(0, -1);
+    }
+  }
+
+  // "$banfor ferks kitten#retro eune": riot id (spaces allowed) + optional region
+  if (name === 'banfor') {
+    const ex = extractRiotId(words);
+    req.riotId = ex.riotId ?? (words.length ? words.join(' ') : undefined);
+    const region = ex.rest.find((w) => parsePlatform(w));
+    if (region) req.region = region;
+  }
+
   // Target lookups: "$graph ferks kitten#retro eune flex 30"
-  if (name === 'recent' || name === 'graph' || name === 'daily' || name === 'weekly') {
+  if (name === 'recent' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'profile') {
     const ex = extractRiotId(words);
     if (ex.riotId) {
       req.riotId = ex.riotId;
@@ -77,11 +97,8 @@ export function parsePrefix(
       break;
     }
     case 'graph': {
-      for (const w of words.map((x) => x.toLowerCase())) {
-        if (w === 'flex') req.queue = 440;
-        else if (w === 'solo' || w === 'soloq' || w === 'duo') req.queue = 420;
-        else if (/^\d+$/.test(w)) req.games = Number(w);
-      }
+      const n = words.find((w) => /^\d+$/.test(w));
+      if (n) req.games = Number(n);
       break;
     }
     case 'leaderboard': {
@@ -128,13 +145,18 @@ export function createPrefixHandler(service: Service, prefix: string, botUserId:
     lastUse.set(msg.author.id, now);
     if (lastUse.size > 5000) lastUse.clear();
 
+    // Typing indicator lasts ~10s; keep it alive for slow commands ($banfor on a cold cache).
+    const typing = () => ('sendTyping' in msg.channel ? msg.channel.sendTyping().catch(() => {}) : undefined);
+    void typing();
+    const keepTyping = setInterval(typing, 8000);
     try {
-      if ('sendTyping' in msg.channel) await msg.channel.sendTyping().catch(() => {});
       const reply = await runCommand(service, req);
       await msg.reply({ ...payload(reply), allowedMentions: { repliedUser: false } });
     } catch (e) {
       if (!(e instanceof UserError)) log(`${prefix}${req.name} failed: ${(e as Error).stack}`);
       await msg.reply({ embeds: [errorEmbed(e)], allowedMentions: { repliedUser: false } }).catch(() => {});
+    } finally {
+      clearInterval(keepTyping);
     }
   };
 }

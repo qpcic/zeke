@@ -1,3 +1,4 @@
+import { QUEUE_TYPE_BY_ID } from '../riot/types.ts';
 import type { PlayerRow, Repo } from '../db/repo.ts';
 import type { Period } from './time.ts';
 
@@ -23,11 +24,13 @@ export interface Digest {
 }
 
 /** Games, W/L and net LP (incl. dodges/decay) for one player over [from, to). */
-export function playerStats(repo: Repo, player: PlayerRow, period: { from: number; to: number }): PlayerDigest {
-  const ms = repo.doneMatchesBetween(player.puuid, period.from, period.to);
+export function playerStats(repo: Repo, player: PlayerRow, period: { from: number; to: number }, queueId?: number): PlayerDigest {
+  const qt = queueId !== undefined ? QUEUE_TYPE_BY_ID[queueId] : undefined;
+  const ms = repo.doneMatchesBetween(player.puuid, period.from, period.to).filter((m) => queueId === undefined || m.queue_id === queueId);
   const lpByQueue: Record<string, number> = {};
   let adjustments = 0;
   for (const e of repo.lpEventsBetween(player.puuid, period.from, period.to)) {
+    if (qt && e.queue_type !== qt) continue;
     lpByQueue[e.queue_type] = (lpByQueue[e.queue_type] ?? 0) + e.delta;
     if (e.kind === 'adjustment') adjustments += e.delta;
   }
@@ -45,8 +48,9 @@ export function playerStats(repo: Repo, player: PlayerRow, period: { from: numbe
   };
 }
 
-export function computeDigest(repo: Repo, guildId: string, kind: Digest['kind'], period: Period): Digest {
-  const players = repo.trackedInGuild(guildId).map((p) => playerStats(repo, p, period));
+/** @param queueId only count this queue (420 solo, 440 flex); undefined = all ranked queues */
+export function computeDigest(repo: Repo, guildId: string, kind: Digest['kind'], period: Period, queueId?: number): Digest {
+  const players = repo.trackedInGuild(guildId).map((p) => playerStats(repo, p, period, queueId));
   players.sort((a, b) => b.lpNet - a.lpNet || b.games - a.games);
   const active = players.filter((p) => p.games || p.lpNet);
   return {

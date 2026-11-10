@@ -17,6 +17,8 @@ export const config = {
     .map((s) => Number(s.trim()))
     .filter((n) => Number.isInteger(n)),
   defaultTz: process.env.DEFAULT_TZ ?? 'Europe/Ljubljana',
+  /** Region assumed by /banfor for unknown players when none is given, e.g. EUNE. Empty = must be given. */
+  defaultRegion: process.env.DEFAULT_REGION ?? '',
   previewDir: process.env.PREVIEW_DIR ?? './previews',
   discordToken: process.env.DISCORD_TOKEN ?? '',
   discordClientId: process.env.DISCORD_CLIENT_ID ?? '',

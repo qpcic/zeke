@@ -1,4 +1,4 @@
-import { createCanvas, GlobalFonts, loadImage, type Image, type SKRSContext2D } from '@napi-rs/canvas';
+import { createCanvas, GlobalFonts, loadImage, type Canvas, type Image, type SKRSContext2D } from '@napi-rs/canvas';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
@@ -57,6 +57,38 @@ export async function decode(buf: Buffer | null): Promise<Image | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Crop transparent padding (emblem PNGs ship with lots of empty space) and return a
+ * square canvas with the visible content centred. Cached per image object.
+ */
+const trimmed = new WeakMap<Image, Canvas>();
+export function trimTransparent(img: Image): Canvas {
+  const hit = trimmed.get(img);
+  if (hit) return hit;
+  const w = img.width, h = img.height;
+  const c = createCanvas(w, h);
+  const g = c.getContext('2d');
+  g.drawImage(img, 0, 0);
+  const data = g.getImageData(0, 0, w, h).data;
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (data[(y * w + x) * 4 + 3]! > 16) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+  }
+  if (x1 < 0) { trimmed.set(img, c); return c; }
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1, side = Math.max(bw, bh);
+  const out = createCanvas(side, side);
+  out.getContext('2d').drawImage(c, x0, y0, bw, bh, (side - bw) / 2, (side - bh) / 2, bw, bh);
+  trimmed.set(img, out);
+  return out;
 }
 
 /** Draw an icon clipped to a rounded rect, or a neutral placeholder with initials. */

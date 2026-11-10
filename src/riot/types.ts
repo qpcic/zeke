@@ -103,3 +103,11 @@ export const QUEUE_LABEL: Record<number, string> = {
   450: 'ARAM',
   490: 'Quickplay',
 };
+
+export interface SummonerDto { puuid: string; profileIconId: number; summonerLevel: number; revisionDate?: number }
+export interface ChampionMasteryDto { puuid: string; championId: number; championLevel: number; championPoints: number; lastPlayTime?: number }
+export interface LeagueListDto {
+  tier: string;
+  queue: string;
+  entries: { puuid: string; leaguePoints: number; wins: number; losses: number; rank: string }[];
+}

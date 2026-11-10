@@ -9,6 +9,10 @@ import type { Sink } from '../sinks/sink.ts';
 import { computeDigest, playerStats, type Digest, type PlayerDigest } from './digest.ts';
 import { renderLeaderboard, type LeaderboardRow } from '../render/image/leaderboard.ts';
 import { renderRecap, type RecapGame, type RecapHeader } from '../render/image/recap.ts';
+import { renderBanPlan } from '../render/image/banplan.ts';
+import { renderProfile, type ProfileData, type QueueCard } from '../render/image/profile.ts';
+import { isApex } from './rank.ts';
+import { scoutTeam } from './scout.ts';
 import { formatRank } from './rank.ts';
 import { previousDay, previousWeek, thisWeek, today, zonedParts } from './time.ts';
 import type { GameResult } from './events.ts';
@@ -24,6 +28,11 @@ import { QUEUE_LABEL } from '../riot/types.ts';
 import type { Tracker } from './tracker.ts';
 
 export class UserError extends Error {}
+
+/** Ranked queues the commands can be scoped to. Default everywhere: Solo/Duo. */
+export const SOLO = 420;
+export const FLEX = 440;
+export const queueName = (q: number) => (q === FLEX ? 'Flex' : 'Solo/Duo');
 
 /** A reply: embed plus optional PNG attachments referenced as attachment://<name>. */
 export interface Reply { embed: Embed; files: { name: string; data: Buffer }[] }
@@ -45,6 +54,8 @@ export class Service {
     private readonly log: (msg: string) => void = console.log,
     private readonly now: () => number = Date.now,
     private readonly assets: AssetSource | null = null,
+    /** Region assumed for /banfor when the player is unknown and none was given ("" = require it). */
+    private readonly defaultRegion = '',
   ) {}
 
   guild(guildId: string): GuildRow {
@@ -128,6 +139,95 @@ export class Service {
     return { player: r.player, isNew: true };
   }
 
+  /**
+   * Scout a premade team for bans. The scouted player is resolved via account-v1 but NOT
+   * added to tracking: they're usually an opponent, not someone to poll forever.
+   */
+  async banPlan(riotIdInput: string, regionInput?: string): Promise<Reply> {
+    let id;
+    try {
+      id = parseRiotId(riotIdInput);
+    } catch (e) {
+      throw new UserError((e as Error).message);
+    }
+    const platform = regionInput ? parsePlatform(regionInput) : null;
+    if (regionInput && !platform) throw new UserError(`Unknown region "${regionInput}". Use one of: ${Object.values(PLATFORM_LABEL).join(', ')}`);
+    const known = this.repo.findPlayerByRiotId(id.gameName, id.tagLine, platform ?? undefined);
+    const plat = platform ?? known?.platform ?? (this.defaultRegion ? parsePlatform(this.defaultRegion) : null);
+    if (!plat) throw new UserError(`Add the region, e.g. \`${formatRiotId(id)} EUNE\`.`);
+    let target = known ? { puuid: known.puuid, name: known.game_name, tag: known.tag_line, platform: plat } : null;
+    if (!target) {
+      const acc = await this.riot.getAccountByRiotId(plat, id.gameName, id.tagLine);
+      if (!acc) throw new UserError(`Riot ID **${formatRiotId(id)}** not found`);
+      target = { puuid: acc.puuid, name: acc.gameName ?? id.gameName, tag: acc.tagLine ?? id.tagLine, platform: plat };
+    }
+    const report = await scoutTeam(this.repo, this.riot, target, { games: 50, log: this.log });
+    if (report.sample < 3) {
+      throw new UserError(`**${target.name}#${target.tag}** has only ${report.sample} Flex/Ranked 5s game${report.sample === 1 ? '' : 's'} on ${PLATFORM_LABEL[plat]}, not enough to plan bans. Wrong region?`);
+    }
+    const png = await renderBanPlan(report, this.assets);
+    const bans = report.priorityBans.map((b) => b.championName).join(', ');
+    return {
+      embed: { color: 0xe74c3c, image: { url: 'attachment://banplan.png' }, footer: { text: bans ? `Priority bans: ${bans}` : 'No ban suggestions' } },
+      files: [{ name: 'banplan.png', data: png }],
+    };
+  }
+
+  private apexCache = new Map<string, { at: number; ranking: Map<string, number>; total: number }>();
+
+  /** Position on the Master+ ladder (all apex players sorted by LP), cached 30 min per platform+queue. */
+  private async apexPosition(platform: Platform, queue: string, puuid: string): Promise<{ pos: number; total: number } | null> {
+    const key = `${platform}:${queue}`;
+    let c = this.apexCache.get(key);
+    if (!c || this.now() - c.at > 30 * 60_000) {
+      const lists = await Promise.all((['challenger', 'grandmaster', 'master'] as const).map((t) => this.riot.getApexLeague(platform, t, queue).catch(() => null)));
+      const all = lists.flatMap((l) => l?.entries ?? []).sort((a, b) => b.leaguePoints - a.leaguePoints);
+      c = { at: this.now(), ranking: new Map(all.map((e, i) => [e.puuid, i + 1])), total: all.length };
+      this.apexCache.set(key, c);
+    }
+    const pos = c.ranking.get(puuid);
+    return pos ? { pos, total: c.total } : null;
+  }
+
+  /** Profile card: identity, Solo/Flex rank with W/L and ladder position, top mastery champions. */
+  async profile(player: PlayerRow): Promise<Reply> {
+    const [summoner, entries, mastery] = await Promise.all([
+      this.riot.getSummoner(player.platform, player.puuid).catch(() => null),
+      this.riot.getLeagueEntries(player.platform, player.puuid),
+      this.riot.getAllMastery(player.platform, player.puuid).catch(() => null),
+    ]);
+    const card = async (queueType: string, label: string): Promise<QueueCard> => {
+      const e = entries.find((x) => x.queueType === queueType);
+      if (!e) return { label, rank: null, wins: 0, losses: 0, ladderPos: null, hotStreak: false };
+      const rank = { tier: e.tier, division: e.rank, lp: e.leaguePoints };
+      let ladderPos: string | null = null;
+      if (isApex(e.tier)) {
+        const ap = await this.apexPosition(player.platform, queueType, player.puuid).catch(() => null);
+        if (ap) ladderPos = `#${ap.pos.toLocaleString('en-US')} on ${PLATFORM_LABEL[player.platform]}`;
+      }
+      return { label, rank, wins: e.wins, losses: e.losses, ladderPos, hotStreak: e.hotStreak };
+    };
+    const queues = await Promise.all([card('RANKED_SOLO_5x5', 'Solo/Duo'), card('RANKED_FLEX_SR', 'Flex'), card('RANKED_PREMADE_5x5', 'Ranked 5s')]);
+    const recent = this.repo.lpHistory(player.puuid, SOLO, 10).map((r) => !!r.win);
+    const latest = this.repo.latestDoneMatches(player.puuid, 1)[0];
+    const version = (latest && this.repo.getCachedMatch(latest.match_id)?.info.gameVersion) || '99.99';
+    const data: ProfileData = {
+      name: player.game_name, tag: player.tag_line, region: PLATFORM_LABEL[player.platform],
+      level: summoner?.summonerLevel ?? null, iconId: summoner?.profileIconId ?? null,
+      queues,
+      champs: [...(mastery ?? [])].sort((a, b) => b.championPoints - a.championPoints).slice(0, 5)
+        .map((m) => ({ championId: m.championId, points: m.championPoints, level: m.championLevel })),
+      masteryScore: mastery ? mastery.reduce((n, m) => n + m.championLevel, 0) : null,
+      championsPlayed: mastery ? mastery.filter((m) => m.championPoints > 0).length : null,
+      recent, version,
+    };
+    const png = await renderProfile(data, this.assets);
+    return {
+      embed: { color: queues.some((q) => q.rank) ? 0x5865f2 : 0x4f545c, image: { url: 'attachment://profile.png' } },
+      files: [{ name: 'profile.png', data: png }],
+    };
+  }
+
   /** The account a command should act on: the given Discord user's link (or the caller's). */
   linkedOrThrow(discordUserId: string, isSelf: boolean, style = '/'): PlayerRow {
     const p = this.repo.linkedPlayer(discordUserId);
@@ -136,9 +236,9 @@ export class Service {
   }
 
   /** Most recent game of any queue, with LP if the tracker resolved it. */
-  async recent(player: PlayerRow): Promise<Reply> {
-    const [id] = await this.riot.getMatchIds(player.platform, player.puuid, { count: 1 });
-    if (!id) throw new UserError(`No games found for **${player.game_name}#${player.tag_line}**.`);
+  async recent(player: PlayerRow, queueId = SOLO): Promise<Reply> {
+    const [id] = await this.riot.getMatchIds(player.platform, player.puuid, { count: 1, queue: queueId });
+    if (!id) throw new UserError(`No ${queueName(queueId)} games found for **${player.game_name}#${player.tag_line}**.`);
     const match = this.repo.getCachedMatch(id) ?? (await this.riot.getMatch(player.platform, id));
     if (!match) throw new UserError('Could not load that match from Riot, try again in a bit.');
     this.repo.cacheMatch(match);
@@ -213,10 +313,10 @@ export class Service {
   }
 
   /** Data behind the personal recap image (exposed for tests). Null when there are no games. */
-  recapData(player: PlayerRow, kind: 'daily' | 'weekly', tz = this.defaultTz): { header: RecapHeader; games: RecapGame[] } | null {
+  recapData(player: PlayerRow, kind: 'daily' | 'weekly', queueId = SOLO, tz = this.defaultTz): { header: RecapHeader; games: RecapGame[] } | null {
     const period = kind === 'daily' ? today(this.now(), tz) : thisWeek(this.now(), tz);
-    const stats = playerStats(this.repo, player, period);
-    const rows = this.repo.doneMatchesBetween(player.puuid, period.from, period.to).reverse(); // newest first
+    const stats = playerStats(this.repo, player, period, queueId);
+    const rows = this.repo.doneMatchesBetween(player.puuid, period.from, period.to).filter((m) => m.queue_id === queueId).reverse(); // newest first
     if (!rows.length) return null;
     const MAX_ROWS = 20;
     const games: RecapGame[] = rows.slice(0, MAX_ROWS).map((row) => {
@@ -232,32 +332,28 @@ export class Service {
         lpNote: row.note === 'batched' ? 'batched' : row.note === 'placement' ? 'placement' : undefined,
       };
     });
-    // header rank = queue with the most games in the period
-    const byQ = new Map<number, number>();
-    for (const r of rows) byQ.set(r.queue_id, (byQ.get(r.queue_id) ?? 0) + 1);
-    const mainQ = [...byQ.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 420;
-    const snap = stats.ranks.find((r) => r.queue_type === (QUEUE_TYPE_BY_ID[mainQ] ?? 'RANKED_SOLO_5x5'));
+    const snap = stats.ranks.find((r) => r.queue_type === QUEUE_TYPE_BY_ID[queueId]);
     const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' });
     return {
       header: {
-        name: player.game_name, tag: player.tag_line, title: kind === 'daily' ? 'Today' : 'This week',
+        name: player.game_name, tag: player.tag_line, title: `${kind === 'daily' ? 'Today' : 'This week'} · ${queueName(queueId)}`,
         subtitle: kind === 'daily' ? fmt.format(period.from) : `${fmt.format(period.from)} – ${fmt.format(period.to - 1)}`,
         games: stats.games, wins: stats.wins, losses: stats.losses, lpNet: stats.lpNet,
-        rank: snap ? { tier: snap.tier, division: snap.division, lp: snap.lp, queue: mainQ === 440 ? 'Flex' : 'Solo/Duo' } : null,
+        rank: snap ? { tier: snap.tier, division: snap.division, lp: snap.lp, queue: queueName(queueId) } : null,
         hiddenCount: Math.max(0, rows.length - MAX_ROWS),
-        pending: this.repo.pendingMatches(player.puuid).length,
+        pending: this.repo.pendingMatches(player.puuid).filter((m) => m.queue_id === queueId).length,
       },
       games,
     };
   }
 
   /** Personal daily/weekly recap: rendered list of games (champ, KDA, W/L, LP). */
-  async personalRecap(player: PlayerRow, kind: 'daily' | 'weekly', tz = this.defaultTz): Promise<Reply> {
-    const data = this.recapData(player, kind, tz);
-    const title = kind === 'daily' ? 'Today' : 'This week';
+  async personalRecap(player: PlayerRow, kind: 'daily' | 'weekly', queueId = SOLO, tz = this.defaultTz): Promise<Reply> {
+    const data = this.recapData(player, kind, queueId, tz);
+    const title = `${kind === 'daily' ? 'Today' : 'This week'} · ${queueName(queueId)}`;
     if (!data) {
-      const pending = this.repo.pendingMatches(player.puuid).length;
-      const desc = `No ranked games ${kind === 'daily' ? 'today' : 'this week'} yet. 💤` + (pending ? `\n_${pending} game${pending === 1 ? '' : 's'} waiting for LP to update_` : '');
+      const pending = this.repo.pendingMatches(player.puuid).filter((m) => m.queue_id === queueId).length;
+      const desc = `No ${queueName(queueId)} games ${kind === 'daily' ? 'today' : 'this week'} yet. 💤` + (pending ? `\n_${pending} game${pending === 1 ? '' : 's'} waiting for LP to update_` : '');
       return { embed: { author: { name: `${player.game_name}#${player.tag_line} · ${PLATFORM_LABEL[player.platform]}` }, title, description: desc, color: 0x5865f2 }, files: [] };
     }
     const lpNet = data.header.lpNet;
@@ -268,9 +364,9 @@ export class Service {
     } catch (e) {
       this.log(`recap render failed, using text: ${(e as Error).message}`);
       const period = kind === 'daily' ? today(this.now(), tz) : thisWeek(this.now(), tz);
-      const rows = this.repo.doneMatchesBetween(player.puuid, period.from, period.to).reverse();
+      const rows = this.repo.doneMatchesBetween(player.puuid, period.from, period.to).filter((m) => m.queue_id === queueId).reverse();
       return {
-        embed: buildPersonalRecapEmbed({ player, periodLabel: title, stats: playerStats(this.repo, player, period), games: rows.map((row) => ({ row, match: this.repo.getCachedMatch(row.match_id) })), pending: data.header.pending }),
+        embed: buildPersonalRecapEmbed({ player, periodLabel: title, stats: playerStats(this.repo, player, period, queueId), games: rows.map((row) => ({ row, match: this.repo.getCachedMatch(row.match_id) })), pending: data.header.pending }),
         files: [],
       };
     }
@@ -278,21 +374,21 @@ export class Service {
 
 
   /** Server leaderboard image: only accounts that played in the period, sorted by LP gained. */
-  async leaderboard(guildId: string, kind: 'daily' | 'weekly'): Promise<Reply> {
+  async leaderboard(guildId: string, kind: 'daily' | 'weekly', queueId = SOLO): Promise<Reply> {
     const g = this.guild(guildId);
     const period = kind === 'daily' ? today(this.now(), g.timezone) : thisWeek(this.now(), g.timezone);
-    const d = computeDigest(this.repo, guildId, 'adhoc', period);
-    const title = kind === 'daily' ? 'Leaderboard · Today' : 'Leaderboard · This week';
+    const d = computeDigest(this.repo, guildId, 'adhoc', period, queueId);
+    const title = `Leaderboard · ${kind === 'daily' ? 'Today' : 'This week'} · ${queueName(queueId)}`;
     const played = d.players.filter((p) => p.games > 0);
 
     if (!played.length) {
       const msg = d.players.length
-        ? `No ranked games played ${kind === 'daily' ? 'today' : 'this week'} by the ${d.players.length} tracked account${d.players.length === 1 ? '' : 's'}. 💤`
+        ? `No ${queueName(queueId)} games played ${kind === 'daily' ? 'today' : 'this week'} by the ${d.players.length} tracked account${d.players.length === 1 ? '' : 's'}. 💤`
         : 'No accounts tracked in this server yet. Use `/track add` or `$track add`.';
       return { embed: { title, description: msg, color: 0x5865f2 }, files: [] };
     }
 
-    const rows = this.leaderboardRows(played, period).slice(0, 20);
+    const rows = this.leaderboardRows(played, period, queueId).slice(0, 20);
     const sd = this.assets ? await this.assets.staticData(rows.find((r) => r.champ)?.champ?.version ?? '99.99').catch(() => null) : null;
     const t = d.totals;
     const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: g.timezone, weekday: 'short', day: 'numeric', month: 'short' });
@@ -312,22 +408,16 @@ export class Service {
   }
 
   /** Sorted leaderboard rows (LP gained, then wins, then games). Exposed for tests. */
-  leaderboardRows(played: PlayerDigest[], period: { from: number; to: number }): LeaderboardRow[] {
+  leaderboardRows(played: PlayerDigest[], period: { from: number; to: number }, queueId = SOLO): LeaderboardRow[] {
     return [...played]
       .sort((a, b) => b.lpNet - a.lpNet || b.wins - a.wins || b.games - a.games)
-      .map((p) => this.leaderboardRow(p, period));
+      .map((p) => this.leaderboardRow(p, period, queueId));
   }
 
-  private leaderboardRow(p: PlayerDigest, period: { from: number; to: number }): LeaderboardRow {
-    const ms = this.repo.doneMatchesBetween(p.player.puuid, period.from, period.to).filter((m) => !m.remake);
-    // main queue = the one with the most games in the period
-    const byQ = new Map<number, number>();
-    for (const m of ms) byQ.set(m.queue_id, (byQ.get(m.queue_id) ?? 0) + 1);
-    const mainQ = [...byQ.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 420;
-    const qt = QUEUE_TYPE_BY_ID[mainQ] ?? 'RANKED_SOLO_5x5';
-    const rank = p.ranks.find((r) => r.queue_type === qt) ?? null;
-    const qGames = ms.filter((m) => m.queue_id === mainQ);
-    const spark = pointsFromHistory(qGames).map((x) => x.abs);
+  private leaderboardRow(p: PlayerDigest, period: { from: number; to: number }, queueId: number): LeaderboardRow {
+    const ms = this.repo.doneMatchesBetween(p.player.puuid, period.from, period.to).filter((m) => !m.remake && m.queue_id === queueId);
+    const rank = p.ranks.find((r) => r.queue_type === QUEUE_TYPE_BY_ID[queueId]) ?? null;
+    const spark = pointsFromHistory(ms).map((x) => x.abs);
 
     // most played champion
     const champCount = new Map<string, { id: number; name: string; version: string; n: number }>();
@@ -349,7 +439,7 @@ export class Service {
       losses: p.losses,
       lpNet: p.lpNet,
       rank: rank ? { tier: rank.tier, division: rank.division, lp: rank.lp } : null,
-      queueLabel: mainQ === 440 ? 'Flex' : 'Solo/Duo',
+      queueLabel: queueName(queueId),
       spark,
       results: ms.map((m) => !!m.win),
       champ: top ? { id: top.id, name: top.name, version: top.version } : null,

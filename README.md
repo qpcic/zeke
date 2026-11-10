@@ -17,21 +17,25 @@ The bot never posts on its own. A background poller records every ranked game an
 |---|---|---|
 | `/link region riot_id` | anywhere | Link your Riot account (one per Discord user) |
 | `/unlink` | anywhere | Remove your link |
-| `/recent [user\|riot_id] [region]` | anywhere | Most recent game as a rendered scoreboard image; LP shown if it was recorded |
-| `/graph [user\|riot_id] [region] [queue] [games]` | anywhere | LP-over-games chart on tier bands, with peak, current rank and W/L strip |
-| `/daily [user\|riot_id] [region]` | anywhere | Today's games, W/L and LP |
-| `/weekly [user\|riot_id] [region]` | anywhere | This week's (Mon–Sun) games, W/L and LP |
+| `/profile [user\|riot_id] [region]` | anywhere | Profile card: icon, level, region, Solo/Duo, Flex and Ranked 5s rank cards (sorted best first) with W/L and ladder position, top mastery champions (`$profile`, `$p`) |
+| `/recent [user\|riot_id] [region] [queue]` | anywhere | Most recent game as a rendered scoreboard image; LP shown if it was recorded |
+| `/graph [user\|riot_id] [region] [games] [queue]` | anywhere | LP-over-games chart on tier bands, with peak, current rank and W/L strip |
+| `/daily [user\|riot_id] [region] [queue]` | anywhere | Today's games, W/L and LP |
+| `/weekly [user\|riot_id] [region] [queue]` | anywhere | This week's (Mon–Sun) games, W/L and LP |
+| `/banfor riot_id [region]` | anywhere | Ban plan vs that player's Flex / Ranked 5s team (`$banfor`, `$ban`) |
 | `/track add region riot_id` | server, Manage Server | Track an account in this server |
 | `/track remove account` | server, Manage Server | Remove from this server's leaderboard (autocomplete) |
 | `/track list` | server, Manage Server | List tracked accounts |
-| `/leaderboard period` | server | LP leaderboard of tracked accounts, today or this week |
+| `/leaderboard period [queue]` | server | LP leaderboard of tracked accounts, today or this week |
+
+**Queues:** Solo/Duo and Flex are tracked separately. Every stats command takes the queue as its **last** argument (`solo` or `flex`; default Solo/Duo), e.g. `$daily @friend flex`, `$graph ferks kitten#retro 30 flex`, `$lb week flex`.
 
 "Anywhere" means servers, the bot's DMs and group DMs. That needs the app to be user-installable.
 
 ### Text commands (`$` prefix)
 
 Every command also works as a message: `$recent`, `$graph flex 30 @friend`, `$link EUNE ferks kitten#retro`, `$track add EUW Name#TAG`, `$lb week`, `$help`.
-- **Aliases:** `$r` = recent, `$g` = graph, `$d` = daily, `$w` = weekly, `$lb` = leaderboard.
+- **Aliases:** `$p` / `$pf` = profile, `$r` / `$rs` = recent, `$g` = graph, `$d` = daily, `$w` = weekly, `$lb` = leaderboard.
 - Only known command names trigger a reply, and each user has a 2.5s cooldown.
 - They work only where the bot is a member (servers it's in, and its DMs), not where the app is just user-installed.
 - They need the **Message Content** privileged intent. Change the prefix with `PREFIX=` in `.env`; set it to empty to turn text commands off.
@@ -72,6 +76,20 @@ The CLI still works for debugging without Discord: `npm run cli -- add EUW "Name
 2. written to `previews/<guild>/<timestamp>-<label>.json` as a webhook payload. Paste it into [Discohook](https://discohook.org) (JSON Data Editor) to see exactly what Discord will show,
 3. added to `previews/index.html`, an offline Discord-style page of all messages so far.
 
+## Profile ladder position
+
+For Master, Grandmaster and Challenger the card shows the exact ladder position ("#152 on EUNE"), from Riot's apex ladders (3 requests, cached 30 min). Below Master Riot has no ladder endpoint, so no position is shown.
+
+## Ban plan (`$banfor Name#TAG [region]`)
+
+Scouts a premade team from one name, using the player's last 50 Flex + Ranked 5s games:
+1. **Team:** the player plus the 4 allies who appear most often (at least 3 shared games).
+2. **Roles:** the best overall assignment of everyone's positions across those games, so two mids get split sensibly.
+3. **Bans per player:** of their 10 most played champions, the 3 with the best winrate. A champion needs at least **5 games** to count, so 3W 0L flukes are ignored.
+4. **Priority bans:** the team's top 5 overall, ranked by winrate (smoothed) × how often it's played.
+
+The Ranked 5s queue ID isn't documented. The first scan finds it automatically (ranked games that are neither Solo/Duo nor Flex) and stores it in the database. Scouted players are **not** added to tracking. A cold scan costs ~50–55 Riot requests (cached afterwards), so it can take ~1 minute on a dev or personal key. Set `DEFAULT_REGION=EUNE` to skip typing the region.
+
 ## Hosting (24/7)
 
 The bot is one Node process plus a SQLite file (~100 MB RAM), so the smallest VM is enough. Ballpark options in 2026 (check current terms):
@@ -96,6 +114,15 @@ docker compose logs -f
 - **Architectures:** the image builds for amd64 and arm64 (Oracle Ampere, Raspberry Pi).
 - **One instance only:** stop the bot on your PC once the server copy runs.
 - **Riot key:** development keys expire every 24 hours. For 24/7 use, register a **personal** key (developer.riotgames.com → Register Product → Personal).
+
+### Railway
+
+1. New Project → Deploy from GitHub repo → this repo. Railway builds the `Dockerfile`.
+2. Variables: `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `RIOT_API_KEY`, `DEFAULT_REGION`, `PREFIX`.
+3. Add a **Volume** mounted at `/app/data`. Without it, every deploy wipes the database.
+4. Run `npm run register` once from your PC to register the slash commands. Stop any local copy of the bot.
+
+Pushing to `main` redeploys automatically.
 
 ### Without Docker
 

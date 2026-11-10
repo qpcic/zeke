@@ -10,11 +10,15 @@ import { dirname, join } from 'node:path';
 const DD = 'https://ddragon.leagueoflegends.com';
 const CD = 'https://raw.communitydragon.org/latest';
 
-/** Candidate paths for tier emblems; the first that answers 200 wins (probed once). */
+/**
+ * Candidate paths for tier emblems, best first, resolved PER TIER (cached). The current
+ * emblem set includes Emerald; the older mini crests don't (they 404 for emerald), so a
+ * single global probe isn't enough.
+ */
 const EMBLEM_CANDIDATES = [
-  (t: string) => `${CD}/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/${t}.png`,
   (t: string) => `${CD}/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-emblem/emblem-${t}.png`,
   (t: string) => `${CD}/plugins/rcp-fe-lol-shared-components/global/default/${t}.png`,
+  (t: string) => `${CD}/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/${t}.png`,
 ];
 
 export interface ChampionInfo { id: string; key: number; name: string; image: string }
@@ -31,6 +35,7 @@ export interface AssetSource {
   /** PNG bytes or null. */
   image(url: string): Promise<Buffer | null>;
   championUrl(sd: StaticData, championId: number, championName: string): string;
+  profileIconUrl(sd: StaticData, iconId: number): string;
   itemUrl(sd: StaticData, itemId: number): string;
   spellUrl(sd: StaticData, spellId: number): string | null;
   perkUrl(sd: StaticData, perkId: number): string | null;
@@ -41,7 +46,7 @@ export class DDragon implements AssetSource {
   private versions: { list: string[]; at: number } | null = null;
   private data = new Map<string, Promise<StaticData | null>>();
   private mem = new Map<string, Buffer | null>();
-  private emblem: Promise<((t: string) => string) | null> | null = null;
+  private emblems = new Map<string, Promise<string | null>>();
 
   constructor(
     private readonly cacheDir: string,
@@ -137,13 +142,16 @@ export class DDragon implements AssetSource {
       } catch { /* offline */ }
     }
     if (this.mem.size > 2000) this.mem.clear();
-    this.mem.set(url, buf);
+    if (buf) this.mem.set(url, buf); // don't pin failures: a 404/offline result is retried next time
     return buf;
   }
 
   championUrl(sd: StaticData, championId: number, championName: string): string {
     const c = sd.champions.get(championId) ?? sd.championsById.get(championName);
     return `${DD}/cdn/${sd.version}/img/champion/${c?.image ?? `${championName}.png`}`;
+  }
+  profileIconUrl(sd: StaticData, iconId: number): string {
+    return `${DD}/cdn/${sd.version}/img/profileicon/${iconId}.png`;
   }
   itemUrl(sd: StaticData, itemId: number): string {
     return `${DD}/cdn/${sd.version}/img/item/${itemId}.png`;
@@ -157,20 +165,25 @@ export class DDragon implements AssetSource {
     return icon ? `${DD}/cdn/img/${icon}` : null;
   }
 
-  async emblemUrl(tier: string): Promise<string | null> {
-    this.emblem ??= (async () => {
-      for (const c of EMBLEM_CANDIDATES) {
-        try {
-          const res = await this.fetchFn(c('gold'), { method: 'HEAD', signal: AbortSignal.timeout(5000) });
-          if (res.ok) return c;
-        } catch { /* try next */ }
-      }
-      this.log('ddragon: no rank emblem source reachable');
-      return null;
-    })();
-    const f = await this.emblem;
-    return f ? f(tier.toLowerCase()) : null;
+  /** First candidate URL that actually serves this tier's emblem (downloaded + disk-cached via image()). */
+  emblemUrl(tier: string): Promise<string | null> {
+    const t = tier.toLowerCase();
+    let p = this.emblems.get(t);
+    if (!p) {
+      p = (async () => {
+        for (const c of EMBLEM_CANDIDATES) {
+          const url = c(t);
+          if (await this.image(url)) return url;
+        }
+        this.log(`ddragon: no emblem found for ${t}`);
+        return null;
+      })();
+      this.emblems.set(t, p);
+      p.then((r) => { if (!r) this.emblems.delete(t); }); // retry later (maybe offline)
+    }
+    return p;
   }
+
 }
 
 /** Display name for a champion ("MonkeyKing" -> "Wukong"), falling back to the raw name. */
