@@ -117,6 +117,14 @@ const MIGRATIONS: string[] = [
   ALTER TABLE players ADD COLUMN last_game_at INTEGER NOT NULL DEFAULT 0;   -- epoch ms of newest seen game
   UPDATE players SET last_game_at = COALESCE((SELECT MAX(game_end) FROM player_matches pm WHERE pm.puuid = players.puuid), 0);
   `,
+  /* 4 */ `
+  -- Small key/value store for discovered facts (e.g. the Ranked 5s queue id).
+  CREATE TABLE kv (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 export type DB = DatabaseSync;

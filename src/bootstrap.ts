@@ -25,6 +25,6 @@ export function bootstrap(overrides: { riot?: Partial<RiotClientOptions>; sink?:
     now: overrides.now,
   });
   const sink = overrides.sink ?? new TerminalSink(config.previewDir);
-  const service = new Service(repo, riot, tracker, sink, config.defaultTz, log, overrides.now, assets);
+  const service = new Service(repo, riot, tracker, sink, config.defaultTz, log, overrides.now, assets, config.defaultRegion);
   return { db, repo, riot, tracker, sink, service, assets };
 }

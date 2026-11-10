@@ -8,6 +8,10 @@ import { QUEUE_TYPE_BY_ID, type LeagueEntryDto, type MatchDto, type ParticipantD
  * match-v5 like the real thing. Used by tests and `npm run demo`.
  */
 
+/** Queues the mock treats as "ranked" for match-v5 type=ranked (470 stands in for Ranked 5s). */
+export const MOCK_FIVES_QUEUE = 470;
+const RANKED_QUEUES = new Set([420, 440, MOCK_FIVES_QUEUE]);
+
 /** Deterministic PRNG so generated matches are reproducible. */
 export function mulberry32(seed: number): () => number {
   return () => {
@@ -39,7 +43,7 @@ interface PendingLeague { readsLeft: number; apply: () => void }
 
 export interface PlayOpts {
   /** tracked puuid -> which team (100/200) */
-  players: { puuid: string; team: 100 | 200; champion?: string }[];
+  players: { puuid: string; team: 100 | 200; champion?: string; role?: string; win?: boolean }[];
   winner: 100 | 200;
   queueId?: number;
   durationSec?: number;
@@ -93,7 +97,11 @@ export class MockRiot {
 
     const participants: ParticipantDto[] = [];
     for (const team of [100, 200] as const) {
-      const tracked = o.players.filter((p) => p.team === team);
+      // place players with an explicit role in that role's slot
+      const listed = o.players.filter((p) => p.team === team);
+      const tracked: (typeof listed[number] | undefined)[] = new Array(5).fill(undefined);
+      for (const p of listed.filter((x) => x.role)) tracked[POSITIONS.indexOf(p.role!)] = p;
+      for (const p of listed.filter((x) => !x.role)) tracked[tracked.findIndex((x) => !x)] = p;
       for (let i = 0; i < 5; i++) {
         const tp = tracked[i];
         const acc = tp ? this.accounts.get(tp.puuid)! : null;
@@ -230,7 +238,7 @@ export class MockRiot {
       const queue = url.searchParams.get('queue');
       const ids = (this.matchIds.get(m[1]!) ?? []).filter((id) => {
         const mm = this.matches.get(id)!;
-        if (type === 'ranked' && !QUEUE_TYPE_BY_ID[mm.info.queueId]) return false;
+        if (type === 'ranked' && !RANKED_QUEUES.has(mm.info.queueId)) return false;
         if (queue && mm.info.queueId !== Number(queue)) return false;
         return mm.info.gameStartTimestamp >= startTime;
       });

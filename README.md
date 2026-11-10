@@ -21,6 +21,7 @@ The bot never posts on its own. A background poller records every ranked game an
 | `/graph [user\|riot_id] [region] [games] [queue]` | anywhere | LP-over-games chart on tier bands, with peak, current rank and W/L strip |
 | `/daily [user\|riot_id] [region] [queue]` | anywhere | Today's games, W/L and LP |
 | `/weekly [user\|riot_id] [region] [queue]` | anywhere | This week's (Mon–Sun) games, W/L and LP |
+| `/banfor riot_id [region]` | anywhere | Ban plan vs that player's Flex / Ranked 5s team (`$banfor`, `$ban`) |
 | `/track add region riot_id` | server, Manage Server | Track an account in this server |
 | `/track remove account` | server, Manage Server | Remove from this server's leaderboard (autocomplete) |
 | `/track list` | server, Manage Server | List tracked accounts |
@@ -73,6 +74,16 @@ The CLI still works for debugging without Discord: `npm run cli -- add EUW "Name
 1. rendered in the terminal,
 2. written to `previews/<guild>/<timestamp>-<label>.json` as a webhook payload. Paste it into [Discohook](https://discohook.org) (JSON Data Editor) to see exactly what Discord will show,
 3. added to `previews/index.html`, an offline Discord-style page of all messages so far.
+
+## Ban plan (`$banfor Name#TAG [region]`)
+
+Scouts a premade team from one name, using the player's last 50 Flex + Ranked 5s games:
+1. **Team:** the player plus the 4 allies who appear most often (at least 3 shared games).
+2. **Roles:** the best overall assignment of everyone's positions across those games, so two mids get split sensibly.
+3. **Bans per player:** of their 10 most played champions, the 3 with the best winrate. A champion needs at least 2 games, or 5% of the player's games if that's more.
+4. **Priority bans:** the team's top 5 overall, ranked by winrate (smoothed) × how often it's played.
+
+The Ranked 5s queue ID isn't documented. The first scan finds it automatically (ranked games that are neither Solo/Duo nor Flex) and stores it in the database. Scouted players are **not** added to tracking. A cold scan costs ~50–55 Riot requests (cached afterwards), so it can take ~1 minute on a dev or personal key. Set `DEFAULT_REGION=EUNE` to skip typing the region.
 
 ## Hosting (24/7)
 

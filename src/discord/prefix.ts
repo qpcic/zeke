@@ -17,6 +17,7 @@ const ALIASES: Record<string, CommandName> = {
   weekly: 'weekly', w: 'weekly', week: 'weekly',
   leaderboard: 'leaderboard', lb: 'leaderboard', top: 'leaderboard',
   track: 'track',
+  banfor: 'banfor', ban: 'banfor', bans: 'banfor', scout: 'banfor',
   help: 'help', commands: 'help',
 };
 
@@ -66,6 +67,14 @@ export function parsePrefix(
       req.queue = QUEUE_WORDS[last];
       words = words.slice(0, -1);
     }
+  }
+
+  // "$banfor ferks kitten#retro eune": riot id (spaces allowed) + optional region
+  if (name === 'banfor') {
+    const ex = extractRiotId(words);
+    req.riotId = ex.riotId ?? (words.length ? words.join(' ') : undefined);
+    const region = ex.rest.find((w) => parsePlatform(w));
+    if (region) req.region = region;
   }
 
   // Target lookups: "$graph ferks kitten#retro eune flex 30"
@@ -135,13 +144,18 @@ export function createPrefixHandler(service: Service, prefix: string, botUserId:
     lastUse.set(msg.author.id, now);
     if (lastUse.size > 5000) lastUse.clear();
 
+    // Typing indicator lasts ~10s; keep it alive for slow commands ($banfor on a cold cache).
+    const typing = () => ('sendTyping' in msg.channel ? msg.channel.sendTyping().catch(() => {}) : undefined);
+    void typing();
+    const keepTyping = setInterval(typing, 8000);
     try {
-      if ('sendTyping' in msg.channel) await msg.channel.sendTyping().catch(() => {});
       const reply = await runCommand(service, req);
       await msg.reply({ ...payload(reply), allowedMentions: { repliedUser: false } });
     } catch (e) {
       if (!(e instanceof UserError)) log(`${prefix}${req.name} failed: ${(e as Error).stack}`);
       await msg.reply({ embeds: [errorEmbed(e)], allowedMentions: { repliedUser: false } }).catch(() => {});
+    } finally {
+      clearInterval(keepTyping);
     }
   };
 }

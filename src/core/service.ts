@@ -9,6 +9,8 @@ import type { Sink } from '../sinks/sink.ts';
 import { computeDigest, playerStats, type Digest, type PlayerDigest } from './digest.ts';
 import { renderLeaderboard, type LeaderboardRow } from '../render/image/leaderboard.ts';
 import { renderRecap, type RecapGame, type RecapHeader } from '../render/image/recap.ts';
+import { renderBanPlan } from '../render/image/banplan.ts';
+import { scoutTeam } from './scout.ts';
 import { formatRank } from './rank.ts';
 import { previousDay, previousWeek, thisWeek, today, zonedParts } from './time.ts';
 import type { GameResult } from './events.ts';
@@ -50,6 +52,8 @@ export class Service {
     private readonly log: (msg: string) => void = console.log,
     private readonly now: () => number = Date.now,
     private readonly assets: AssetSource | null = null,
+    /** Region assumed for /banfor when the player is unknown and none was given ("" = require it). */
+    private readonly defaultRegion = '',
   ) {}
 
   guild(guildId: string): GuildRow {
@@ -131,6 +135,40 @@ export class Service {
     if (!platform) throw new UserError(`I don't know **${formatRiotId(id)}** yet. Add the region, e.g. \`${formatRiotId(id)} EUW\`.`);
     const r = await this.resolvePlayer(platform, riotIdInput, () => true);
     return { player: r.player, isNew: true };
+  }
+
+  /**
+   * Scout a premade team for bans. The scouted player is resolved via account-v1 but NOT
+   * added to tracking: they're usually an opponent, not someone to poll forever.
+   */
+  async banPlan(riotIdInput: string, regionInput?: string): Promise<Reply> {
+    let id;
+    try {
+      id = parseRiotId(riotIdInput);
+    } catch (e) {
+      throw new UserError((e as Error).message);
+    }
+    const platform = regionInput ? parsePlatform(regionInput) : null;
+    if (regionInput && !platform) throw new UserError(`Unknown region "${regionInput}". Use one of: ${Object.values(PLATFORM_LABEL).join(', ')}`);
+    const known = this.repo.findPlayerByRiotId(id.gameName, id.tagLine, platform ?? undefined);
+    const plat = platform ?? known?.platform ?? (this.defaultRegion ? parsePlatform(this.defaultRegion) : null);
+    if (!plat) throw new UserError(`Add the region, e.g. \`${formatRiotId(id)} EUNE\`.`);
+    let target = known ? { puuid: known.puuid, name: known.game_name, tag: known.tag_line, platform: plat } : null;
+    if (!target) {
+      const acc = await this.riot.getAccountByRiotId(plat, id.gameName, id.tagLine);
+      if (!acc) throw new UserError(`Riot ID **${formatRiotId(id)}** not found`);
+      target = { puuid: acc.puuid, name: acc.gameName ?? id.gameName, tag: acc.tagLine ?? id.tagLine, platform: plat };
+    }
+    const report = await scoutTeam(this.repo, this.riot, target, { games: 50, log: this.log });
+    if (report.sample < 3) {
+      throw new UserError(`**${target.name}#${target.tag}** has only ${report.sample} Flex/Ranked 5s game${report.sample === 1 ? '' : 's'} on ${PLATFORM_LABEL[plat]}, not enough to plan bans. Wrong region?`);
+    }
+    const png = await renderBanPlan(report, this.assets);
+    const bans = report.priorityBans.map((b) => b.championName).join(', ');
+    return {
+      embed: { color: 0xe74c3c, image: { url: 'attachment://banplan.png' }, footer: { text: bans ? `Priority bans: ${bans}` : 'No ban suggestions' } },
+      files: [{ name: 'banplan.png', data: png }],
+    };
   }
 
   /** The account a command should act on: the given Discord user's link (or the caller's). */

@@ -209,6 +209,15 @@ export class Repo {
       .all(puuid, fromMs, toMs) as unknown as { queue_type: string; delta: number; kind: string; match_id: string | null; at: number }[];
   }
 
+  // ---- kv ----
+  getKv(key: string): string | null {
+    return (this.db.prepare('SELECT value FROM kv WHERE key = ?').get(key) as { value: string } | undefined)?.value ?? null;
+  }
+  setKv(key: string, value: string) {
+    this.db.prepare('INSERT INTO kv (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+      .run(key, value, this.now());
+  }
+
   // ---- posts / digests ----
   markPosted(guildId: string, matchId: string, puuid: string): boolean {
     const r = this.db.prepare('INSERT OR IGNORE INTO posts (guild_id, match_id, puuid, posted_at) VALUES (?, ?, ?, ?)').run(guildId, matchId, puuid, this.now());

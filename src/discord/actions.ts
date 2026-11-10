@@ -9,7 +9,7 @@ import type { LeagueEntryDto } from '../riot/types.ts';
  * Transport-agnostic command logic. Slash commands and $prefix messages both
  * parse into a CommandRequest and render the returned Reply.
  */
-export type CommandName = 'link' | 'unlink' | 'recent' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'help';
+export type CommandName = 'link' | 'unlink' | 'recent' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'banfor' | 'help';
 
 export interface CommandRequest {
   name: CommandName;
@@ -54,6 +54,7 @@ export function helpEmbed(p: string): Embed {
     `${c('graph [@user | Name#TAG [region]] [games] [solo|flex]')} LP graph`,
     `${c('daily')} · ${c('weekly')} games and LP (same arguments as recent)`,
     '_Accounts are tracked globally: once anyone adds or looks one up, its games are recorded everywhere._',
+    `${c('banfor <Name#TAG> [region]')} ban plan vs their Flex/Ranked 5s team (alias ${c('ban')})`,
     '',
     '**Server only**',
     `${c('leaderboard [daily|weekly] [solo|flex]')} LP leaderboard`,
@@ -122,6 +123,9 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
     case 'daily':
     case 'weekly':
       return withNote(await service.personalRecap(await target(), req.name, req.queue ?? SOLO));
+
+    case 'banfor':
+      return service.banPlan(need(req.riotId, 'banfor <Name#TAG> [region]'), req.region);
 
     case 'leaderboard':
       return service.leaderboard(needGuild(), req.period ?? 'daily', req.queue ?? SOLO);
