@@ -159,6 +159,11 @@ export class RiotClient {
     return this.request<SummonerDto>(platform.toLowerCase(), 'summoner-v4.byPuuid', `/lol/summoner/v4/summoners/by-puuid/${puuid}`);
   }
 
+  /** All champion masteries, highest points first. */
+  async getAllMastery(platform: Platform, puuid: string): Promise<ChampionMasteryDto[]> {
+    return (await this.request<ChampionMasteryDto[]>(platform.toLowerCase(), 'champion-mastery-v4.all', `/lol/champion-mastery/v4/champion-masteries/by-puuid/${puuid}`)) ?? [];
+  }
+
   async getTopMastery(platform: Platform, puuid: string, count = 5): Promise<ChampionMasteryDto[]> {
     return (await this.request<ChampionMasteryDto[]>(platform.toLowerCase(), 'champion-mastery-v4.top', `/lol/champion-mastery/v4/champion-masteries/by-puuid/${puuid}/top`, { count })) ?? [];
   }

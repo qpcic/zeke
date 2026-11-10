@@ -23,6 +23,10 @@ export interface ProfileData {
   /** Solo/Duo, Flex, Ranked 5s: drawn left to right sorted by rank (highest first, unranked last). */
   queues: QueueCard[];
   champs: { championId: number; points: number; level: number }[];
+  /** sum of all champion mastery levels (null if mastery unavailable) */
+  masteryScore: number | null;
+  /** champions with any mastery points */
+  championsPlayed: number | null;
   recent: boolean[]; // last recorded solo results, oldest first
   version: string; // for ddragon
 }
@@ -66,66 +70,102 @@ export async function renderProfile(d: ProfileData, assets: AssetSource | null):
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
 
-  // ---- left: identity ----
+  // ---- left: identity (vertically centred) + stats grid at the bottom ----
+  const cardTop = PAD, cardH = H - 2 * PAD;
   ctx.fillStyle = C.panel;
-  rounded(ctx, PAD, PAD, LEFT_W, H - 2 * PAD, 16);
+  rounded(ctx, PAD, cardTop, LEFT_W, cardH, 16);
   ctx.fill();
   const cx = PAD + LEFT_W / 2;
+
+  const GRID_ROW = 62, GRID_GAP = 10;
+  const gridH = 2 * GRID_ROW + GRID_GAP;
+  const gridTop = cardTop + cardH - 18 - gridH;
+  const IDENTITY_H = 248; // avatar ring top -> region pill bottom
+  const RECENT_H = d.recent.length ? 88 : 0;
+  const regionTop = cardTop + 12, regionH = gridTop - 12 - regionTop;
+  const top = regionTop + Math.max(0, (regionH - IDENTITY_H - RECENT_H) / 2); // y of avatar ring top
+  const ay = top + 66; // avatar centre
+
   ctx.save();
-  ctx.beginPath(); ctx.arc(cx, 112, 66, 0, Math.PI * 2); ctx.closePath();
+  ctx.beginPath(); ctx.arc(cx, ay, 66, 0, Math.PI * 2); ctx.closePath();
   ctx.fillStyle = accent; ctx.fill();
   ctx.restore();
   ctx.save();
-  ctx.beginPath(); ctx.arc(cx, 112, 61, 0, Math.PI * 2); ctx.clip();
-  if (pIcon) ctx.drawImage(pIcon, cx - 61, 51, 122, 122);
-  else { ctx.fillStyle = '#2b2e35'; ctx.fillRect(cx - 61, 51, 122, 122); }
+  ctx.beginPath(); ctx.arc(cx, ay, 61, 0, Math.PI * 2); ctx.clip();
+  if (pIcon) ctx.drawImage(pIcon, cx - 61, ay - 61, 122, 122);
+  else { ctx.fillStyle = '#2b2e35'; ctx.fillRect(cx - 61, ay - 61, 122, 122); }
   ctx.restore();
   if (d.level !== null) {
     ctx.font = font(700, 14);
     const lt = String(d.level);
     const lw = ctx.measureText(lt).width + 18;
     ctx.fillStyle = '#0d0e10';
-    rounded(ctx, cx - lw / 2, 164, lw, 24, 12); ctx.fill();
+    rounded(ctx, cx - lw / 2, ay + 52, lw, 24, 12); ctx.fill();
     ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.stroke();
     ctx.fillStyle = C.text;
     ctx.textAlign = 'center';
-    ctx.fillText(lt, cx, 181);
+    ctx.fillText(lt, cx, ay + 69);
     ctx.textAlign = 'left';
   }
   ctx.textAlign = 'center';
   ctx.fillStyle = C.text;
   ctx.font = font(700, 26);
-  ctx.fillText(fit(ctx, d.name, LEFT_W - 30), cx, 232);
+  ctx.fillText(fit(ctx, d.name, LEFT_W - 30), cx, top + 186);
   ctx.fillStyle = C.faint;
   ctx.font = font(400, 17);
-  ctx.fillText(`#${d.tag}`, cx, 256);
-  // region pill
+  ctx.fillText(`#${d.tag}`, cx, top + 210);
   ctx.font = font(700, 13);
   const rw = ctx.measureText(d.region).width + 22;
   ctx.fillStyle = 'rgba(255,255,255,0.08)';
-  rounded(ctx, cx - rw / 2, 270, rw, 24, 12); ctx.fill();
+  rounded(ctx, cx - rw / 2, top + 224, rw, 24, 12); ctx.fill();
   ctx.fillStyle = C.sub;
-  ctx.fillText(d.region, cx, 287);
+  ctx.fillText(d.region, cx, top + 241);
 
-  // recent form
+  // recent form (only when the bot has recorded games)
   if (d.recent.length) {
+    const ry = top + IDENTITY_H + 22;
     ctx.fillStyle = C.faint;
     ctx.font = font(600, 11);
-    ctx.fillText(`LAST ${d.recent.length} RECORDED SOLO GAMES`, cx, 334);
+    ctx.fillText(`LAST ${d.recent.length} RECORDED SOLO GAMES`, cx, ry);
     const n = d.recent.length;
-    const s = 16, gap = 5;
-    let x = cx - (n * s + (n - 1) * gap) / 2;
+    const sz = 16, gap = 5;
+    let x = cx - (n * sz + (n - 1) * gap) / 2;
     for (const w of d.recent) {
       ctx.fillStyle = w ? C.win : C.loss;
-      rounded(ctx, x, 344, s, s, 4); ctx.fill();
-      x += s + gap;
+      rounded(ctx, x, ry + 10, sz, sz, 4); ctx.fill();
+      x += sz + gap;
     }
     const wins = d.recent.filter(Boolean).length;
     ctx.fillStyle = C.sub;
     ctx.font = font(600, 13);
-    ctx.fillText(`${wins}W ${n - wins}L`, cx, 382);
+    ctx.fillText(`${wins}W ${n - wins}L`, cx, ry + 46);
   }
   ctx.textAlign = 'left';
+
+  // stats grid
+  const ranked = d.queues.filter((q) => q.rank);
+  const games = ranked.reduce((n, q) => n + q.wins + q.losses, 0);
+  const wins = ranked.reduce((n, q) => n + q.wins, 0);
+  const wr = games ? Math.round((wins / games) * 100) : null;
+  const stats: [string, string, string?][] = [
+    ['SEASON GAMES', games ? games.toLocaleString('en-US') : '–'],
+    ['OVERALL WR', wr === null ? '–' : `${wr}%`, wr === null ? undefined : wr >= 50 ? C.win : C.loss],
+    ['MASTERY SCORE', d.masteryScore !== null ? d.masteryScore.toLocaleString('en-US') : '–'],
+    ['CHAMPIONS', d.championsPlayed !== null ? String(d.championsPlayed) : '–'],
+  ];
+  const cellW = (LEFT_W - 32 - GRID_GAP) / 2;
+  stats.forEach(([label, value, color], i) => {
+    const gx = PAD + 16 + (i % 2) * (cellW + GRID_GAP);
+    const gy = gridTop + Math.floor(i / 2) * (GRID_ROW + GRID_GAP);
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    rounded(ctx, gx, gy, cellW, GRID_ROW, 10); ctx.fill();
+    ctx.fillStyle = C.faint;
+    ctx.font = font(600, 10);
+    ctx.fillText(label, gx + 12, gy + 20);
+    ctx.fillStyle = color ?? C.text;
+    ctx.font = font(700, 20);
+    ctx.fillText(fit(ctx, value, cellW - 24), gx + 12, gy + 47);
+  });
 
   // ---- right: rank cards ----
   const rx = PAD + LEFT_W + 18;

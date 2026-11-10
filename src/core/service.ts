@@ -194,7 +194,7 @@ export class Service {
     const [summoner, entries, mastery] = await Promise.all([
       this.riot.getSummoner(player.platform, player.puuid).catch(() => null),
       this.riot.getLeagueEntries(player.platform, player.puuid),
-      this.riot.getTopMastery(player.platform, player.puuid, 5).catch(() => []),
+      this.riot.getAllMastery(player.platform, player.puuid).catch(() => null),
     ]);
     const card = async (queueType: string, label: string): Promise<QueueCard> => {
       const e = entries.find((x) => x.queueType === queueType);
@@ -215,7 +215,10 @@ export class Service {
       name: player.game_name, tag: player.tag_line, region: PLATFORM_LABEL[player.platform],
       level: summoner?.summonerLevel ?? null, iconId: summoner?.profileIconId ?? null,
       queues,
-      champs: mastery.map((m) => ({ championId: m.championId, points: m.championPoints, level: m.championLevel })),
+      champs: [...(mastery ?? [])].sort((a, b) => b.championPoints - a.championPoints).slice(0, 5)
+        .map((m) => ({ championId: m.championId, points: m.championPoints, level: m.championLevel })),
+      masteryScore: mastery ? mastery.reduce((n, m) => n + m.championLevel, 0) : null,
+      championsPlayed: mastery ? mastery.filter((m) => m.championPoints > 0).length : null,
       recent, version,
     };
     const png = await renderProfile(data, this.assets);

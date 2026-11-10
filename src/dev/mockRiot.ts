@@ -235,6 +235,12 @@ export class MockRiot {
       const a = this.accounts.get(m[1]!);
       return a ? json({ puuid: a.puuid, profileIconId: 4568, summonerLevel: 487 }) : notFound();
     }
+    if ((m = path.match(/^\/lol\/champion-mastery\/v4\/champion-masteries\/by-puuid\/(\w+)$/))) {
+      if (!this.accounts.has(m[1]!)) return notFound();
+      const extra = Array.from({ length: 60 }, (_, i) => [200 + i, 30_000 - i * 400, Math.max(1, 6 - Math.floor(i / 10))]);
+      return json([[112, 812_344, 42], [103, 401_112, 28], [134, 220_970, 19], [61, 98_012, 11], [127, 41_500, 7], ...extra]
+        .map(([championId, championPoints, championLevel]) => ({ puuid: m![1], championId, championPoints, championLevel })));
+    }
     if ((m = path.match(/^\/lol\/champion-mastery\/v4\/champion-masteries\/by-puuid\/(\w+)\/top$/))) {
       if (!this.accounts.has(m[1]!)) return notFound();
       return json([[112, 812_344, 42], [103, 401_112, 28], [134, 220_970, 19], [61, 98_012, 11], [127, 41_500, 7]]
