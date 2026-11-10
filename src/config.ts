@@ -18,7 +18,17 @@ export const config = {
     .filter((n) => Number.isInteger(n)),
   defaultTz: process.env.DEFAULT_TZ ?? 'Europe/Ljubljana',
   previewDir: process.env.PREVIEW_DIR ?? './previews',
+  discordToken: process.env.DISCORD_TOKEN ?? '',
+  discordClientId: process.env.DISCORD_CLIENT_ID ?? '',
+  devGuildId: process.env.DEV_GUILD_ID ?? '',
+  /** Also render every resolved game to terminal + previews/ (debugging). */
+  previewGames: process.env.PREVIEW_GAMES === '1',
 } as const;
+
+export function requireDiscord(): { token: string; clientId: string } {
+  if (!config.discordToken || !config.discordClientId) throw new Error('DISCORD_TOKEN and DISCORD_CLIENT_ID must be set in .env');
+  return { token: config.discordToken, clientId: config.discordClientId };
+}
 
 export function requireApiKey(): string {
   if (!config.riotApiKey) throw new Error('RIOT_API_KEY is not set (copy .env.example to .env)');

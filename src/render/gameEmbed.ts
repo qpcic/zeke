@@ -24,6 +24,12 @@ function lpLine(r: GameResult): string {
       return r.rankAfter ? `Placed into **${formatRank(r.rankAfter)}**` : 'Placement game';
     case 'unranked':
       return 'Placement game · not ranked yet';
+    case 'pending':
+      return 'LP updating… (ladder hasn\'t caught up yet)';
+    case 'unrecorded':
+      return `LP not recorded (played before tracking started)${r.rankAfter ? ` · ${formatRank(r.rankAfter)}` : ''}`;
+    case 'norank':
+      return '';
     case 'unknown':
       return `LP change unavailable${r.rankAfter ? ` · ${formatRank(r.rankAfter)}` : ''}`;
     case 'batched':
@@ -67,7 +73,7 @@ export function buildGameEmbed(r: GameResult, alsoTracked: Set<string> = new Set
     author: { name: `${r.player.game_name}#${r.player.tag_line} · ${PLATFORM_LABEL[r.player.platform]}` },
     title: `${result} · ${me.championName}`,
     url: `https://www.leagueofgraphs.com/match/${PLATFORM_LABEL[r.player.platform].toLowerCase()}/${metadata.matchId.split('_')[1]}`,
-    description: lpLine(r) + (multi ? `\n🔥 **${multi}**` : ''),
+    description: [lpLine(r), multi ? `🔥 **${multi}**` : ''].filter(Boolean).join('\n') || undefined,
     color,
     thumbnail: { url: championIcon(ver, me.championName) },
     fields: r.remake ? [] : [

@@ -102,6 +102,15 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (guild_id, kind, period_key)
   );
   `,
+  /* 2 */ `
+  -- Discord user <-> Riot account (one per user). Linked players are polled like tracked ones.
+  CREATE TABLE links (
+    discord_user_id TEXT PRIMARY KEY,
+    puuid           TEXT NOT NULL REFERENCES players(puuid) ON DELETE CASCADE,
+    linked_at       INTEGER NOT NULL
+  );
+  CREATE INDEX links_puuid ON links(puuid);
+  `,
 ];
 
 export type DB = DatabaseSync;

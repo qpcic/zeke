@@ -2,7 +2,11 @@ import type { PlayerRow } from '../db/repo.ts';
 import type { MatchDto } from '../riot/types.ts';
 import type { Rank } from './rank.ts';
 
-export type GameNote = 'promoted' | 'demoted' | 'placement' | 'batched' | 'unknown' | 'remake' | 'unranked' | null;
+export type GameNote =
+  | 'promoted' | 'demoted' | 'placement' | 'batched' | 'unknown' | 'remake' | 'unranked'
+  // only used by /recent for games the tracker didn't (yet) resolve:
+  | 'pending' | 'unrecorded' | 'norank'
+  | null;
 
 /** A finished, LP-resolved game for one tracked player. Sinks turn this into embeds. */
 export interface GameResult {

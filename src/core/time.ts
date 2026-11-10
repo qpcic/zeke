@@ -90,7 +90,15 @@ export function previousWeek(t: number, tz: string): Period {
 export function today(t: number, tz: string): Period {
   const from = startOfLocalDay(t, tz);
   const p = zonedParts(t, tz);
-  return { from, to: t, key: ymd(p.year, p.month, p.day), label: 'Today so far' };
+  return { from, to: t + 1, key: ymd(p.year, p.month, p.day), label: 'Today' };
+}
+
+/** This Mon-Sun local week so far. */
+export function thisWeek(t: number, tz: string): Period {
+  const p = zonedParts(t, tz);
+  const [y, m, d] = addDays(p.year, p.month, p.day, -(p.weekday - 1));
+  const [wy, wn] = isoWeek(y, m, d);
+  return { from: zonedMidnight(y, m, d, tz), to: t + 1, key: `${wy}-W${String(wn).padStart(2, '0')}`, label: 'This week' };
 }
 
 export function isValidTimeZone(tz: string): boolean {

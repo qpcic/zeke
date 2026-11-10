@@ -14,9 +14,11 @@
     "test": "node --disable-warning=ExperimentalWarning --import tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc",
-    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning dist/index.js"
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning dist/index.js",
+    "register": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --import tsx src/discord/register.ts"
   },
   "dependencies": {
+    "discord.js": "^14.28.1",
     "node-cron": "^4.6.0"
   },
   "devDependencies": {

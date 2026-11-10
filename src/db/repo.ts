@@ -54,10 +54,14 @@ export class Repo {
     return this.db.prepare('SELECT * FROM players WHERE lower(game_name) = lower(?) AND lower(tag_line) = lower(?)')
       .get(gameName, tagLine) as PlayerRow | undefined;
   }
-  /** Players tracked by at least one guild. */
+  /** Players tracked by at least one guild or linked by at least one user: the poll set. */
   activePlayers() {
-    return this.db.prepare('SELECT p.* FROM players p WHERE EXISTS (SELECT 1 FROM tracked t WHERE t.puuid = p.puuid) ORDER BY p.created_at')
-      .all() as unknown as PlayerRow[];
+    return this.db.prepare(`
+      SELECT p.* FROM players p
+      WHERE EXISTS (SELECT 1 FROM tracked t WHERE t.puuid = p.puuid)
+         OR EXISTS (SELECT 1 FROM links l WHERE l.puuid = p.puuid)
+      ORDER BY p.created_at
+    `).all() as unknown as PlayerRow[];
   }
   renamePlayer(puuid: string, gameName: string, tagLine: string) {
     this.db.prepare('UPDATE players SET game_name = ?, tag_line = ? WHERE puuid = ?').run(gameName, tagLine, puuid);
@@ -76,9 +80,44 @@ export class Repo {
   }
   untrack(guildId: string, puuid: string): boolean {
     const r = this.db.prepare('DELETE FROM tracked WHERE guild_id = ? AND puuid = ?').run(guildId, puuid);
-    // Drop the player entirely once no guild tracks them, so we stop polling.
-    this.db.prepare('DELETE FROM players WHERE puuid = ? AND NOT EXISTS (SELECT 1 FROM tracked WHERE puuid = ?)').run(puuid, puuid);
+    this.dropIfOrphaned(puuid);
     return r.changes > 0;
+  }
+  /** Stop polling (and forget history of) a player nobody tracks or links anymore. */
+  private dropIfOrphaned(puuid: string) {
+    this.db.prepare(`
+      DELETE FROM players WHERE puuid = ?
+        AND NOT EXISTS (SELECT 1 FROM tracked WHERE puuid = ?)
+        AND NOT EXISTS (SELECT 1 FROM links WHERE puuid = ?)
+    `).run(puuid, puuid, puuid);
+  }
+
+  // ---- links ----
+  /** Returns the previously linked puuid, if any. */
+  link(discordUserId: string, puuid: string): string | null {
+    const prev = this.getLink(discordUserId);
+    this.db.prepare(`
+      INSERT INTO links (discord_user_id, puuid, linked_at) VALUES (?, ?, ?)
+      ON CONFLICT(discord_user_id) DO UPDATE SET puuid = excluded.puuid, linked_at = excluded.linked_at
+    `).run(discordUserId, puuid, this.now());
+    if (prev && prev.puuid !== puuid) this.dropIfOrphaned(prev.puuid);
+    return prev?.puuid ?? null;
+  }
+  unlink(discordUserId: string): PlayerRow | null {
+    const prev = this.getLink(discordUserId);
+    if (!prev) return null;
+    const player = this.getPlayer(prev.puuid) ?? null;
+    this.db.prepare('DELETE FROM links WHERE discord_user_id = ?').run(discordUserId);
+    this.dropIfOrphaned(prev.puuid);
+    return player;
+  }
+  getLink(discordUserId: string) {
+    return this.db.prepare('SELECT * FROM links WHERE discord_user_id = ?').get(discordUserId) as
+      { discord_user_id: string; puuid: string; linked_at: number } | undefined;
+  }
+  linkedPlayer(discordUserId: string): PlayerRow | undefined {
+    return this.db.prepare('SELECT p.* FROM players p JOIN links l ON l.puuid = p.puuid WHERE l.discord_user_id = ?')
+      .get(discordUserId) as PlayerRow | undefined;
   }
   trackedInGuild(guildId: string) {
     return this.db.prepare('SELECT p.* FROM players p JOIN tracked t ON t.puuid = p.puuid WHERE t.guild_id = ? ORDER BY p.game_name COLLATE NOCASE')
@@ -139,6 +178,10 @@ export class Repo {
   }
   getPlayerMatch(matchId: string, puuid: string) {
     return this.db.prepare('SELECT * FROM player_matches WHERE match_id = ? AND puuid = ?').get(matchId, puuid) as PlayerMatchRow | undefined;
+  }
+  latestDoneMatches(puuid: string, limit: number) {
+    return this.db.prepare("SELECT * FROM player_matches WHERE puuid = ? AND status = 'done' ORDER BY game_end DESC LIMIT ?")
+      .all(puuid, limit) as unknown as PlayerMatchRow[];
   }
   doneMatchesBetween(puuid: string, fromMs: number, toMs: number) {
     return this.db.prepare("SELECT * FROM player_matches WHERE puuid = ? AND status = 'done' AND game_end >= ? AND game_end < ? ORDER BY game_end")

@@ -1,11 +1,25 @@
+import { Client, Events, GatewayIntentBits } from 'discord.js';
 import { bootstrap, log } from './bootstrap.ts';
-import { config } from './config.ts';
+import { config, requireDiscord } from './config.ts';
+import { createInteractionHandler } from './discord/handlers.ts';
+import { LogSink } from './sinks/logSink.ts';
+import { TerminalSink } from './sinks/terminalSink.ts';
 
 /**
- * Long-running process: poll loop + minute scheduler for digests.
- * Discord client will be started here later; for now output goes to the terminal sink.
+ * Long-running process: Discord client (slash commands) + background poll loop.
+ * Commands-only: the poller records games/LP so /daily, /weekly and /leaderboard
+ * have data; nothing is posted unprompted.
  */
-const { service, repo, db } = bootstrap();
+const { token } = requireDiscord();
+const { service, repo, db } = bootstrap({
+  sink: config.previewGames ? new TerminalSink(config.previewDir) : new LogSink(log),
+});
+
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+client.on(Events.InteractionCreate, createInteractionHandler(service, log));
+client.once(Events.ClientReady, (c) => {
+  log(`Discord: logged in as ${c.user.tag} · ${c.guilds.cache.size} server(s)`);
+});
 
 let stopping = false;
 let pollTimer: NodeJS.Timeout | undefined;
@@ -16,7 +30,9 @@ async function pollLoop() {
   try {
     const players = repo.activePlayers().length;
     const r = await service.tick();
-    log(`tick: ${players} players, ${r.games} new games, ${r.requests} requests, ${((Date.now() - started) / 1000).toFixed(1)}s`);
+    if (r.games || r.requests > players) {
+      log(`tick: ${players} players, ${r.games} new games, ${r.requests} requests, ${((Date.now() - started) / 1000).toFixed(1)}s`);
+    }
   } catch (e) {
     log(`tick failed: ${(e as Error).stack}`);
   }
@@ -24,30 +40,26 @@ async function pollLoop() {
   pollTimer = setTimeout(pollLoop, config.pollIntervalSec * 1000);
 }
 
-const scheduler = setInterval(() => {
-  service.runDueDigests().catch((e) => log(`digest failed: ${(e as Error).message}`));
-}, 60_000);
-
-let lastNameRefresh = 0;
+let lastNameRefresh = Date.now();
 const renamer = setInterval(() => {
   if (Date.now() - lastNameRefresh < 24 * 3600_000) return;
   lastNameRefresh = Date.now();
   service.refreshNames().catch((e) => log(`name refresh failed: ${(e as Error).message}`));
 }, 3600_000);
 
-function shutdown() {
+async function shutdown() {
   if (stopping) return;
   stopping = true;
   log('shutting down');
   clearTimeout(pollTimer);
-  clearInterval(scheduler);
   clearInterval(renamer);
+  await client.destroy();
   db.close();
   process.exit(0);
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-log(`LeagueBot (terminal mode) · polling every ${config.pollIntervalSec}s · queues ${config.trackedQueues.join(',')} · preview: ${config.previewDir}/index.html`);
-void service.runDueDigests();
+log(`LeagueBot · polling every ${config.pollIntervalSec}s · queues ${config.trackedQueues.join(',')} · ${repo.activePlayers().length} players`);
+await client.login(token);
 void pollLoop();
