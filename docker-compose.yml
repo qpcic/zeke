@@ -1,0 +1,15 @@
+services:
+  bot:
+    # Either build on the server…
+    build: .
+    # …or pull the image CI publishes to GitHub Container Registry (comment out `build` then):
+    # image: ghcr.io/qpcic/leaguebot:latest
+    env_file: .env
+    environment:
+      DB_PATH: /app/data/leaguebot.db
+    volumes:
+      - ./data:/app/data      # SQLite DB + icon cache live on the host, survive rebuilds
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

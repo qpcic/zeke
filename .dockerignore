@@ -1,0 +1,11 @@
+node_modules
+dist
+data
+previews
+.env
+.git
+.github
+.idea
+_to_delete
+*.tgz
+test
