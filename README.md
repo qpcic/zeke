@@ -4,7 +4,7 @@
 
 **A League of Legends companion for Discord.**
 Zeke records every ranked game and LP change for your friends, and turns them into clean, shareable cards:
-profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards and ban plans for premade 5v5.
+profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards and Scout reports for premade 5v5.
 
 [Features](#features) · [Commands](#commands) · [Self-hosting](docs/self-hosting.md) · [How it works](docs/how-it-works.md)
 
@@ -22,7 +22,7 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
 - **Daily and weekly recaps:** every game of the day or week with champion, KDA, result and LP, plus the net total.
 - **LP graphs:** your climb over the last games, drawn on the tier and division ladder with your peak marked.
 - **Server leaderboards:** who climbed the most today or this week, with win/loss, LP trend and current rank.
-- **Premade scouting:** type one name from the enemy Ranked 5s or Flex team. Zeke finds their five-stack, works out each player's role and best champions, and suggests what to ban.
+- **Scout:** type one name from the enemy Ranked 5s or Flex team. Zeke finds their five-stack, works out each player's role and best champions, and suggests what to ban.
 - **Solo/Duo and Flex kept separate**, and every command also works with a `$` prefix (`$p`, `$rs`, `$lb`…).
 
 <table>
@@ -36,7 +36,7 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
     <td align="center"><img src="docs/images/graph.png" alt="LP graph" width="420"><br><sub><code>/graph</code> · LP over time</sub></td>
   </tr>
   <tr>
-    <td align="center" colspan="2"><img src="docs/images/scout.png" alt="Ban plan" width="860"><br><sub><code>/scout</code> · ban plan vs a premade</sub></td>
+    <td align="center" colspan="2"><img src="docs/images/scout.png" alt="Scout" width="860"><br><sub><code>/scout</code> · scout a premade</sub></td>
   </tr>
   -->
 </table>
@@ -56,7 +56,7 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 | `/daily [@user \| Name#TAG] [solo\|flex]` | Today's games and LP · `$d` |
 | `/weekly [@user \| Name#TAG] [solo\|flex]` | This week's games and LP · `$w` |
 | `/graph [@user \| Name#TAG] [games] [solo\|flex]` | LP graph over recorded games · `$g` |
-| `/scout <Name#TAG> [region]` | Ban plan vs that player's Ranked 5s / Flex team · `$ban` |
+| `/scout <Name#TAG> [region]` | Scout that player's Ranked 5s / Flex team: roles, best champs, bans · `$scout` |
 
 ### Server
 
@@ -84,8 +84,7 @@ git clone https://github.com/qpcic/zeke.git && cd zeke
 npm install
 npm run demo          # try it offline: simulated games, no keys needed
 cp .env.example .env  # add DISCORD_TOKEN, DISCORD_CLIENT_ID, RIOT_API_KEY
-npm run register      # register the slash commands
-npm run dev
+npm run dev           # slash commands register themselves on first start
 ```
 
 The full guide covers creating the Discord app, getting a Riot API key, Docker and Railway deploys, and moving your data between hosts: **[docs/self-hosting.md](docs/self-hosting.md)**.

@@ -63,7 +63,7 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
   queueOpt(userOpt(new SlashCommandBuilder().setName('weekly').setDescription("This week's games and LP")))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
-  new SlashCommandBuilder().setName('scout').setDescription("Ban plan vs a player's Flex / Ranked 5s team")
+  new SlashCommandBuilder().setName('scout').setDescription("Scout a player's Ranked 5s / Flex team: roles, best champs, bans")
     .addStringOption((o) => o.setName('riot_id').setDescription('Any player on the enemy team, e.g. Faker#KR1').setRequired(true).setMinLength(5).setMaxLength(22))
     .addStringOption((o) => o.setName('region').setDescription('Region (needed if the bot has never seen them)').addChoices(...regionChoices))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),

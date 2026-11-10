@@ -23,6 +23,8 @@ export const config = {
   discordToken: process.env.DISCORD_TOKEN ?? '',
   discordClientId: process.env.DISCORD_CLIENT_ID ?? '',
   devGuildId: process.env.DEV_GUILD_ID ?? '',
+  /** Register/update global slash commands on startup when their definitions changed (AUTO_REGISTER=0 to disable). */
+  autoRegister: process.env.AUTO_REGISTER !== '0',
   /** Your Discord user ID: allows owner-only commands like $import. */
   ownerId: process.env.OWNER_ID ?? '',
   /** Message prefix for text commands ("$recent"). Empty string disables (and drops the Message Content intent). */

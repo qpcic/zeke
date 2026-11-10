@@ -3,7 +3,7 @@ import { championName } from '../../assets/ddragon.ts';
 import { FIVES_WEIGHT, MIN_BAN_GAMES, winrate, type ChampStat, type MemberReport, type Role, type ScoutReport } from '../../core/scout.ts';
 import { C, createCanvas, decode, ensureFonts, fit, font, icon, rounded, type Image, type SKRSContext2D } from './canvas.ts';
 
-/** Ban plan PNG: 5 role columns (player, most played, ban picks) + team priority bans. */
+/** Scout PNG: 5 role columns (player, most played, ban picks) + team priority bans. */
 
 const W = 1240;
 const PAD = 20;
@@ -45,8 +45,8 @@ export async function renderBanPlan(r: ScoutReport, assets: AssetSource | null):
   ctx.fillRect(0, 0, W, 84);
   ctx.fillStyle = C.text;
   ctx.font = font(700, 30);
-  ctx.fillText('Ban plan', PAD + 8, 44);
-  const tw = ctx.measureText('Ban plan').width;
+  ctx.fillText('Scout', PAD + 8, 44);
+  const tw = ctx.measureText('Scout').width;
   ctx.fillStyle = C.sub;
   ctx.font = font(600, 20);
   ctx.fillText(fit(ctx, `vs ${r.target.name}#${r.target.tag}'s team`, 600), PAD + 20 + tw, 44);

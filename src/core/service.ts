@@ -168,8 +168,8 @@ export class Service {
     const png = await renderBanPlan(report, this.assets);
     const bans = report.priorityBans.map((b) => b.championName).join(', ');
     return {
-      embed: { color: 0xe74c3c, image: { url: 'attachment://banplan.png' }, footer: { text: bans ? `Priority bans: ${bans}` : 'No ban suggestions' } },
-      files: [{ name: 'banplan.png', data: png }],
+      embed: { color: 0xe74c3c, image: { url: 'attachment://scout.png' }, footer: { text: bans ? `Priority bans: ${bans}` : 'No ban suggestions' } },
+      files: [{ name: 'scout.png', data: png }],
     };
   }
 

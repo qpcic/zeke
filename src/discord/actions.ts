@@ -55,7 +55,7 @@ export function helpEmbed(p: string): Embed {
     `${c('graph [@user | Name#TAG [region]] [games] [solo|flex]')} LP graph`,
     `${c('daily')} · ${c('weekly')} games and LP (same arguments as recent)`,
     '_Accounts are tracked globally: once anyone adds or looks one up, its games are recorded everywhere._',
-    `${c('scout <Name#TAG> [region]')} ban plan vs their Flex/Ranked 5s team (aliases ${c('banfor')}, ${c('ban')})`,
+    `${c('scout <Name#TAG> [region]')} Scout a Ranked 5s / Flex team: roles, best champs, bans (aliases ${c('banfor')}, ${c('ban')})`,
     '',
     '**Server only**',
     `${c('leaderboard [daily|weekly] [solo|flex]')} LP leaderboard`,

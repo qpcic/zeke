@@ -60,7 +60,7 @@ src/
   riot/          Riot API client, rate limiter, region routing, Riot ID parsing
   db/            SQLite schema + migrations, typed repository
   core/          tracker (polling + LP), recaps, scouting, rank math, timezones, service layer
-  render/        embed builders; render/image/ = canvas cards (scoreboard, graph, leaderboard, recap, profile, ban plan)
+  render/        embed builders; render/image/ = canvas cards (scoreboard, graph, leaderboard, recap, profile, scout)
   assets/        Data Dragon / CommunityDragon client with disk cache
   discord/       slash commands, $ prefix parser, handlers, registration
   tools/         export-db

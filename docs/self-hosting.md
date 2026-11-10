@@ -43,17 +43,19 @@ cp .env.example .env
 | `DB_PATH` | | SQLite file (default `./data/leaguebot.db`) |
 | `POLL_INTERVAL_SEC` | | Seconds between polls (default `120`) |
 | `TRACKED_QUEUES` | | Queues to record (default `420,440` = Solo/Duo, Flex) |
+| `AUTO_REGISTER` | | `0` = don't register slash commands on startup (default: on) |
 | `DEV_GUILD_ID` | | Test server for `npm run register -- --guild` |
 
 ## 4. Run locally
 
 ```bash
 npm install
-npm run register    # once, and again whenever commands change
 npm run dev
 ```
 
 Other scripts:
+Slash commands are registered automatically on startup whenever their definitions change (`AUTO_REGISTER=0` turns this off; `npm run register` does it by hand). Discord can take a minute to show new commands. Press Ctrl+R in Discord if they don't appear.
+
 - `npm run demo`: offline demo with a simulated Riot API; no keys needed.
 - `npm test`: test suite.
 - `npm run build && npm start`: production build.
@@ -77,7 +79,6 @@ Every push to `main` redeploys. Each start logs `database /app/data/leaguebot.db
 git clone https://github.com/qpcic/zeke.git && cd zeke
 cp .env.example .env && nano .env
 docker compose up -d --build
-docker compose run --rm bot node dist/discord/register.js   # register slash commands
 docker compose logs -f
 ```
 
