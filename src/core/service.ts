@@ -11,7 +11,6 @@ import { renderLeaderboard, type LeaderboardRow } from '../render/image/leaderbo
 import { renderRecap, type RecapGame, type RecapHeader } from '../render/image/recap.ts';
 import { renderBanPlan } from '../render/image/banplan.ts';
 import { renderProfile, type ProfileData, type QueueCard } from '../render/image/profile.ts';
-import { approxTopPercent, formatTopPercent } from './ladder.ts';
 import { isApex } from './rank.ts';
 import { scoutTeam } from './scout.ts';
 import { formatRank } from './rank.ts';
@@ -199,16 +198,14 @@ export class Service {
     ]);
     const card = async (queueType: string, label: string): Promise<QueueCard> => {
       const e = entries.find((x) => x.queueType === queueType);
-      if (!e) return { label, rank: null, wins: 0, losses: 0, ladderPos: null, topPercent: null, hotStreak: false };
+      if (!e) return { label, rank: null, wins: 0, losses: 0, ladderPos: null, hotStreak: false };
       const rank = { tier: e.tier, division: e.rank, lp: e.leaguePoints };
       let ladderPos: string | null = null;
-      let topPercent: string | null = null;
       if (isApex(e.tier)) {
         const ap = await this.apexPosition(player.platform, queueType, player.puuid).catch(() => null);
         if (ap) ladderPos = `#${ap.pos.toLocaleString('en-US')} on ${PLATFORM_LABEL[player.platform]}`;
       }
-      if (queueType === 'RANKED_SOLO_5x5') topPercent = `${isApex(e.tier) ? 'top' : '≈ top'} ${formatTopPercent(approxTopPercent(rank))}%`;
-      return { label, rank, wins: e.wins, losses: e.losses, ladderPos, topPercent, hotStreak: e.hotStreak };
+      return { label, rank, wins: e.wins, losses: e.losses, ladderPos, hotStreak: e.hotStreak };
     };
     const queues = await Promise.all([card('RANKED_SOLO_5x5', 'Solo/Duo'), card('RANKED_FLEX_SR', 'Flex'), card('RANKED_PREMADE_5x5', 'Ranked 5s')]);
     const recent = this.repo.lpHistory(player.puuid, SOLO, 10).map((r) => !!r.win);
@@ -223,7 +220,7 @@ export class Service {
     };
     const png = await renderProfile(data, this.assets);
     return {
-      embed: { color: queues.some((q) => q.rank) ? 0x5865f2 : 0x4f545c, image: { url: 'attachment://profile.png' }, footer: { text: 'Top % below Master is an estimate from public rank distribution data' } },
+      embed: { color: queues.some((q) => q.rank) ? 0x5865f2 : 0x4f545c, image: { url: 'attachment://profile.png' } },
       files: [{ name: 'profile.png', data: png }],
     };
   }

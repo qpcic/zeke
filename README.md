@@ -78,8 +78,7 @@ The CLI still works for debugging without Discord: `npm run cli -- add EUW "Name
 
 ## Profile ladder position
 
-- **Master, Grandmaster, Challenger:** the exact position ("#152 on EUNE"), from Riot's apex ladders (3 requests, cached 30 min).
-- **Below Master:** Riot has no endpoint, so the card shows **≈ top X%**, interpolated by LP from a public Solo/Duo distribution census (Aug 2026, `src/core/ladder.ts`). Update the table there when you find fresher numbers.
+For Master, Grandmaster and Challenger the card shows the exact ladder position ("#152 on EUNE"), from Riot's apex ladders (3 requests, cached 30 min). Below Master Riot has no ladder endpoint, so no position is shown.
 
 ## Ban plan (`$banfor Name#TAG [region]`)
 

@@ -217,12 +217,7 @@ test('solo and flex are tracked separately in daily/weekly and leaderboard', asy
   assert.deepEqual([lbFlex[0]!.lpNet, lbFlex[0]!.queueLabel, lbFlex[0]!.results], [-31, 'Flex', [false, false]]);
 });
 
-test('/profile: rank cards, ladder position for Master+, estimate below, mastery champs', async () => {
-  const { approxTopPercent } = await import('../src/core/ladder.ts');
-  assert.ok(Math.abs(approxTopPercent({ tier: 'EMERALD', division: 'IV', lp: 0 }) - 16.09) < 0.01);
-  assert.ok(approxTopPercent({ tier: 'DIAMOND', division: 'I', lp: 99 }) < 0.75);
-  assert.ok(approxTopPercent({ tier: 'GOLD', division: 'II', lp: 50 }) > approxTopPercent({ tier: 'GOLD', division: 'I', lp: 0 }));
-
+test('/profile: rank cards, exact ladder position for Master+, mastery champs', async () => {
   const { mock, service } = setup();
   mock.addAccount('Apex Guy', 'EUNE', 'EUN1', [{ queueType: 'RANKED_SOLO_5x5', tier: 'MASTER', rank: 'I', lp: 984, wins: 251, losses: 219 }]);
   const { player } = await service.linkUser('u1', 'EUNE', 'Apex Guy#EUNE');
@@ -236,7 +231,7 @@ test('/profile: rank cards, ladder position for Master+, estimate below, mastery
 
 test('profile queue cards sort by tier, division, LP; unranked last', async () => {
   const { sortQueues } = await import('../src/render/image/profile.ts');
-  const q = (label: string, rank: { tier: string; division: string; lp: number } | null) => ({ label, rank, wins: 1, losses: 1, ladderPos: null, topPercent: null, hotStreak: false });
+  const q = (label: string, rank: { tier: string; division: string; lp: number } | null) => ({ label, rank, wins: 1, losses: 1, ladderPos: null, hotStreak: false });
   const out = sortQueues([
     q('Solo/Duo', { tier: 'MASTER', division: 'I', lp: 1100 }),
     q('Flex', null),

@@ -1,7 +1,7 @@
 import type { AssetSource, StaticData } from '../../assets/ddragon.ts';
 import { championName } from '../../assets/ddragon.ts';
 import { compareDivision, isApex } from '../../core/rank.ts';
-import { C, createCanvas, decode, ensureFonts, fit, font, icon, rounded, type Image, type SKRSContext2D } from './canvas.ts';
+import { C, createCanvas, decode, ensureFonts, fit, font, icon, rounded, trimTransparent, type Image, type SKRSContext2D } from './canvas.ts';
 
 /** Player profile card: icon, name, region, Solo/Flex rank cards with W/L + ladder, top champions. */
 
@@ -12,8 +12,6 @@ export interface QueueCard {
   losses: number;
   /** "#152 on EUNE" for Master+, else null */
   ladderPos: string | null;
-  /** "top 0.04%" / "≈ top 12%" */
-  topPercent: string | null;
   hotStreak: boolean;
 }
 export interface ProfileData {
@@ -211,7 +209,7 @@ function drawQueue(ctx: SKRSContext2D, x: number, y: number, w: number, h: numbe
   }
 
   const es = 84;
-  if (emblem) ctx.drawImage(emblem, cx - es / 2, y + 40, es, es);
+  if (emblem) ctx.drawImage(trimTransparent(emblem), cx - es / 2, y + 40, es, es);
   else crest(ctx, cx, y + 40 + es / 2, 36, color, q.rank.tier.charAt(0));
 
   ctx.textAlign = 'center';
@@ -222,11 +220,10 @@ function drawQueue(ctx: SKRSContext2D, x: number, y: number, w: number, h: numbe
   ctx.fillStyle = C.text;
   ctx.font = font(600, 16);
   ctx.fillText(`${q.rank.lp} LP`, cx, y + 172);
-  const ladder = [q.ladderPos, q.topPercent].filter(Boolean).join(' · ');
-  if (ladder) {
+  if (q.ladderPos) {
     ctx.fillStyle = C.sub;
-    ctx.font = font(400, 12);
-    ctx.fillText(fit(ctx, ladder, w - 20), cx, y + 192);
+    ctx.font = font(600, 13);
+    ctx.fillText(fit(ctx, q.ladderPos, w - 20), cx, y + 194);
   }
   ctx.textAlign = 'left';
 
