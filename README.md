@@ -82,11 +82,11 @@ For Master, Grandmaster and Challenger the card shows the exact ladder position 
 
 ## Ban plan (`$scout Name#TAG [region]`)
 
-Scouts a premade team from one name, using the player's last 50 Flex + Ranked 5s games:
+Scouts a premade team from one name, using the player's last 50 team games. Ranked 5s games are taken first, and Flex fills the rest. **Ranked 5s carries 90% of the weight** (`FIVES_WEIGHT` in `src/core/scout.ts`) in teammate detection, roles and ban ranking, so their real 5-stack and 5s picks win over Flex regulars and Flex-only stomps:
 1. **Team:** the player plus the 4 allies who appear most often (at least 3 shared games).
 2. **Roles:** the best overall assignment of everyone's positions across those games, so two mids get split sensibly.
 3. **Bans per player:** of their 10 most played champions, the 3 with the best winrate. A champion needs at least **5 games** to count, so 3W 0L flukes are ignored.
-4. **Priority bans:** the team's top 5 overall, ranked by winrate (smoothed) × how often it's played.
+4. **Priority bans:** the team's top 5 overall, ranked by winrate (smoothed) × how often it's played. Winrates are queue-weighted and pulled toward 50% for small weighted samples, so a 9W 1L in Flex doesn't outrank a strong Ranked 5s pick.
 
 The Ranked 5s queue ID isn't documented. The first scan finds it automatically (ranked games that are neither Solo/Duo nor Flex) and stores it in the database. Scouted players are **not** added to tracking. A cold scan costs ~50–55 Riot requests (cached afterwards), so it can take ~1 minute on a dev or personal key. Set `DEFAULT_REGION=EUNE` to skip typing the region.
 
