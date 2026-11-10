@@ -47,7 +47,7 @@ test('linked account stays polled when untracked from a server', async () => {
   assert.equal(repo.activePlayers().length, 1);
 });
 
-test('/recent: recorded game shows LP; game before tracking says unrecorded; normals have no LP line', async () => {
+test('/recent: recorded game shows LP; before tracking says n/a; queue-scoped (solo default, flex on request)', async () => {
   const { mock, service, clock } = setup();
   const a = mock.addAccount('Recent', 'EUW', 'EUW1', ranks('EMERALD', 'II', 40));
   mock.play({ players: [{ puuid: a.puuid, team: 100, champion: 'Ahri' }], winner: 100 });
@@ -69,12 +69,14 @@ test('/recent: recorded game shows LP; game before tracking says unrecorded; nor
   assert.match(e.title!, /Victory · Jinx/);
   assert.match(e.description!, /\+24 LP/);
 
+  // a later flex game doesn't change solo /recent; queue=flex shows it
   clock.advance(30 * MIN);
-  mock.play({ players: [{ puuid: a.puuid, team: 100, champion: 'Lux' }], winner: 200, queueId: 450 });
+  mock.play({ players: [{ puuid: a.puuid, team: 100, champion: 'Lux' }], winner: 200, queueId: 440 });
   e = (await service.recent(player)).embed;
+  assert.match(e.title!, /Victory · Jinx/);
+  e = (await service.recent(player, 440)).embed;
   assert.match(e.title!, /Defeat · Lux/);
-  assert.equal(e.description, undefined);
-  assert.match(e.footer!.text, /ARAM/);
+  assert.match(e.footer!.text, /Ranked Flex/);
   assert.deepEqual(validateEmbed(e), []);
 });
 
@@ -85,7 +87,7 @@ test('/daily and /weekly personal recaps render as images', async () => {
 
   const none = await service.personalRecap(player, 'daily');
   assert.equal(none.files.length, 0);
-  assert.match(none.embed.description!, /No ranked games today yet/);
+  assert.match(none.embed.description!, /No Solo\/Duo games today yet/);
 
   for (const [win, lp, champ] of [[true, 21, 'Ahri'], [false, -17, 'Jinx'], [true, 19, 'Lux']] as const) {
     clock.advance(35 * MIN);
@@ -93,7 +95,7 @@ test('/daily and /weekly personal recaps render as images', async () => {
     await service.tick();
   }
   const d = service.recapData(player, 'daily')!;
-  assert.deepEqual([d.header.title, d.header.games, d.header.wins, d.header.losses, d.header.lpNet], ['Today', 3, 2, 1, 23]);
+  assert.deepEqual([d.header.title, d.header.games, d.header.wins, d.header.losses, d.header.lpNet], ['Today · Solo/Duo', 3, 2, 1, 23]);
   assert.deepEqual(d.games.map((g) => [g.championName, g.result, g.lpDelta]), [['Lux', 'win', 19], ['Jinx', 'loss', -17], ['Ahri', 'win', 21]], 'newest first');
   assert.deepEqual(d.header.rank, { tier: 'GOLD', division: 'II', lp: 73, queue: 'Solo/Duo' });
 
@@ -117,7 +119,7 @@ test('/leaderboard: image of accounts that played, zero-game accounts hidden', a
 
   const empty = await service.leaderboard('g1', 'daily');
   assert.equal(empty.files.length, 0);
-  assert.match(empty.embed.description!, /No ranked games played today by the 3 tracked accounts/);
+  assert.match(empty.embed.description!, /No Solo\/Duo games played today by the 3 tracked accounts/);
   assert.match((await service.leaderboard('nobody', 'weekly')).embed.description!, /No accounts tracked/);
 
   clock.advance(30 * MIN);
@@ -186,4 +188,31 @@ test('idle players are skipped until due', async () => {
   await service.tick();
   assert.ok(mock.calls.some((c) => c.endsWith('/ids')));
   assert.equal(repo.getPlayer(a.puuid)!.next_poll_at, clock.now(), 'just played: back to every tick');
+});
+
+test('solo and flex are tracked separately in daily/weekly and leaderboard', async () => {
+  const { mock, service, clock } = setup(Date.UTC(2026, 10, 10, 8, 0, 0));
+  const a = mock.addAccount('Both Queues', 'EUW', 'EUW1', [
+    { queueType: 'RANKED_SOLO_5x5', tier: 'GOLD', rank: 'II', lp: 50, wins: 1, losses: 1 },
+    { queueType: 'RANKED_FLEX_SR', tier: 'SILVER', rank: 'I', lp: 20, wins: 1, losses: 1 },
+  ]);
+  const { player } = await service.linkUser('u1', 'EUW', 'Both Queues#EUW');
+  await service.addPlayer('g1', 'EUW', 'Both Queues#EUW');
+  for (const [q, win, lp] of [[420, true, 20], [440, false, -15], [440, false, -16], [420, true, 22]] as const) {
+    clock.advance(35 * MIN);
+    mock.play({ players: [{ puuid: a.puuid, team: 100 }], winner: win ? 100 : 200, queueId: q, lp: { [a.puuid]: lp } });
+    await service.tick();
+  }
+  const solo = service.recapData(player, 'daily')!;
+  assert.deepEqual([solo.header.games, solo.header.wins, solo.header.lpNet, solo.header.rank!.tier], [2, 2, 42, 'GOLD']);
+  const flex = service.recapData(player, 'daily', 440)!;
+  assert.deepEqual([flex.header.games, flex.header.losses, flex.header.lpNet, flex.header.rank!.tier, flex.header.title], [2, 2, -31, 'SILVER', 'Today · Flex']);
+
+  const { computeDigest } = await import('../src/core/digest.ts');
+  const { today } = await import('../src/core/time.ts');
+  const period = today(clock.now(), 'Europe/Ljubljana');
+  const lbSolo = service.leaderboardRows(computeDigest((service as any).repo, 'g1', 'adhoc', period, 420).players, period, 420);
+  const lbFlex = service.leaderboardRows(computeDigest((service as any).repo, 'g1', 'adhoc', period, 440).players, period, 440);
+  assert.deepEqual([lbSolo[0]!.lpNet, lbSolo[0]!.queueLabel, lbSolo[0]!.results], [42, 'Solo/Duo', [true, true]]);
+  assert.deepEqual([lbFlex[0]!.lpNet, lbFlex[0]!.queueLabel, lbFlex[0]!.results], [-31, 'Flex', [false, false]]);
 });

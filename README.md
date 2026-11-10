@@ -17,14 +17,16 @@ The bot never posts on its own. A background poller records every ranked game an
 |---|---|---|
 | `/link region riot_id` | anywhere | Link your Riot account (one per Discord user) |
 | `/unlink` | anywhere | Remove your link |
-| `/recent [user\|riot_id] [region]` | anywhere | Most recent game as a rendered scoreboard image; LP shown if it was recorded |
-| `/graph [user\|riot_id] [region] [queue] [games]` | anywhere | LP-over-games chart on tier bands, with peak, current rank and W/L strip |
-| `/daily [user\|riot_id] [region]` | anywhere | Today's games, W/L and LP |
-| `/weekly [user\|riot_id] [region]` | anywhere | This week's (Mon–Sun) games, W/L and LP |
+| `/recent [user\|riot_id] [region] [queue]` | anywhere | Most recent game as a rendered scoreboard image; LP shown if it was recorded |
+| `/graph [user\|riot_id] [region] [games] [queue]` | anywhere | LP-over-games chart on tier bands, with peak, current rank and W/L strip |
+| `/daily [user\|riot_id] [region] [queue]` | anywhere | Today's games, W/L and LP |
+| `/weekly [user\|riot_id] [region] [queue]` | anywhere | This week's (Mon–Sun) games, W/L and LP |
 | `/track add region riot_id` | server, Manage Server | Track an account in this server |
 | `/track remove account` | server, Manage Server | Remove from this server's leaderboard (autocomplete) |
 | `/track list` | server, Manage Server | List tracked accounts |
-| `/leaderboard period` | server | LP leaderboard of tracked accounts, today or this week |
+| `/leaderboard period [queue]` | server | LP leaderboard of tracked accounts, today or this week |
+
+**Queues:** Solo/Duo and Flex are tracked separately. Every stats command takes the queue as its **last** argument (`solo` or `flex`; default Solo/Duo), e.g. `$daily @friend flex`, `$graph ferks kitten#retro 30 flex`, `$lb week flex`.
 
 "Anywhere" means servers, the bot's DMs and group DMs. That needs the app to be user-installable.
 

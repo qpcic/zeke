@@ -227,9 +227,11 @@ export class MockRiot {
       const startTime = Number(url.searchParams.get('startTime') ?? 0) * 1000;
       const count = Number(url.searchParams.get('count') ?? 20);
       const type = url.searchParams.get('type');
+      const queue = url.searchParams.get('queue');
       const ids = (this.matchIds.get(m[1]!) ?? []).filter((id) => {
         const mm = this.matches.get(id)!;
         if (type === 'ranked' && !QUEUE_TYPE_BY_ID[mm.info.queueId]) return false;
+        if (queue && mm.info.queueId !== Number(queue)) return false;
         return mm.info.gameStartTimestamp >= startTime;
       });
       return json(ids.slice(0, count));

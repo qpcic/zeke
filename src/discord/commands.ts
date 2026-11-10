@@ -4,6 +4,7 @@ import {
   PermissionFlagsBits,
   SlashCommandBuilder,
   type RESTPostAPIChatInputApplicationCommandsJSONBody,
+  type SlashCommandOptionsOnlyBuilder,
 } from 'discord.js';
 import { PLATFORM_LABEL, PLATFORMS } from '../riot/regions.ts';
 
@@ -28,7 +29,12 @@ const withRegionAndId = (b: SlashCommandBuilder) =>
     .addStringOption((o) => o.setName('riot_id').setDescription('Riot ID, e.g. Faker#KR1').setRequired(true).setMinLength(5).setMaxLength(22));
 
 /** Who to show: a Discord user's linked account, or any Riot ID (+region if the bot hasn't seen it). */
-const userOpt = (b: SlashCommandBuilder) =>
+/** Queue option: always added LAST so it's the final argument in every command. */
+const queueOpt = (b: SlashCommandOptionsOnlyBuilder) =>
+  b.addStringOption((o) => o.setName('queue').setDescription('Queue (default Solo/Duo)')
+    .addChoices({ name: 'Solo/Duo', value: '420' }, { name: 'Flex', value: '440' }));
+
+const userOpt = (b: SlashCommandOptionsOnlyBuilder) =>
   b
     .addUserOption((o) => o.setName('user').setDescription('Show a Discord user (their /link-ed account)'))
     .addStringOption((o) => o.setName('riot_id').setDescription('Or any Riot ID, e.g. Faker#KR1').setMinLength(5).setMaxLength(22))
@@ -41,19 +47,17 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
   new SlashCommandBuilder().setName('unlink').setDescription('Remove your linked Riot account')
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
-  userOpt(new SlashCommandBuilder().setName('recent').setDescription('Show the most recent game'))
+  queueOpt(userOpt(new SlashCommandBuilder().setName('recent').setDescription('Show the most recent game')))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
-  userOpt(new SlashCommandBuilder().setName('graph').setDescription('LP graph over recorded games'))
-    .addStringOption((o) => o.setName('queue').setDescription('Queue (default Solo/Duo)')
-      .addChoices({ name: 'Solo/Duo', value: '420' }, { name: 'Flex', value: '440' }))
-    .addIntegerOption((o) => o.setName('games').setDescription('How many recent games (default 50)').setMinValue(5).setMaxValue(200))
+  queueOpt(userOpt(new SlashCommandBuilder().setName('graph').setDescription('LP graph over recorded games'))
+    .addIntegerOption((o) => o.setName('games').setDescription('How many recent games (default 50)').setMinValue(5).setMaxValue(200)))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
-  userOpt(new SlashCommandBuilder().setName('daily').setDescription("Today's games and LP"))
+  queueOpt(userOpt(new SlashCommandBuilder().setName('daily').setDescription("Today's games and LP")))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
-  userOpt(new SlashCommandBuilder().setName('weekly').setDescription("This week's games and LP"))
+  queueOpt(userOpt(new SlashCommandBuilder().setName('weekly').setDescription("This week's games and LP")))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
   new SlashCommandBuilder().setName('track').setDescription('Manage accounts tracked in this server')
@@ -69,10 +73,10 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
     .addSubcommand((s) => s.setName('list').setDescription('List tracked accounts'))
     .toJSON(),
 
-  new SlashCommandBuilder().setName('leaderboard').setDescription('LP leaderboard for accounts tracked in this server')
-    .setIntegrationTypes(SERVER_ONLY.integrations).setContexts(SERVER_ONLY.contexts)
+  queueOpt(new SlashCommandBuilder().setName('leaderboard').setDescription('LP leaderboard for accounts tracked in this server')
     .addStringOption((o) => o.setName('period').setDescription('Time window').setRequired(true)
-      .addChoices({ name: 'Today', value: 'daily' }, { name: 'This week', value: 'weekly' }))
+      .addChoices({ name: 'Today', value: 'daily' }, { name: 'This week', value: 'weekly' })))
+    .setIntegrationTypes(SERVER_ONLY.integrations).setContexts(SERVER_ONLY.contexts)
     .toJSON(),
 ];
 

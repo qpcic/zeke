@@ -1,5 +1,5 @@
 import { formatRank } from '../core/rank.ts';
-import { UserError, type Reply, type Service } from '../core/service.ts';
+import { SOLO, UserError, type Reply, type Service } from '../core/service.ts';
 import type { PlayerRow } from '../db/repo.ts';
 import { COLORS, type Embed } from '../render/embed.ts';
 import { PLATFORM_LABEL } from '../riot/regions.ts';
@@ -50,15 +50,16 @@ export function helpEmbed(p: string): Embed {
   return info('Zeke commands', [
     `${c('link <region> <Name#TAG>')} link your Riot account`,
     `${c('unlink')} remove your link`,
-    `${c('recent [@user | Name#TAG [region]]')} latest game scoreboard`,
-    `${c('graph [solo|flex] [games] [@user | Name#TAG [region]]')} LP graph`,
-    `${c('daily')} · ${c('weekly')} games and LP (same targets as above)`,
+    `${c('recent [@user | Name#TAG [region]] [solo|flex]')} latest game scoreboard`,
+    `${c('graph [@user | Name#TAG [region]] [games] [solo|flex]')} LP graph`,
+    `${c('daily')} · ${c('weekly')} games and LP (same arguments as recent)`,
     '_Accounts are tracked globally: once anyone adds or looks one up, its games are recorded everywhere._',
     '',
     '**Server only**',
-    `${c('leaderboard [daily|weekly]')} LP leaderboard`,
+    `${c('leaderboard [daily|weekly] [solo|flex]')} LP leaderboard`,
     `${c('track add <region> <Name#TAG>')} · ${c('track remove <Name#TAG>')} · ${c('track list')} (Manage Server)`,
     '',
+    '_Queue is always the last argument; default is Solo/Duo._',
     `Regions: ${Object.values(PLATFORM_LABEL).join(' ')}`,
   ].join('\n'));
 }
@@ -106,12 +107,12 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
     }
 
     case 'recent':
-      return withNote(await service.recent(await target()));
+      return withNote(await service.recent(await target(), req.queue ?? SOLO));
 
     case 'graph': {
       const pl = await target();
       try {
-        return withNote(await service.graph(pl, req.queue ?? 420, Math.min(200, Math.max(5, req.games ?? 50))));
+        return withNote(await service.graph(pl, req.queue ?? SOLO, Math.min(200, Math.max(5, req.games ?? 50))));
       } catch (e) {
         if (newNote && e instanceof UserError) throw new UserError(`${newNote} The graph fills up as they play.`);
         throw e;
@@ -120,10 +121,10 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
 
     case 'daily':
     case 'weekly':
-      return withNote(await service.personalRecap(await target(), req.name));
+      return withNote(await service.personalRecap(await target(), req.name, req.queue ?? SOLO));
 
     case 'leaderboard':
-      return service.leaderboard(needGuild(), req.period ?? 'daily');
+      return service.leaderboard(needGuild(), req.period ?? 'daily', req.queue ?? SOLO);
 
     case 'track': {
       const guildId = needGuild();

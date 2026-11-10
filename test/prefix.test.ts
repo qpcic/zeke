@@ -17,8 +17,13 @@ test('parsePrefix: commands, aliases, args, mentions', () => {
   const l = parsePrefix('$link eune ferks kitten#retro', '$', ctx)!;
   assert.deepEqual([l.name, l.region, l.riotId], ['link', 'eune', 'ferks kitten#retro']);
 
-  const g = parsePrefix('$graph flex 30 <@123456789>', '$', { ...ctx, mentionedUserId: '123456789' })!;
+  const g = parsePrefix('$graph <@123456789> 30 flex', '$', { ...ctx, mentionedUserId: '123456789' })!;
   assert.deepEqual([g.queue, g.games, g.targetUserId], [440, 30, '123456789']);
+  assert.equal(parsePrefix('$graph 30', '$', ctx)!.queue, undefined, 'no queue -> service default (solo)');
+  assert.equal(parsePrefix('$daily flex', '$', ctx)!.queue, 440);
+  assert.equal(parsePrefix('$recent solo', '$', ctx)!.queue, 420);
+  const lbq = parsePrefix('$lb week flex', '$', ctx)!;
+  assert.deepEqual([lbq.period, lbq.queue], ['weekly', 440]);
 
   assert.equal(parsePrefix('$lb week', '$', ctx)!.period, 'weekly');
   assert.equal(parsePrefix('$leaderboard', '$', ctx)!.period, 'daily');
@@ -41,7 +46,7 @@ test('prefix flow end to end: link, recent, track needs Manage Server, server-on
   assert.match(linked.embed.title!, /Linked ferks kitten#retro/);
   assert.match(linked.embed.description!, /`\$daily`/, 'usage hints use the prefix style');
 
-  await assert.rejects(run('$recent'), /No games found/);
+  await assert.rejects(run('$recent'), /No Solo\/Duo games found/);
   await assert.rejects(run('$recent', { callerId: 'u2' }), /You have no linked account. Use `\$link`/);
 
   await assert.rejects(run('$track add EUNE ferks kitten#retro'), /Manage Server/);
@@ -52,7 +57,7 @@ test('prefix flow end to end: link, recent, track needs Manage Server, server-on
 
   await assert.rejects(run('$leaderboard', { guildId: null }), /only works in a server/);
   await assert.rejects(run('$link EUNE'), /Usage: `\$link <region> <Name#TAG>`/);
-  assert.match((await run('$help')).embed.description!, /\$graph \[solo\|flex\]/);
+  assert.match((await run('$help')).embed.description!, /\$graph .*\[games\] \[solo\|flex\]/);
 });
 
 test('extractRiotId handles spaces, keywords and regions around the ID', async () => {
@@ -61,7 +66,7 @@ test('extractRiotId handles spaces, keywords and regions around the ID', async (
   assert.deepEqual(extractRiotId(['flex', '30', 'ferks', 'kitten#retro']), { riotId: 'ferks kitten#retro', rest: ['flex', '30'] });
   assert.deepEqual(extractRiotId(['tilted', 'luka#420']), { riotId: 'tilted luka#420', rest: [] });
   assert.deepEqual(extractRiotId(['flex']), { rest: ['flex'] });
-  const g = parsePrefix('$g EUNE ferks kitten#retro flex 20', '$', ctx)!;
+  const g = parsePrefix('$g EUNE ferks kitten#retro 20 flex', '$', ctx)!;
   assert.deepEqual([g.riotId, g.region, g.queue, g.games], ['ferks kitten#retro', 'EUNE', 440, 20]);
 });
 
@@ -73,7 +78,7 @@ test('global tracking: look up anyone by Riot ID from any server; region only ne
   await assert.rejects(run('$daily Global Guy#EUW'), /don't know \*\*Global Guy#EUW\*\* yet. Add the region/);
   const first = await run('$daily Global Guy#EUW euw');
   assert.match(first.embed.description!, /Started tracking \*\*Global Guy#EUW\*\*/);
-  assert.match(first.embed.description!, /No ranked games today/);
+  assert.match(first.embed.description!, /No Solo\/Duo games today/);
   assert.equal(repo.activePlayers().length, 1);
 
   clock.advance(30 * 60_000);
