@@ -6,7 +6,7 @@ import type { LeagueEntryDto } from '../riot/types.ts';
 import { buildAdjustmentEmbed, buildDigestEmbed } from '../render/digestEmbed.ts';
 import { buildGameEmbed } from '../render/gameEmbed.ts';
 import type { Sink } from '../sinks/sink.ts';
-import { computeDigest, playerStats, type Digest, type PlayerDigest } from './digest.ts';
+import { computeDigest, digestFor, playerStats, type Digest, type PlayerDigest } from './digest.ts';
 import { renderLeaderboard, type LeaderboardRow } from '../render/image/leaderboard.ts';
 import { renderRecap, type RecapGame, type RecapHeader } from '../render/image/recap.ts';
 import { renderBanPlan } from '../render/image/banplan.ts';
@@ -385,22 +385,39 @@ export class Service {
   /** Server leaderboard image: only accounts that played in the period, sorted by LP gained. */
   async leaderboard(guildId: string, kind: 'daily' | 'weekly', queueId = SOLO): Promise<Reply> {
     const g = this.guild(guildId);
-    const period = kind === 'daily' ? today(this.now(), g.timezone) : thisWeek(this.now(), g.timezone);
-    const d = computeDigest(this.repo, guildId, 'adhoc', period, queueId);
-    const title = `Leaderboard · ${kind === 'daily' ? 'Today' : 'This week'} · ${queueName(queueId)}`;
+    return this.leaderboardFor(this.repo.trackedInGuild(guildId), g.timezone, kind, queueId, {
+      title: `Leaderboard · ${kind === 'daily' ? 'Today' : 'This week'} · ${queueName(queueId)}`,
+      none: 'No accounts tracked in this server yet. Use `/track add` or `$track add`.',
+      who: 'tracked account',
+    });
+  }
+
+  /** Admin: leaderboard across every account the bot knows (all servers, links and lookups). */
+  async globalLeaderboard(kind: 'daily' | 'weekly', queueId = SOLO): Promise<Reply> {
+    return this.leaderboardFor(this.repo.activePlayers(), this.defaultTz, kind, queueId, {
+      title: `Global leaderboard · ${kind === 'daily' ? 'Today' : 'This week'} · ${queueName(queueId)}`,
+      none: 'No accounts known yet.',
+      who: 'known account',
+    });
+  }
+
+  private async leaderboardFor(list: PlayerRow[], tz: string, kind: 'daily' | 'weekly', queueId: number, text: { title: string; none: string; who: string }): Promise<Reply> {
+    const period = kind === 'daily' ? today(this.now(), tz) : thisWeek(this.now(), tz);
+    const d = digestFor(this.repo, list, 'adhoc', period, queueId);
+    const { title } = text;
     const played = d.players.filter((p) => p.games > 0);
 
     if (!played.length) {
       const msg = d.players.length
-        ? `No ${queueName(queueId)} games played ${kind === 'daily' ? 'today' : 'this week'} by the ${d.players.length} tracked account${d.players.length === 1 ? '' : 's'}. 💤`
-        : 'No accounts tracked in this server yet. Use `/track add` or `$track add`.';
+        ? `No ${queueName(queueId)} games played ${kind === 'daily' ? 'today' : 'this week'} by the ${d.players.length} ${text.who}${d.players.length === 1 ? '' : 's'}. 💤`
+        : text.none;
       return { embed: { title, description: msg, color: 0x5865f2 }, files: [] };
     }
 
     const rows = this.leaderboardRows(played, period, queueId).slice(0, 20);
     const sd = this.assets ? await this.assets.staticData(rows.find((r) => r.champ)?.champ?.version ?? '99.99').catch(() => null) : null;
     const t = d.totals;
-    const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: g.timezone, weekday: 'short', day: 'numeric', month: 'short' });
+    const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' });
     const subtitle = kind === 'daily' ? fmt.format(period.from) : `${fmt.format(period.from)} – ${fmt.format(period.to - 1)}`;
     try {
       const png = await renderLeaderboard(rows, {
@@ -414,6 +431,39 @@ export class Service {
       this.log(`leaderboard render failed, using text: ${(e as Error).message}`);
       return { embed: buildLeaderboardEmbed({ ...d, players: played }, title), files: [] };
     }
+  }
+
+  // ---- admin ----
+
+  /** Every known account with link/server/game counts, paged. */
+  adminPlayers(page: number, perPage = 15) {
+    const all = this.repo.playerOverview();
+    const pages = Math.max(1, Math.ceil(all.length / perPage));
+    const p = Math.min(Math.max(1, page), pages);
+    return { rows: all.slice((p - 1) * perPage, p * perPage), page: p, pages, total: all.length };
+  }
+
+  /** Discord user -> Riot account links, paged (10 per page). */
+  adminLinks(page: number, perPage = 10) {
+    const all = this.repo.allLinks();
+    const pages = Math.max(1, Math.ceil(all.length / perPage));
+    const p = Math.min(Math.max(1, page), pages);
+    return { rows: all.slice((p - 1) * perPage, p * perPage), page: p, pages, total: all.length };
+  }
+
+  /** What `admin remove` would delete (dry run) or deletes (confirm). */
+  adminRemove(riotIdInput: string, confirm: boolean) {
+    let id;
+    try {
+      id = parseRiotId(riotIdInput);
+    } catch (e) {
+      throw new UserError((e as Error).message);
+    }
+    const p = this.repo.findPlayerByRiotId(id.gameName, id.tagLine);
+    if (!p) throw new UserError(`No known account **${formatRiotId(id)}**.`);
+    const counts = this.repo.playerFootprint(p.puuid);
+    if (confirm) this.repo.purgePlayer(p.puuid);
+    return { player: p, counts, done: confirm };
   }
 
   /** Sorted leaderboard rows (LP gained, then wins, then games). Exposed for tests. */

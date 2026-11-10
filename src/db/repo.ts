@@ -209,6 +209,48 @@ export class Repo {
       .all(puuid, fromMs, toMs) as unknown as { queue_type: string; delta: number; kind: string; match_id: string | null; at: number }[];
   }
 
+  // ---- admin ----
+  /** Every player with how many Discord links, servers and recorded games they have. */
+  playerOverview() {
+    return this.db.prepare(`
+      SELECT p.puuid, p.game_name, p.tag_line, p.platform, p.created_at, p.last_game_at,
+        (SELECT COUNT(*) FROM links l WHERE l.puuid = p.puuid) AS links,
+        (SELECT COUNT(*) FROM tracked t WHERE t.puuid = p.puuid) AS servers,
+        (SELECT COUNT(*) FROM player_matches m WHERE m.puuid = p.puuid AND m.status = 'done') AS games
+      FROM players p ORDER BY games DESC, p.game_name COLLATE NOCASE
+    `).all() as unknown as { puuid: string; game_name: string; tag_line: string; platform: string; created_at: number; last_game_at: number; links: number; servers: number; games: number }[];
+  }
+  allLinks() {
+    return this.db.prepare(`
+      SELECT l.discord_user_id, l.linked_at, p.game_name, p.tag_line, p.platform
+      FROM links l JOIN players p ON p.puuid = l.puuid ORDER BY l.linked_at
+    `).all() as unknown as { discord_user_id: string; linked_at: number; game_name: string; tag_line: string; platform: string }[];
+  }
+  /** Rows that purgePlayer would delete. */
+  playerFootprint(puuid: string) {
+    const n = (sql: string) => (this.db.prepare(sql).get(puuid) as { n: number }).n;
+    return {
+      games: n("SELECT COUNT(*) AS n FROM player_matches WHERE puuid = ?"),
+      lpEvents: n('SELECT COUNT(*) AS n FROM lp_events WHERE puuid = ?'),
+      links: n('SELECT COUNT(*) AS n FROM links WHERE puuid = ?'),
+      servers: n('SELECT COUNT(*) AS n FROM tracked WHERE puuid = ?'),
+    };
+  }
+  /** Delete a player completely: games, LP history, ranks, links, server tracks; polling stops. */
+  purgePlayer(puuid: string) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const t of ['player_matches', 'lp_events', 'rank_snapshots', 'links', 'tracked', 'posts']) {
+        this.db.prepare(`DELETE FROM ${t} WHERE puuid = ?`).run(puuid);
+      }
+      this.db.prepare('DELETE FROM players WHERE puuid = ?').run(puuid);
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
   // ---- user prefs ----
   getDefaultQueue(discordUserId: string): number | null {
     return (this.db.prepare('SELECT default_queue FROM user_prefs WHERE discord_user_id = ?').get(discordUserId) as { default_queue: number } | undefined)?.default_queue ?? null;

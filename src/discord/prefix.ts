@@ -1,11 +1,11 @@
-import { PermissionFlagsBits, type Message } from 'discord.js';
-import { UserError, type Service } from '../core/service.ts';
+import { AttachmentBuilder, PermissionFlagsBits, type Message } from 'discord.js';
+import { UserError, type Reply, type Service } from '../core/service.ts';
 import { runCommand, type CommandName, type CommandRequest } from './actions.ts';
-import { parsePlatform } from '../riot/regions.ts';
+import { parsePlatform, PLATFORM_LABEL, type Platform } from '../riot/regions.ts';
 import { errorEmbed, payload } from './handlers.ts';
 import { stageImport } from '../core/dbImport.ts';
 import { config } from '../config.ts';
-import { COLORS } from '../render/embed.ts';
+import { COLORS, type Embed } from '../render/embed.ts';
 import { info } from './actions.ts';
 
 /**
@@ -153,8 +153,81 @@ export function createPrefixHandler(service: Service, prefix: string, botUserId:
     }
   }
 
+  /**
+   * Owner console: `$admin ...` only in CONSOLE_CHANNEL_ID and only from OWNER_ID.
+   * Anyone/anywhere else gets no reply at all.
+   */
+  async function handleAdmin(msg: Message, args: string[]): Promise<void> {
+    if (!config.ownerId || !config.consoleChannelId) return;
+    if (msg.author.id !== config.ownerId || msg.channelId !== config.consoleChannelId) return;
+    const send = (embed: Embed, files: Reply['files'] = []) =>
+      msg.reply({ embeds: [embed], files: files.map((f) => new AttachmentBuilder(f.data, { name: f.name })), allowedMentions: { parse: [], repliedUser: false } });
+    const sub = (args[0] ?? '').toLowerCase();
+    const rest = args.slice(1);
+    const page = Number(rest.find((w) => /^\d+$/.test(w)) ?? 1);
+    try {
+      switch (sub) {
+        case 'list': {
+          const r = service.adminPlayers(page);
+          const lines = r.rows.map((p) => `**${p.game_name}#${p.tag_line}** · ${PLATFORM_LABEL[p.platform as Platform] ?? p.platform} · ${p.games} games · ${p.links} link${p.links === 1 ? '' : 's'} · ${p.servers} server${p.servers === 1 ? '' : 's'}`);
+          await send({ title: `Known accounts (${r.total})`, description: lines.join('\n') || 'None yet.', color: COLORS.info, footer: { text: `Page ${r.page}/${r.pages}${r.page < r.pages ? ` · ${prefix}admin list ${r.page + 1}` : ''}` } });
+          return;
+        }
+        case 'links': {
+          const r = service.adminLinks(page);
+          const lines = r.rows.map((l) => `<@${l.discord_user_id}> → **${l.game_name}#${l.tag_line}** · ${PLATFORM_LABEL[l.platform as Platform] ?? l.platform} · <t:${Math.floor(l.linked_at / 1000)}:d>`);
+          await send({ title: `Links (${r.total})`, description: lines.join('\n') || 'No links yet.', color: COLORS.info, footer: { text: `Page ${r.page}/${r.pages}${r.page < r.pages ? ` · ${prefix}admin links ${r.page + 1}` : ''}` } });
+          return;
+        }
+        case 'remove':
+        case 'purge': {
+          const confirm = rest[rest.length - 1]?.toLowerCase() === 'confirm';
+          const idWords = confirm ? rest.slice(0, -1) : rest;
+          if (!idWords.length) throw new UserError(`Usage: \`${prefix}admin remove <Name#TAG> [confirm]\``);
+          const r = service.adminRemove(idWords.join(' '), confirm);
+          const c = r.counts;
+          const what = `${c.games} recorded games · ${c.lpEvents} LP entries · ${c.links} Discord link${c.links === 1 ? '' : 's'} · ${c.servers} server track${c.servers === 1 ? '' : 's'}`;
+          if (!r.done) {
+            await send({ title: `Remove ${r.player.game_name}#${r.player.tag_line}?`, description: `This permanently deletes:\n${what}\nand stops tracking the account.\n\nRun \`${prefix}admin remove ${r.player.game_name}#${r.player.tag_line} confirm\` to do it.`, color: COLORS.loss });
+          } else {
+            log(`admin: purged ${r.player.game_name}#${r.player.tag_line} (${what})`);
+            await send({ title: `Removed ${r.player.game_name}#${r.player.tag_line}`, description: `Deleted ${what}. The account is no longer tracked.`, color: COLORS.win });
+          }
+          return;
+        }
+        case 'globallb':
+        case 'glb': {
+          const words = rest.map((w) => w.toLowerCase());
+          const kind = words.some((w) => ['weekly', 'week', 'w'].includes(w)) ? 'weekly' : 'daily';
+          const q = words.includes('flex') ? 440 : 420;
+          const r = await service.globalLeaderboard(kind, q);
+          await send(r.embed, r.files);
+          return;
+        }
+        default:
+          await send({
+            title: 'Admin console',
+            description: [
+              `\`${prefix}admin list [page]\` all known accounts`,
+              `\`${prefix}admin links [page]\` Discord → Riot links (10 per page)`,
+              `\`${prefix}admin globallb [daily|weekly] [solo|flex]\` leaderboard of every account`,
+              `\`${prefix}admin remove <Name#TAG> [confirm]\` delete an account's games and links`,
+            ].join('\n'),
+            color: COLORS.info,
+          });
+      }
+    } catch (e) {
+      if (!(e instanceof UserError)) log(`admin ${sub} failed: ${(e as Error).stack}`);
+      await send(errorEmbed(e));
+    }
+  }
+
   return async function onMessage(msg: Message) {
     if (msg.author.bot || !msg.content.startsWith(prefix)) return;
+    {
+      const [head, ...args] = msg.content.slice(prefix.length).trim().split(/\s+/);
+      if (head?.toLowerCase() === 'admin') return void (await handleAdmin(msg, args));
+    }
     if (msg.content.slice(prefix.length).trim().toLowerCase() === 'import') return void (await handleImport(msg));
     const mentioned = msg.mentions.users.find((u) => u.id !== botUserId());
     const req = parsePrefix(msg.content, prefix, {

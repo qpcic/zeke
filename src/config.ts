@@ -25,6 +25,8 @@ export const config = {
   devGuildId: process.env.DEV_GUILD_ID ?? '',
   /** Register/update global slash commands on startup when their definitions changed (AUTO_REGISTER=0 to disable). */
   autoRegister: process.env.AUTO_REGISTER !== '0',
+  /** Channel where owner-only $admin commands are accepted. */
+  consoleChannelId: process.env.CONSOLE_CHANNEL_ID ?? '',
   /** Your Discord user ID: allows owner-only commands like $import. */
   ownerId: process.env.OWNER_ID ?? '',
   /** Message prefix for text commands ("$recent"). Empty string disables (and drops the Message Content intent). */
