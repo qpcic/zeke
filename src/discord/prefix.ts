@@ -14,7 +14,7 @@ import { info } from './actions.ts';
  */
 
 const ALIASES: Record<string, CommandName> = {
-  link: 'link', unlink: 'unlink',
+  link: 'link', unlink: 'unlink', mode: 'mode', queue: 'mode',
   profile: 'profile', p: 'profile', pf: 'profile', me: 'profile',
   recent: 'recent', r: 'recent', rs: 'recent', last: 'recent',
   graph: 'graph', g: 'graph',
@@ -66,7 +66,7 @@ export function parsePrefix(
   let words = rest.filter(Boolean);
 
   // Queue is always the LAST argument ("$daily @friend flex", "$lb week flex"); default Solo/Duo.
-  if (name === 'recent' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'leaderboard') {
+  if (name === 'recent' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'leaderboard' || name === 'mode') {
     const last = words[words.length - 1]?.toLowerCase();
     if (last && last in QUEUE_WORDS) {
       req.queue = QUEUE_WORDS[last];

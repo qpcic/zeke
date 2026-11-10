@@ -4,6 +4,8 @@ import { bootstrap, log } from './bootstrap.ts';
 import { config, requireDiscord } from './config.ts';
 import { createInteractionHandler } from './discord/handlers.ts';
 import { createPrefixHandler } from './discord/prefix.ts';
+import { commands } from './discord/commands.ts';
+import { createHash } from 'node:crypto';
 import { LogSink } from './sinks/logSink.ts';
 import { TerminalSink } from './sinks/terminalSink.ts';
 
@@ -28,8 +30,21 @@ const client = new Client({
 });
 client.on(Events.InteractionCreate, createInteractionHandler(service, log));
 if (prefixOn) client.on(Events.MessageCreate, createPrefixHandler(service, config.prefix, () => client.user?.id, log));
-client.once(Events.ClientReady, (c) => {
+client.once(Events.ClientReady, async (c) => {
   log(`Discord: logged in as ${c.user.tag} · ${c.guilds.cache.size} server(s)${prefixOn ? ` · prefix "${config.prefix}"` : ''}`);
+  // Keep Discord's slash command list in sync with the code: re-register only when definitions changed.
+  if (config.autoRegister) {
+    const hash = createHash('sha256').update(JSON.stringify(commands)).digest('hex');
+    if (repo.getKv('commands_hash') !== hash) {
+      try {
+        await c.application.commands.set(commands);
+        repo.setKv('commands_hash', hash);
+        log(`slash commands registered: ${commands.map((x) => '/' + x.name).join(' ')}`);
+      } catch (e) {
+        log(`slash command registration failed: ${(e as Error).message}`);
+      }
+    }
+  }
 });
 
 let stopping = false;

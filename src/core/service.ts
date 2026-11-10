@@ -168,8 +168,8 @@ export class Service {
     const png = await renderBanPlan(report, this.assets);
     const bans = report.priorityBans.map((b) => b.championName).join(', ');
     return {
-      embed: { color: 0xe74c3c, image: { url: 'attachment://banplan.png' }, footer: { text: bans ? `Priority bans: ${bans}` : 'No ban suggestions' } },
-      files: [{ name: 'banplan.png', data: png }],
+      embed: { color: 0xe74c3c, image: { url: 'attachment://scout.png' }, footer: { text: bans ? `Priority bans: ${bans}` : 'No ban suggestions' } },
+      files: [{ name: 'scout.png', data: png }],
     };
   }
 
@@ -226,6 +226,15 @@ export class Service {
       embed: { color: queues.some((q) => q.rank) ? 0x5865f2 : 0x4f545c, image: { url: 'attachment://profile.png' } },
       files: [{ name: 'profile.png', data: png }],
     };
+  }
+
+  /** Queue for a command: explicit argument, else the caller's /mode preference, else Solo/Duo. */
+  queueFor(discordUserId: string, explicit?: number): number {
+    return explicit ?? this.repo.getDefaultQueue(discordUserId) ?? SOLO;
+  }
+  setDefaultQueue(discordUserId: string, queueId: number) {
+    if (queueId !== SOLO && queueId !== FLEX) throw new UserError('Mode must be `solo` or `flex`.');
+    this.repo.setDefaultQueue(discordUserId, queueId);
   }
 
   /** The account a command should act on: the given Discord user's link (or the caller's). */

@@ -47,6 +47,9 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
   new SlashCommandBuilder().setName('unlink').setDescription('Remove your linked Riot account')
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
+  queueOpt(new SlashCommandBuilder().setName('mode').setDescription('Your default queue for stats commands (Solo/Duo or Flex); leave empty to see it'))
+    .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
+
   userOpt(new SlashCommandBuilder().setName('profile').setDescription('Rank, W/L, ladder position and top champions'))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
@@ -63,7 +66,7 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
   queueOpt(userOpt(new SlashCommandBuilder().setName('weekly').setDescription("This week's games and LP")))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
-  new SlashCommandBuilder().setName('scout').setDescription("Ban plan vs a player's Flex / Ranked 5s team")
+  new SlashCommandBuilder().setName('scout').setDescription("Scout a player's Ranked 5s / Flex team: roles, best champs, bans")
     .addStringOption((o) => o.setName('riot_id').setDescription('Any player on the enemy team, e.g. Faker#KR1').setRequired(true).setMinLength(5).setMaxLength(22))
     .addStringOption((o) => o.setName('region').setDescription('Region (needed if the bot has never seen them)').addChoices(...regionChoices))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),

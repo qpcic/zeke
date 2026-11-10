@@ -1,5 +1,5 @@
 import { formatRank } from '../core/rank.ts';
-import { SOLO, UserError, type Reply, type Service } from '../core/service.ts';
+import { FLEX, queueName, UserError, type Reply, type Service } from '../core/service.ts';
 import type { PlayerRow } from '../db/repo.ts';
 import { COLORS, type Embed } from '../render/embed.ts';
 import { PLATFORM_LABEL } from '../riot/regions.ts';
@@ -9,7 +9,7 @@ import type { LeagueEntryDto } from '../riot/types.ts';
  * Transport-agnostic command logic. Slash commands and $prefix messages both
  * parse into a CommandRequest and render the returned Reply.
  */
-export type CommandName = 'link' | 'unlink' | 'profile' | 'recent' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
+export type CommandName = 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
 
 export interface CommandRequest {
   name: CommandName;
@@ -31,7 +31,7 @@ export interface CommandRequest {
 }
 
 /** Replies that should only be visible to the caller where the transport supports it. */
-export const PRIVATE: ReadonlySet<CommandName> = new Set(['link', 'unlink', 'help']);
+export const PRIVATE: ReadonlySet<CommandName> = new Set(['link', 'unlink', 'mode', 'help']);
 
 const QUEUE_NAME: Record<string, string> = { RANKED_SOLO_5x5: 'Solo/Duo', RANKED_FLEX_SR: 'Flex' };
 export const tag = (p: PlayerRow) => `${p.game_name}#${p.tag_line}`;
@@ -50,18 +50,19 @@ export function helpEmbed(p: string): Embed {
   return info('Zeke commands', [
     `${c('link <region> <Name#TAG>')} link your Riot account`,
     `${c('unlink')} remove your link`,
+    `${c('mode [solo|flex]')} your default queue for stats commands (default Solo/Duo)`,
     `${c('profile [@user | Name#TAG [region]]')} rank, W/L, ladder position, top champions`,
     `${c('recent [@user | Name#TAG [region]] [solo|flex]')} latest game scoreboard`,
     `${c('graph [@user | Name#TAG [region]] [games] [solo|flex]')} LP graph`,
     `${c('daily')} · ${c('weekly')} games and LP (same arguments as recent)`,
     '_Accounts are tracked globally: once anyone adds or looks one up, its games are recorded everywhere._',
-    `${c('scout <Name#TAG> [region]')} ban plan vs their Flex/Ranked 5s team (aliases ${c('banfor')}, ${c('ban')})`,
+    `${c('scout <Name#TAG> [region]')} Scout a Ranked 5s / Flex team: roles, best champs, bans (aliases ${c('banfor')}, ${c('ban')})`,
     '',
     '**Server only**',
     `${c('leaderboard [daily|weekly] [solo|flex]')} LP leaderboard`,
     `${c('track add <region> <Name#TAG>')} · ${c('track remove <Name#TAG>')} · ${c('track list')} (Manage Server)`,
     '',
-    '_Queue is always the last argument; default is Solo/Duo._',
+    `_Queue is always the last argument; without one, your ${c('mode')} is used (Solo/Duo unless changed)._`,
     `Regions: ${Object.values(PLATFORM_LABEL).join(' ')}`,
   ].join('\n'));
 }
@@ -92,7 +93,17 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
     return v;
   };
 
+  const queue = service.queueFor(req.callerId, req.queue);
+
   switch (req.name) {
+    case 'mode': {
+      if (req.queue === undefined) {
+        return only(info(`Default mode: ${queueName(queue)}`, `Stats commands use **${queueName(queue)}** unless you add a queue.\nChange it with \`${p}mode solo\` or \`${p}mode flex\`.`));
+      }
+      service.setDefaultQueue(req.callerId, req.queue);
+      return only(info(`Default mode set to ${queueName(req.queue)}`, `\`${p}recent\`, \`${p}daily\`, \`${p}weekly\`, \`${p}graph\` and \`${p}leaderboard\` now use **${queueName(req.queue)}** when you don't name a queue. Add \`${req.queue === FLEX ? 'solo' : 'flex'}\` at the end to override once.`, COLORS.win));
+    }
+
     case 'help':
       return only(helpEmbed(p));
 
@@ -112,12 +123,12 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
       return withNote(await service.profile(await target()));
 
     case 'recent':
-      return withNote(await service.recent(await target(), req.queue ?? SOLO));
+      return withNote(await service.recent(await target(), queue));
 
     case 'graph': {
       const pl = await target();
       try {
-        return withNote(await service.graph(pl, req.queue ?? SOLO, Math.min(200, Math.max(5, req.games ?? 50))));
+        return withNote(await service.graph(pl, queue, Math.min(200, Math.max(5, req.games ?? 50))));
       } catch (e) {
         if (newNote && e instanceof UserError) throw new UserError(`${newNote} The graph fills up as they play.`);
         throw e;
@@ -126,13 +137,13 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
 
     case 'daily':
     case 'weekly':
-      return withNote(await service.personalRecap(await target(), req.name, req.queue ?? SOLO));
+      return withNote(await service.personalRecap(await target(), req.name, queue));
 
     case 'scout':
       return service.banPlan(need(req.riotId, 'scout <Name#TAG> [region]'), req.region);
 
     case 'leaderboard':
-      return service.leaderboard(needGuild(), req.period ?? 'daily', req.queue ?? SOLO);
+      return service.leaderboard(needGuild(), req.period ?? 'daily', queue);
 
     case 'track': {
       const guildId = needGuild();
