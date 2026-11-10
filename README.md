@@ -1,4 +1,4 @@
-# LeagueBot
+# Zeke
 
 Discord bot that tracks League of Legends accounts and answers slash commands with game embeds (result, scoreboard, LP change), personal daily/weekly recaps and per-server LP leaderboards.
 
@@ -83,7 +83,7 @@ The bot is one Node process plus a SQLite file (~100 MB RAM), so the smallest VM
 
 ```bash
 # on the server (Debian/Ubuntu): install Docker, then
-git clone https://github.com/qpcic/leaguebot.git && cd leaguebot
+git clone https://github.com/qpcic/zeke.git && cd zeke
 cp .env.example .env && nano .env        # RIOT_API_KEY (personal key!), DISCORD_TOKEN, DISCORD_CLIENT_ID
 # optional: copy your existing data/ folder here (stop the bot on your PC first)
 docker compose up -d --build
@@ -92,7 +92,7 @@ docker compose logs -f
 ```
 
 - **Data:** the database and icon cache live in `./data` on the host, so they survive rebuilds. To back up, stop the bot (`docker compose stop`) and copy `data/`.
-- **Updating:** `git pull && docker compose up -d --build`. Or switch `docker-compose.yml` to the `ghcr.io/qpcic/leaguebot:latest` image that CI publishes, and run `docker compose pull && docker compose up -d`. Make the GHCR package public, or `docker login ghcr.io`.
+- **Updating:** `git pull && docker compose up -d --build`. Or switch `docker-compose.yml` to the `ghcr.io/qpcic/zeke:latest` image that CI publishes, and run `docker compose pull && docker compose up -d`. Make the GHCR package public, or `docker login ghcr.io`.
 - **Architectures:** the image builds for amd64 and arm64 (Oracle Ampere, Raspberry Pi).
 - **One instance only:** stop the bot on your PC once the server copy runs.
 - **Riot key:** development keys expire every 24 hours. For 24/7 use, register a **personal** key (developer.riotgames.com → Register Product → Personal).

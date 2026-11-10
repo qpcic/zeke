@@ -36,9 +36,9 @@ export interface PreviewMessage { at: number; channel: string; embeds: Embed[] }
 
 export function renderPreviewPage(messages: PreviewMessage[]): string {
   const body = messages
-    .map((m) => `<div class="msg"><div class="avatar">LB</div><div class="content"><div class="hdr"><span class="name">LeagueBot</span><span class="bot">APP</span><span class="time">#${esc(m.channel)} · ${new Date(m.at).toLocaleString('en-GB')}</span></div>${m.embeds.map(embedHtml).join('')}</div></div>`)
+    .map((m) => `<div class="msg"><div class="avatar">Z</div><div class="content"><div class="hdr"><span class="name">Zeke</span><span class="bot">APP</span><span class="time">#${esc(m.channel)} · ${new Date(m.at).toLocaleString('en-GB')}</span></div>${m.embeds.map(embedHtml).join('')}</div></div>`)
     .join('');
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>LeagueBot preview</title><style>
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Zeke preview</title><style>
   body{background:#313338;color:#dbdee1;font:16px/1.375 "gg sans","Noto Sans",Helvetica,Arial,sans-serif;margin:0;padding:16px}
   .msg{display:flex;gap:16px;padding:8px 16px}
   .avatar{width:40px;height:40px;border-radius:50%;background:#5865f2;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex:none}

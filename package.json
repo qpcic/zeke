@@ -1,5 +1,5 @@
 {
-  "name": "leaguebot",
+  "name": "zeke",
   "version": "0.1.0",
   "description": "Discord bot that tracks League of Legends players per server and logs their games with LP changes.",
   "private": true,
