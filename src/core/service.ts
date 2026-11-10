@@ -54,7 +54,7 @@ export class Service {
     private readonly log: (msg: string) => void = console.log,
     private readonly now: () => number = Date.now,
     private readonly assets: AssetSource | null = null,
-    /** Region assumed for /banfor when the player is unknown and none was given ("" = require it). */
+    /** Region assumed for /scout when the player is unknown and none was given ("" = require it). */
     private readonly defaultRegion = '',
   ) {}
 
