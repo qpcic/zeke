@@ -1,14 +1,29 @@
 {
-  "name": "LeagueBot",
-  "version": "1.0.0",
-  "description": "",
-  "main": "dist/index.js",
+  "name": "zeke",
+  "version": "0.1.0",
+  "description": "Discord bot that tracks League of Legends players per server and logs their games with LP changes.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
-    "build": "tsc"
+    "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --import tsx src/index.ts",
+    "cli": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --import tsx src/cli.ts",
+    "demo": "node --disable-warning=ExperimentalWarning --import tsx src/demo.ts",
+    "test": "node --disable-warning=ExperimentalWarning --import tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning dist/index.js",
+    "register": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --import tsx src/discord/register.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@napi-rs/canvas": "^1.1.0",
+    "discord.js": "^14.28.1"
+  },
   "devDependencies": {
-    "typescript": "^5.5.3"
-  },
-  "private": true
+    "@types/node": "^24.19.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
 }
