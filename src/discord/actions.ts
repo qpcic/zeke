@@ -47,7 +47,7 @@ function ranksText(entries: LeagueEntryDto[]): string {
 
 export function helpEmbed(p: string): Embed {
   const c = (s: string) => `\`${p}${s}\``;
-  return info('LeagueBot commands', [
+  return info('Zeke commands', [
     `${c('link <region> <Name#TAG>')} link your Riot account`,
     `${c('unlink')} remove your link`,
     `${c('recent [@user | Name#TAG [region]]')} latest game scoreboard`,
@@ -123,7 +123,7 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
       return withNote(only(service.personalRecap(await target(), req.name)));
 
     case 'leaderboard':
-      return only(service.leaderboard(needGuild(), req.period ?? 'daily'));
+      return service.leaderboard(needGuild(), req.period ?? 'daily');
 
     case 'track': {
       const guildId = needGuild();

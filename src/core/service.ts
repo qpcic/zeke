@@ -6,7 +6,8 @@ import type { LeagueEntryDto } from '../riot/types.ts';
 import { buildAdjustmentEmbed, buildDigestEmbed } from '../render/digestEmbed.ts';
 import { buildGameEmbed } from '../render/gameEmbed.ts';
 import type { Sink } from '../sinks/sink.ts';
-import { computeDigest, playerStats, type Digest } from './digest.ts';
+import { computeDigest, playerStats, type Digest, type PlayerDigest } from './digest.ts';
+import { renderLeaderboard, type LeaderboardRow } from '../render/image/leaderboard.ts';
 import { formatRank } from './rank.ts';
 import { previousDay, previousWeek, thisWeek, today, zonedParts } from './time.ts';
 import type { GameResult } from './events.ts';
@@ -223,12 +224,86 @@ export class Service {
     });
   }
 
-  leaderboard(guildId: string, kind: 'daily' | 'weekly'): Embed {
+  /** Server leaderboard image: only accounts that played in the period, sorted by LP gained. */
+  async leaderboard(guildId: string, kind: 'daily' | 'weekly'): Promise<Reply> {
     const g = this.guild(guildId);
     const period = kind === 'daily' ? today(this.now(), g.timezone) : thisWeek(this.now(), g.timezone);
     const d = computeDigest(this.repo, guildId, 'adhoc', period);
-    return buildLeaderboardEmbed(d, kind === 'daily' ? 'Leaderboard · Today' : 'Leaderboard · This week');
+    const title = kind === 'daily' ? 'Leaderboard · Today' : 'Leaderboard · This week';
+    const played = d.players.filter((p) => p.games > 0);
+
+    if (!played.length) {
+      const msg = d.players.length
+        ? `No ranked games played ${kind === 'daily' ? 'today' : 'this week'} by the ${d.players.length} tracked account${d.players.length === 1 ? '' : 's'}. 💤`
+        : 'No accounts tracked in this server yet. Use `/track add` or `$track add`.';
+      return { embed: { title, description: msg, color: 0x5865f2 }, files: [] };
+    }
+
+    const rows = this.leaderboardRows(played, period).slice(0, 20);
+    const sd = this.assets ? await this.assets.staticData(rows.find((r) => r.champ)?.champ?.version ?? '99.99').catch(() => null) : null;
+    const t = d.totals;
+    const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: g.timezone, weekday: 'short', day: 'numeric', month: 'short' });
+    const subtitle = kind === 'daily' ? fmt.format(period.from) : `${fmt.format(period.from)} – ${fmt.format(period.to - 1)}`;
+    try {
+      const png = await renderLeaderboard(rows, {
+        title,
+        subtitle: played.length > 20 ? `${subtitle} · top 20 of ${played.length}` : subtitle,
+        totals: { games: t.games, wins: t.wins, losses: t.losses, lpNet: played.reduce((n, p) => n + p.lpNet, 0), players: played.length, tracked: d.players.length },
+        hiddenCount: d.players.length - played.length,
+      }, this.assets, sd);
+      return { embed: { color: 0x5865f2, image: { url: 'attachment://leaderboard.png' } }, files: [{ name: 'leaderboard.png', data: png }] };
+    } catch (e) {
+      this.log(`leaderboard render failed, using text: ${(e as Error).message}`);
+      return { embed: buildLeaderboardEmbed({ ...d, players: played }, title), files: [] };
+    }
   }
+
+  /** Sorted leaderboard rows (LP gained, then wins, then games). Exposed for tests. */
+  leaderboardRows(played: PlayerDigest[], period: { from: number; to: number }): LeaderboardRow[] {
+    return [...played]
+      .sort((a, b) => b.lpNet - a.lpNet || b.wins - a.wins || b.games - a.games)
+      .map((p) => this.leaderboardRow(p, period));
+  }
+
+  private leaderboardRow(p: PlayerDigest, period: { from: number; to: number }): LeaderboardRow {
+    const ms = this.repo.doneMatchesBetween(p.player.puuid, period.from, period.to).filter((m) => !m.remake);
+    // main queue = the one with the most games in the period
+    const byQ = new Map<number, number>();
+    for (const m of ms) byQ.set(m.queue_id, (byQ.get(m.queue_id) ?? 0) + 1);
+    const mainQ = [...byQ.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 420;
+    const qt = QUEUE_TYPE_BY_ID[mainQ] ?? 'RANKED_SOLO_5x5';
+    const rank = p.ranks.find((r) => r.queue_type === qt) ?? null;
+    const qGames = ms.filter((m) => m.queue_id === mainQ);
+    const spark = pointsFromHistory(qGames).map((x) => x.abs);
+
+    // most played champion
+    const champCount = new Map<string, { id: number; name: string; version: string; n: number }>();
+    for (const m of ms) {
+      const match = this.repo.getCachedMatch(m.match_id);
+      const me = match?.info.participants.find((x) => x.puuid === p.player.puuid);
+      if (!me || !match) continue;
+      const c = champCount.get(me.championName) ?? { id: me.championId, name: me.championName, version: match.info.gameVersion, n: 0 };
+      c.n++;
+      champCount.set(me.championName, c);
+    }
+    const top = [...champCount.values()].sort((a, b) => b.n - a.n)[0];
+    return {
+      name: p.player.game_name,
+      tag: p.player.tag_line,
+      region: p.player.platform,
+      games: p.games,
+      wins: p.wins,
+      losses: p.losses,
+      lpNet: p.lpNet,
+      rank: rank ? { tier: rank.tier, division: rank.division, lp: rank.lp } : null,
+      queueLabel: mainQ === 440 ? 'Flex' : 'Solo/Duo',
+      spark,
+      results: ms.map((m) => !!m.win),
+      champ: top ? { id: top.id, name: top.name, version: top.version } : null,
+    };
+  }
+
+
 
   /** Remove by puuid (used by autocomplete-backed /track remove). */
   removeTracked(guildId: string, puuid: string): PlayerRow {

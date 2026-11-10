@@ -70,7 +70,7 @@ async function shutdown() {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-log(`LeagueBot · polling every ${config.pollIntervalSec}s · queues ${config.trackedQueues.join(',')} · ${repo.activePlayers().length} players`);
+log(`Zeke · polling every ${config.pollIntervalSec}s · queues ${config.trackedQueues.join(',')} · ${repo.activePlayers().length} players`);
 try {
   await client.login(token);
 } catch (e) {

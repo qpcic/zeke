@@ -100,23 +100,36 @@ test('/daily and /weekly personal recaps', async () => {
   assert.match(service.personalRecap(player, 'weekly').description!, /\+23 LP/);
 });
 
-test('/leaderboard lists every tracked account, sorted by LP then rank', async () => {
+test('/leaderboard: image of accounts that played, zero-game accounts hidden', async () => {
   const { mock, service, clock } = setup(Date.UTC(2026, 10, 10, 8, 0, 0));
   const hi = mock.addAccount('Climber', 'EUW', 'EUW1', ranks('GOLD', 'I', 10));
+  const lo = mock.addAccount('Faller', 'EUW', 'EUW1', ranks('SILVER', 'I', 10));
   mock.addAccount('Idle Master', 'EUW', 'EUW1', ranks('MASTER', 'I', 120));
-  mock.addAccount('Idle Iron', 'EUW', 'EUW1', ranks('IRON', 'II', 5));
-  for (const id of ['Climber#EUW', 'Idle Master#EUW', 'Idle Iron#EUW']) await service.addPlayer('g1', 'EUW', id);
+  for (const id of ['Climber#EUW', 'Faller#EUW', 'Idle Master#EUW']) await service.addPlayer('g1', 'EUW', id);
+
+  const empty = await service.leaderboard('g1', 'daily');
+  assert.equal(empty.files.length, 0);
+  assert.match(empty.embed.description!, /No ranked games played today by the 3 tracked accounts/);
+  assert.match((await service.leaderboard('nobody', 'weekly')).embed.description!, /No accounts tracked/);
+
   clock.advance(30 * MIN);
-  mock.play({ players: [{ puuid: hi.puuid, team: 100 }], winner: 100, lp: { [hi.puuid]: 22 } });
+  mock.play({ players: [{ puuid: hi.puuid, team: 100 }, { puuid: lo.puuid, team: 200 }], winner: 100, lp: { [hi.puuid]: 22, [lo.puuid]: -17 } });
   await service.tick();
 
-  const e = service.leaderboard('g1', 'daily');
-  const table = e.fields![0]!.value.split('\n').filter((l) => /^\s*\d/.test(l));
-  assert.match(table[0]!, /Climber .*\+22\s+G1 32/);
-  assert.match(table[1]!, /Idle Master .*·\s+M 120/);
-  assert.match(table[2]!, /Idle Iron .*I2 5/);
-  assert.match(e.description!, /1\/3 active/);
-  assert.deepEqual(validateEmbed(e), []);
+  const r = await service.leaderboard('g1', 'daily');
+  assert.equal(r.embed.image!.url, 'attachment://leaderboard.png');
+  assert.equal(r.files[0]!.data.subarray(1, 4).toString(), 'PNG');
+
+  // the row data the image draws: idle account hidden, sorted by LP, sparkline from recorded LP
+  const { computeDigest } = await import('../src/core/digest.ts');
+  const { today } = await import('../src/core/time.ts');
+  const period = today(clock.now(), 'Europe/Ljubljana');
+  const d = computeDigest((service as any).repo, 'g1', 'adhoc', period);
+  const rows = service.leaderboardRows(d.players.filter((p) => p.games > 0), period);
+  assert.deepEqual(rows.map((x) => [x.name, x.lpNet, x.wins, x.losses]), [['Climber', 22, 1, 0], ['Faller', -17, 0, 1]]);
+  assert.equal(rows[0]!.spark.length, 2, 'start LP + after the game');
+  assert.equal(rows[0]!.spark[1]! - rows[0]!.spark[0]!, 22);
+  assert.deepEqual(rows[0]!.rank, { tier: 'GOLD', division: 'I', lp: 32 });
 });
 
 test('/graph: needs 2+ points, then renders a PNG over recorded games', async () => {
