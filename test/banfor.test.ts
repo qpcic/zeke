@@ -90,3 +90,34 @@ test('$scout (and $banfor/$ban aliases): renders a PNG, does not add the enemy t
   assert.equal(repo.activePlayers().length, 0, 'scouted players are not tracked');
   void team;
 });
+
+test('Ranked 5s carries 90% weight: 5s picks beat flex-only stomps, 5s teammates beat flex regulars', async () => {
+  const { banScore, FIVES_WEIGHT } = await import('../src/core/scout.ts');
+  assert.equal(FIVES_WEIGHT, 0.9);
+  // 46 games: 12 in 5s (weight 3.45 each), 34 flex (0.135 each)
+  const w5 = (0.9 * 46) / 12, wf = (0.1 * 46) / 34;
+  const flexStomp = { games: 10, wins: 9, wGames: 10 * wf, wWins: 9 * wf };
+  const fivesMain = { games: 6, wins: 4, wGames: 6 * w5, wWins: 4 * w5 };
+  assert.ok(banScore(fivesMain) > banScore(flexStomp));
+
+  // end to end: in flex the mid is 30-0 on Zed, in 5s 8-2 on Ahri
+  const ctx = setup(Date.UTC(2026, 9, 1, 12));
+  const { mock, clock, repo, riot } = ctx;
+  const ids = ['T', 'J', 'M', 'B', 'S'].map((r) => mock.addAccount(`Five ${r}`, 'EUNE', 'EUN1'));
+  const flexPal = mock.addAccount('Flex Regular', 'EUNE', 'EUN1');
+  const roles = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];
+  for (let g = 0; g < 40; g++) {
+    clock.advance(45 * MIN);
+    const fives = g % 4 === 0; // 10 x 5s, 30 x flex
+    const players = ids.map((a, i) => ({ puuid: a.puuid, team: 100 as const, role: roles[i], champion: i === 2 ? (fives ? 'Ahri' : 'Zed') : ['Garen', 'Vi', '', 'Jinx', 'Lulu'][i] }));
+    if (!fives) players[4] = { puuid: flexPal.puuid, team: 100, role: 'UTILITY', champion: 'Braum' }; // flex: different support
+    const win = fives ? g % 20 !== 0 : true; // 5s: 8W 2L, flex: everything won
+    mock.play({ players, winner: win ? 100 : 200, queueId: fives ? MOCK_FIVES_QUEUE : 440 });
+  }
+  const r = await scoutTeam(repo, riot, { puuid: ids[2]!.puuid, name: 'Five M', tag: 'EUNE', platform: 'EUN1' });
+  assert.deepEqual(r.queues, { flex: 30, fives: 10 });
+  const sup = r.members.find((m) => m.role === 'UTILITY')!;
+  assert.equal(sup.name, 'Five S', '5s support outranks the more frequent flex support');
+  const mid = r.members.find((m) => m.role === 'MIDDLE')!;
+  assert.equal(mid.bans[0]!.championName, 'Ahri', '5s champ is the top ban even though Zed is 30-0 in flex');
+});

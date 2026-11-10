@@ -1,6 +1,6 @@
 import type { AssetSource, StaticData } from '../../assets/ddragon.ts';
 import { championName } from '../../assets/ddragon.ts';
-import { MIN_BAN_GAMES, type ChampStat, type MemberReport, type Role, type ScoutReport } from '../../core/scout.ts';
+import { FIVES_WEIGHT, MIN_BAN_GAMES, winrate, type ChampStat, type MemberReport, type Role, type ScoutReport } from '../../core/scout.ts';
 import { C, createCanvas, decode, ensureFonts, fit, font, icon, rounded, type Image, type SKRSContext2D } from './canvas.ts';
 
 /** Ban plan PNG: 5 role columns (player, most played, ban picks) + team priority bans. */
@@ -17,7 +17,7 @@ const ROLE_LABEL: Record<Role, string> = { TOP: 'TOP', JUNGLE: 'JUNGLE', MIDDLE:
 const ROLE_COLOR: Record<Role, string> = { TOP: '#e0a458', JUNGLE: '#58c27d', MIDDLE: '#6aa8ff', BOTTOM: '#f26d6d', UTILITY: '#c38bff' };
 
 const wrColor = (wr: number) => (wr >= 0.6 ? C.win : wr >= 0.5 ? '#9be3a8' : wr >= 0.4 ? C.sub : C.loss);
-const pct = (c: { wins: number; games: number }) => (c.games ? Math.round((c.wins / c.games) * 100) : 0);
+const pct = (c: { wins: number; games: number; wGames?: number; wWins?: number }) => Math.round(winrate(c) * 100);
 
 export async function renderBanPlan(r: ScoutReport, assets: AssetSource | null): Promise<Buffer> {
   ensureFonts();
@@ -52,7 +52,8 @@ export async function renderBanPlan(r: ScoutReport, assets: AssetSource | null):
   ctx.fillText(fit(ctx, `vs ${r.target.name}#${r.target.tag}'s team`, 600), PAD + 20 + tw, 44);
   ctx.font = font(400, 15);
   const qs = [r.queues.flex ? `${r.queues.flex} Flex` : '', r.queues.fives ? `${r.queues.fives} Ranked 5s` : ''].filter(Boolean).join(' + ') || 'no';
-  ctx.fillText(`Based on their last ${r.sample} team games (${qs}) · full five-stack in ${Math.round(r.premadeShare * 100)}% of them`, PAD + 8, 72);
+  const weighting = r.queues.fives && r.queues.flex ? ` · Ranked 5s weighted ${Math.round(FIVES_WEIGHT * 100)}%` : '';
+  ctx.fillText(`Based on their last ${r.sample} team games (${qs})${weighting} · full five-stack in ${Math.round(r.premadeShare * 100)}% of them`, PAD + 8, 72);
 
   // ---- role columns ----
   const byRole = new Map(r.members.filter((m) => m.role).map((m) => [m.role!, m]));
@@ -85,7 +86,7 @@ export async function renderBanPlan(r: ScoutReport, assets: AssetSource | null):
     ctx.fillStyle = C.text;
     ctx.font = font(700, 18);
     ctx.fillText(fit(ctx, name, slotW - 90), sx + 84, py + 70);
-    ctx.fillStyle = wrColor(b.wins / b.games);
+    ctx.fillStyle = wrColor(winrate(b));
     ctx.font = font(600, 15);
     ctx.fillText(`${pct(b)}% · ${b.games} games`, sx + 84, py + 92);
     ctx.fillStyle = C.sub;
@@ -100,7 +101,7 @@ export async function renderBanPlan(r: ScoutReport, assets: AssetSource | null):
 
   ctx.fillStyle = C.faint;
   ctx.font = font(400, 12);
-  ctx.fillText(`Roles: best fit of each player's positions in these games. Bans: top 3 winrates among each player's 10 most played (min. ${MIN_BAN_GAMES} games).`, PAD + 8, H - 14);
+  ctx.fillText(`Roles: best fit of each player's positions in these games. Bans: top 3 winrates among each player's 10 most played (min. ${MIN_BAN_GAMES} games). Winrates are weighted toward Ranked 5s.`, PAD + 8, H - 14);
   return canvas.toBuffer('image/png');
 }
 
@@ -170,9 +171,9 @@ function drawColumn(ctx: SKRSContext2D, x: number, y: number, role: Role, m: Mem
     ctx.fillStyle = C.text;
     ctx.font = font(700, 15);
     ctx.fillText(fit(ctx, championName(sd, b.championId, b.championName), COL_W - 80), x + 64, by + 22);
-    ctx.fillStyle = wrColor(b.wins / b.games);
+    ctx.fillStyle = wrColor(winrate(b));
     ctx.font = font(600, 13);
-    ctx.fillText(`${pct(b)}% · ${b.wins}W ${b.games - b.wins}L`, x + 64, by + 40);
+    ctx.fillText(`${pct(b)}% · ${b.games} games`, x + 64, by + 40);
   });
   if (!m.bans.length) {
     ctx.fillStyle = C.faint;

@@ -5,7 +5,9 @@ import type { MatchDto, ParticipantDto } from '../riot/types.ts';
 
 /**
  * Pre-game scouting for premade 5v5 (Flex + Ranked 5s):
- *  1. last N team-queue games of the named player
+ *  1. last N team-queue games of the named player: Ranked 5s first, Flex fills the rest.
+ *     Ranked 5s carries FIVES_WEIGHT (90%) of the total weight in every statistic below,
+ *     Flex the remaining 10%; with only one queue present, all its games weigh the same.
  *  2. their team = the player + the 4 allies who show up most often
  *  3. each member's role = best overall assignment of their most played positions
  *  4. each member's bans = of their 10 most played champs, the 3 with the best winrate
@@ -15,7 +17,26 @@ import type { MatchDto, ParticipantDto } from '../riot/types.ts';
 export const ROLES = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'] as const;
 export type Role = (typeof ROLES)[number];
 
-export interface ChampStat { championId: number; championName: string; games: number; wins: number; version: string }
+/** games/wins are raw counts (shown, used for the min-games rule); wGames/wWins are queue-weighted (used for ranking). */
+export interface ChampStat { championId: number; championName: string; games: number; wins: number; wGames: number; wWins: number; version: string }
+
+/** Share of total weight given to Ranked 5s games when both queues are in the sample. */
+export const FIVES_WEIGHT = 0.9;
+
+/**
+ * Ranking score for bans: queue-weighted winrate smoothed toward 50% by SMOOTH weight units.
+ * Flex-only champs carry little weight, so they shrink toward 50%; Ranked 5s picks keep
+ * their real winrate. With a single queue this is a mild Laplace smoothing.
+ */
+const SMOOTH = 6;
+export function banScore(c: { games: number; wins: number; wGames?: number; wWins?: number }): number {
+  const g = c.wGames ?? c.games, w = c.wGames !== undefined ? c.wWins ?? 0 : c.wins;
+  return (w + SMOOTH / 2) / (g + SMOOTH);
+}
+
+/** Queue-weighted winrate (falls back to raw when weights are absent). */
+export const winrate = (c: { games: number; wins: number; wGames?: number; wWins?: number }) =>
+  c.wGames ? (c.wWins ?? 0) / c.wGames : c.games ? c.wins / c.games : 0;
 export interface MemberReport {
   puuid: string;
   name: string;
@@ -24,7 +45,7 @@ export interface MemberReport {
   roleShare: number; // fraction of their games played in the assigned role
   games: number; // games in the sample (with the scouted player)
   wins: number;
-  mostPlayed: ChampStat[]; // top 10 by games
+  mostPlayed: ChampStat[]; // top 10 by raw games (display)
   bans: ChampStat[]; // top 3 winrate among mostPlayed
   isTarget: boolean;
 }
@@ -34,6 +55,8 @@ export interface ScoutReport {
   priorityBans: (ChampStat & { owner: string })[];
   sample: number;
   queues: { flex: number; fives: number };
+  /** per-game weight actually applied ({ fives: 1, flex: 1 } when only one queue is present) */
+  weights: { fives: number; flex: number };
   fivesQueueId: number | null;
   premadeShare: number; // fraction of games where the 4 detected teammates were all present
 }
@@ -87,8 +110,8 @@ export function assignRoles(counts: Map<string, Record<string, number>>): Map<st
   return out;
 }
 
-/** Laplace-smoothed winrate x sqrt(games): favours champs that are both played a lot and won a lot. */
-const threat = (c: ChampStat) => ((c.wins + 1) / (c.games + 2)) * Math.sqrt(c.games);
+/** Smoothed weighted winrate x sqrt(weighted games): played a lot (in 5s) and won a lot. */
+const threat = (c: ChampStat) => banScore(c) * Math.sqrt(c.wGames || c.games);
 
 /** A champion needs at least this many games to be a ban target (filters out 3W 0L flukes). */
 export const MIN_BAN_GAMES = 5;
@@ -98,10 +121,10 @@ export const MIN_BAN_GAMES = 5;
  * Fewer (or none) are returned when not enough champs have a real sample.
  */
 export function topBans(champs: ChampStat[]): ChampStat[] {
-  const top10 = [...champs].sort((a, b) => b.games - a.games || b.wins - a.wins).slice(0, 10);
+  const top10 = [...champs].sort((a, b) => b.wGames - a.wGames || b.games - a.games || b.wins - a.wins).slice(0, 10);
   return top10
     .filter((c) => c.games >= MIN_BAN_GAMES)
-    .sort((a, b) => b.wins / b.games - a.wins / a.games || b.games - a.games)
+    .sort((a, b) => banScore(b) - banScore(a) || b.games - a.games)
     .slice(0, 3);
 }
 
@@ -117,9 +140,11 @@ export async function scoutTeam(
     riot.getMatchIds(target.platform, target.puuid, { queue: 440, count: N }),
     fivesQ ? riot.getMatchIds(target.platform, target.puuid, { queue: fivesQ, count: N }) : Promise.resolve([] as string[]),
   ]);
-  // Match ids are sequential per platform: higher = newer. Merge both queues, keep newest N.
+  // Ranked 5s first (it's what we're scouting for), newest Flex games fill up to N.
   const num = (id: string) => Number(id.split('_')[1] ?? 0);
-  const ids = [...new Set([...flexIds, ...fivesIds])].sort((a, b) => num(b) - num(a)).slice(0, N);
+  const fives = [...fivesIds].sort((a, b) => num(b) - num(a)).slice(0, N);
+  const flex = flexIds.filter((id) => !fives.includes(id)).sort((a, b) => num(b) - num(a)).slice(0, N - fives.length);
+  const ids = [...fives, ...flex];
 
   const matches: MatchDto[] = [];
   await Promise.all(ids.map(async (id) => {
@@ -132,17 +157,25 @@ export async function scoutTeam(
   }));
   opts.log?.(`scout ${target.name}#${target.tag}: ${matches.length} games (${flexIds.length} flex ids, ${fivesIds.length} 5s ids)`);
 
-  // allies frequency
-  const allyCount = new Map<string, { n: number; p: ParticipantDto }>();
+  // queue weights: Ranked 5s holds FIVES_WEIGHT of the total, Flex the rest (mean weight 1)
+  const nFives = matches.filter((m) => m.info.queueId !== 440).length;
+  const nFlex = matches.length - nFives;
+  const weights = nFives && nFlex
+    ? { fives: (FIVES_WEIGHT * matches.length) / nFives, flex: ((1 - FIVES_WEIGHT) * matches.length) / nFlex }
+    : { fives: 1, flex: 1 };
+  const wOf = (m: MatchDto) => (m.info.queueId === 440 ? weights.flex : weights.fives);
+
+  // allies frequency (raw count for the threshold, weighted for ranking)
+  const allyCount = new Map<string, { n: number; w: number }>();
   for (const m of matches) {
     const me = m.info.participants.find((p) => p.puuid === target.puuid)!;
     for (const p of m.info.participants) {
       if (p.teamId !== me.teamId || p.puuid === target.puuid) continue;
-      const cur = allyCount.get(p.puuid);
-      allyCount.set(p.puuid, { n: (cur?.n ?? 0) + 1, p: cur?.p ?? p });
+      const cur = allyCount.get(p.puuid) ?? { n: 0, w: 0 };
+      allyCount.set(p.puuid, { n: cur.n + 1, w: cur.w + wOf(m) });
     }
   }
-  const mates = [...allyCount.entries()].filter(([, v]) => v.n >= MIN_SHARED).sort((a, b) => b[1].n - a[1].n).slice(0, 4).map(([k]) => k);
+  const mates = [...allyCount.entries()].filter(([, v]) => v.n >= MIN_SHARED).sort((a, b) => b[1].w - a[1].w).slice(0, 4).map(([k]) => k);
   const team = [target.puuid, ...mates];
 
   // per-member stats from games in the sample
@@ -151,6 +184,7 @@ export async function scoutTeam(
   const record = new Map<string, { games: number; wins: number; name: string; tag: string }>();
   let fullStack = 0;
   for (const m of matches) {
+    const w = wOf(m);
     const present = team.filter((id) => m.info.participants.some((p) => p.puuid === id));
     if (present.length === team.length && team.length === 5) fullStack++;
     for (const p of m.info.participants) {
@@ -160,12 +194,13 @@ export async function scoutTeam(
       if (p.win) r.wins++;
       record.set(p.puuid, r);
       const pc = pos.get(p.puuid) ?? {};
-      if (p.teamPosition) pc[p.teamPosition] = (pc[p.teamPosition] ?? 0) + 1;
+      if (p.teamPosition) pc[p.teamPosition] = (pc[p.teamPosition] ?? 0) + w;
       pos.set(p.puuid, pc);
       const cm = champs.get(p.puuid) ?? new Map<string, ChampStat>();
-      const c = cm.get(p.championName) ?? { championId: p.championId, championName: p.championName, games: 0, wins: 0, version: m.info.gameVersion };
+      const c = cm.get(p.championName) ?? { championId: p.championId, championName: p.championName, games: 0, wins: 0, wGames: 0, wWins: 0, version: m.info.gameVersion };
       c.games++;
-      if (p.win) c.wins++;
+      c.wGames += w;
+      if (p.win) { c.wins++; c.wWins += w; }
       cm.set(p.championName, c);
       champs.set(p.puuid, cm);
     }
@@ -186,7 +221,7 @@ export async function scoutTeam(
       roleShare: role ? (pc[role] ?? 0) / total : 0,
       games: r.games,
       wins: r.wins,
-      mostPlayed: [...list].sort((a, b) => b.games - a.games || b.wins - a.wins).slice(0, 10),
+      mostPlayed: [...list].sort((a, b) => b.games - a.games || b.wGames - a.wGames).slice(0, 10), // display: raw counts
       bans: topBans(list),
       isTarget: id === target.puuid,
     };
@@ -206,7 +241,8 @@ export async function scoutTeam(
     members,
     priorityBans,
     sample: matches.length,
-    queues: { flex: matches.filter((m) => m.info.queueId === 440).length, fives: matches.filter((m) => m.info.queueId !== 440).length },
+    queues: { flex: nFlex, fives: nFives },
+    weights,
     fivesQueueId: fivesQ,
     premadeShare: matches.length ? fullStack / matches.length : 0,
   };
