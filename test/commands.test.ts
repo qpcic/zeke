@@ -233,3 +233,20 @@ test('/profile: rank cards, ladder position for Master+, estimate below, mastery
   const pos = await (service as any).apexPosition('EUN1', 'RANKED_SOLO_5x5', player.puuid);
   assert.deepEqual(pos, { pos: 2, total: 41 });
 });
+
+test('profile queue cards sort by tier, division, LP; unranked last', async () => {
+  const { sortQueues } = await import('../src/render/image/profile.ts');
+  const q = (label: string, rank: { tier: string; division: string; lp: number } | null) => ({ label, rank, wins: 1, losses: 1, ladderPos: null, topPercent: null, hotStreak: false });
+  const out = sortQueues([
+    q('Solo/Duo', { tier: 'MASTER', division: 'I', lp: 1100 }),
+    q('Flex', null),
+    q('Ranked 5s', { tier: 'CHALLENGER', division: 'I', lp: 589 }),
+  ]);
+  assert.deepEqual(out.map((x) => x.label), ['Ranked 5s', 'Solo/Duo', 'Flex']);
+  const out2 = sortQueues([
+    q('Solo/Duo', { tier: 'GOLD', division: 'II', lp: 90 }),
+    q('Flex', { tier: 'GOLD', division: 'I', lp: 10 }),
+    q('Ranked 5s', { tier: 'GOLD', division: 'I', lp: 40 }),
+  ]);
+  assert.deepEqual(out2.map((x) => x.label), ['Ranked 5s', 'Flex', 'Solo/Duo']);
+});

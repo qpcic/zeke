@@ -1,12 +1,12 @@
 import type { AssetSource, StaticData } from '../../assets/ddragon.ts';
 import { championName } from '../../assets/ddragon.ts';
-import { isApex } from '../../core/rank.ts';
+import { compareDivision, isApex } from '../../core/rank.ts';
 import { C, createCanvas, decode, ensureFonts, fit, font, icon, rounded, type Image, type SKRSContext2D } from './canvas.ts';
 
 /** Player profile card: icon, name, region, Solo/Flex rank cards with W/L + ladder, top champions. */
 
 export interface QueueCard {
-  label: string; // "Solo/Duo" | "Flex"
+  label: string; // "Solo/Duo" | "Flex" | "Ranked 5s"
   rank: { tier: string; division: string; lp: number } | null;
   wins: number;
   losses: number;
@@ -22,15 +22,15 @@ export interface ProfileData {
   region: string;
   level: number | null;
   iconId: number | null;
-  solo: QueueCard;
-  flex: QueueCard;
+  /** Solo/Duo, Flex, Ranked 5s: drawn left to right sorted by rank (highest first, unranked last). */
+  queues: QueueCard[];
   champs: { championId: number; points: number; level: number }[];
   recent: boolean[]; // last recorded solo results, oldest first
   version: string; // for ddragon
 }
 
 const W = 1040;
-const H = 470;
+const H = 540;
 const PAD = 24;
 const LEFT_W = 300;
 
@@ -45,12 +45,14 @@ export async function renderProfile(d: ProfileData, assets: AssetSource | null):
   ensureFonts();
   const sd: StaticData | null = assets ? await assets.staticData(d.version).catch(() => null) : null;
   const get = async (url: string | null) => (assets && url ? decode(await assets.image(url)) : null);
-  const [pIcon, soloEmblem, flexEmblem, ...champImgs] = await Promise.all([
+  const queues = sortQueues(d.queues);
+  const [pIcon, ...rest] = await Promise.all([
     sd && d.iconId !== null ? get(assets!.profileIconUrl(sd, d.iconId)) : null,
-    d.solo.rank && assets ? assets.emblemUrl(d.solo.rank.tier).then(get) : null,
-    d.flex.rank && assets ? assets.emblemUrl(d.flex.rank.tier).then(get) : null,
+    ...queues.map((q) => (q.rank && assets ? assets.emblemUrl(q.rank.tier).then(get) : null)),
     ...d.champs.map((c) => (sd ? get(assets!.championUrl(sd, c.championId, '')) : null)),
   ]);
+  const emblems = rest.slice(0, queues.length);
+  const champImgs = rest.slice(queues.length);
 
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
@@ -58,7 +60,7 @@ export async function renderProfile(d: ProfileData, assets: AssetSource | null):
   ctx.fillRect(0, 0, W, H);
 
   // accent from best rank
-  const main = d.solo.rank ?? d.flex.rank;
+  const main = queues[0]?.rank ?? null;
   const accent = main ? TIER_COLOR[main.tier] ?? '#5865f2' : '#5865f2';
   const g = ctx.createRadialGradient(PAD + 120, 110, 10, PAD + 120, 110, 420);
   g.addColorStop(0, hexA(accent, 0.28));
@@ -130,12 +132,13 @@ export async function renderProfile(d: ProfileData, assets: AssetSource | null):
   // ---- right: rank cards ----
   const rx = PAD + LEFT_W + 18;
   const rW = W - rx - PAD;
-  const cardW = (rW - 16) / 2;
-  drawQueue(ctx, rx, PAD, cardW, 200, d.solo, soloEmblem ?? null);
-  drawQueue(ctx, rx + cardW + 16, PAD, cardW, 200, d.flex, flexEmblem ?? null);
+  const GAP = 12;
+  const CARD_H = 262;
+  const cardW = (rW - GAP * (queues.length - 1)) / queues.length;
+  queues.forEach((q, i) => drawQueue(ctx, rx + i * (cardW + GAP), PAD, cardW, CARD_H, q, emblems[i] ?? null, i === 0 && !!q.rank));
 
   // ---- right: champions ----
-  const cy = PAD + 216;
+  const cy = PAD + CARD_H + 14;
   const ch = H - PAD - cy;
   ctx.fillStyle = C.panel;
   rounded(ctx, rx, cy, rW, ch, 14); ctx.fill();
@@ -164,63 +167,84 @@ export async function renderProfile(d: ProfileData, assets: AssetSource | null):
   return canvas.toBuffer('image/png');
 }
 
-function drawQueue(ctx: SKRSContext2D, x: number, y: number, w: number, h: number, q: QueueCard, emblem: Image | null) {
+/**
+ * Highest rank first (tier, then division, then LP), unranked last, ties by games played.
+ * Tier is compared first because Master/GM/Challenger LP isn't comparable across queues.
+ */
+export function sortQueues(qs: QueueCard[]): QueueCard[] {
+  return [...qs].sort((a, b) => {
+    if (!a.rank || !b.rank) return a.rank ? -1 : b.rank ? 1 : 0;
+    return compareDivision(b.rank, a.rank) || b.rank.lp - a.rank.lp || b.wins + b.losses - (a.wins + a.losses);
+  });
+}
+
+/** Compact vertical card (3 across): emblem, tier, LP, ladder, W/L bar. */
+function drawQueue(ctx: SKRSContext2D, x: number, y: number, w: number, h: number, q: QueueCard, emblem: Image | null, best: boolean) {
   ctx.fillStyle = C.panel;
   rounded(ctx, x, y, w, h, 14); ctx.fill();
   const color = q.rank ? TIER_COLOR[q.rank.tier] ?? C.text : C.faint;
   ctx.fillStyle = color;
   rounded(ctx, x, y, w, 4, 2); ctx.fill();
+  const cx = x + w / 2;
 
   ctx.fillStyle = C.faint;
   ctx.font = font(600, 12);
-  ctx.fillText(q.label.toUpperCase(), x + 18, y + 28);
+  ctx.fillText(q.label.toUpperCase(), x + 16, y + 26);
+  ctx.textAlign = 'right';
   if (q.hotStreak) {
     ctx.fillStyle = C.gold;
-    ctx.textAlign = 'right';
-    ctx.fillText('HOT STREAK', x + w - 18, y + 28);
-    ctx.textAlign = 'left';
+    ctx.fillText('HOT', x + w - 16, y + 26);
+  } else if (best) {
+    ctx.fillStyle = color;
+    ctx.fillText('BEST', x + w - 16, y + 26);
   }
+  ctx.textAlign = 'left';
 
   if (!q.rank) {
+    crest(ctx, cx, y + 92, 34, C.faint, '–');
+    ctx.textAlign = 'center';
     ctx.fillStyle = C.sub;
-    ctx.font = font(700, 24);
-    ctx.fillText('Unranked', x + 18, y + 90);
+    ctx.font = font(700, 20);
+    ctx.fillText('Unranked', cx, y + 160);
+    ctx.textAlign = 'left';
     return;
   }
-  // emblem (image if available, else a tier-coloured crest)
-  const ex = x + 18, ey = y + 44, es = 86;
-  if (emblem) ctx.drawImage(emblem, ex, ey, es, es);
-  else crest(ctx, ex + es / 2, ey + es / 2, 38, color, q.rank.tier.charAt(0));
 
-  const tx = ex + es + 14;
+  const es = 84;
+  if (emblem) ctx.drawImage(emblem, cx - es / 2, y + 40, es, es);
+  else crest(ctx, cx, y + 40 + es / 2, 36, color, q.rank.tier.charAt(0));
+
+  ctx.textAlign = 'center';
   ctx.fillStyle = color;
-  ctx.font = font(700, 24);
+  ctx.font = font(700, 21);
   const label = isApex(q.rank.tier) ? title(q.rank.tier) : `${title(q.rank.tier)} ${q.rank.division}`;
-  ctx.fillText(fit(ctx, label, w - (tx - x) - 14), tx, ey + 30);
+  ctx.fillText(fit(ctx, label, w - 20), cx, y + 150);
   ctx.fillStyle = C.text;
-  ctx.font = font(600, 17);
-  ctx.fillText(`${q.rank.lp} LP`, tx, ey + 54);
-  if (q.ladderPos || q.topPercent) {
+  ctx.font = font(600, 16);
+  ctx.fillText(`${q.rank.lp} LP`, cx, y + 172);
+  const ladder = [q.ladderPos, q.topPercent].filter(Boolean).join(' · ');
+  if (ladder) {
     ctx.fillStyle = C.sub;
-    ctx.font = font(400, 13);
-    ctx.fillText(fit(ctx, [q.ladderPos, q.topPercent].filter(Boolean).join(' · '), w - (tx - x) - 14), tx, ey + 76);
+    ctx.font = font(400, 12);
+    ctx.fillText(fit(ctx, ladder, w - 20), cx, y + 192);
   }
+  ctx.textAlign = 'left';
 
   // W/L + bar
   const games = q.wins + q.losses;
   const wr = games ? q.wins / games : 0;
-  const by = y + h - 44;
+  const by = y + h - 36;
   ctx.fillStyle = C.text;
-  ctx.font = font(600, 15);
-  ctx.fillText(`${q.wins}W ${q.losses}L`, x + 18, by);
+  ctx.font = font(600, 14);
+  ctx.fillText(`${q.wins}W ${q.losses}L`, x + 16, by);
   ctx.textAlign = 'right';
   ctx.fillStyle = wr >= 0.5 ? C.win : C.loss;
-  ctx.fillText(`${Math.round(wr * 100)}%`, x + w - 18, by);
+  ctx.fillText(`${Math.round(wr * 100)}%`, x + w - 16, by);
   ctx.textAlign = 'left';
   ctx.fillStyle = '#2d3036';
-  rounded(ctx, x + 18, by + 10, w - 36, 8, 4); ctx.fill();
+  rounded(ctx, x + 16, by + 9, w - 32, 7, 4); ctx.fill();
   ctx.fillStyle = wr >= 0.5 ? C.win : C.loss;
-  rounded(ctx, x + 18, by + 10, Math.max(8, (w - 36) * wr), 8, 4); ctx.fill();
+  rounded(ctx, x + 16, by + 9, Math.max(7, (w - 32) * wr), 7, 4); ctx.fill();
 }
 
 function crest(ctx: SKRSContext2D, cx: number, cy: number, r: number, color: string, letter: string) {

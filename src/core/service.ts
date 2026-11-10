@@ -210,21 +210,20 @@ export class Service {
       if (queueType === 'RANKED_SOLO_5x5') topPercent = `${isApex(e.tier) ? 'top' : '≈ top'} ${formatTopPercent(approxTopPercent(rank))}%`;
       return { label, rank, wins: e.wins, losses: e.losses, ladderPos, topPercent, hotStreak: e.hotStreak };
     };
-    const [solo, flex] = await Promise.all([card('RANKED_SOLO_5x5', 'Solo/Duo'), card('RANKED_FLEX_SR', 'Flex')]);
+    const queues = await Promise.all([card('RANKED_SOLO_5x5', 'Solo/Duo'), card('RANKED_FLEX_SR', 'Flex'), card('RANKED_PREMADE_5x5', 'Ranked 5s')]);
     const recent = this.repo.lpHistory(player.puuid, SOLO, 10).map((r) => !!r.win);
     const latest = this.repo.latestDoneMatches(player.puuid, 1)[0];
     const version = (latest && this.repo.getCachedMatch(latest.match_id)?.info.gameVersion) || '99.99';
     const data: ProfileData = {
       name: player.game_name, tag: player.tag_line, region: PLATFORM_LABEL[player.platform],
       level: summoner?.summonerLevel ?? null, iconId: summoner?.profileIconId ?? null,
-      solo, flex,
+      queues,
       champs: mastery.map((m) => ({ championId: m.championId, points: m.championPoints, level: m.championLevel })),
       recent, version,
     };
     const png = await renderProfile(data, this.assets);
-    const main = solo.rank ?? flex.rank;
     return {
-      embed: { color: main ? 0x5865f2 : 0x4f545c, image: { url: 'attachment://profile.png' }, footer: { text: 'Top % below Master is an estimate from public rank distribution data' } },
+      embed: { color: queues.some((q) => q.rank) ? 0x5865f2 : 0x4f545c, image: { url: 'attachment://profile.png' }, footer: { text: 'Top % below Master is an estimate from public rank distribution data' } },
       files: [{ name: 'profile.png', data: png }],
     };
   }

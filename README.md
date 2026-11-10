@@ -17,7 +17,7 @@ The bot never posts on its own. A background poller records every ranked game an
 |---|---|---|
 | `/link region riot_id` | anywhere | Link your Riot account (one per Discord user) |
 | `/unlink` | anywhere | Remove your link |
-| `/profile [user\|riot_id] [region]` | anywhere | Profile card: icon, level, region, Solo/Flex rank with W/L, ladder position, top mastery champions (`$profile`, `$p`) |
+| `/profile [user\|riot_id] [region]` | anywhere | Profile card: icon, level, region, Solo/Duo, Flex and Ranked 5s rank cards (sorted best first) with W/L and ladder position, top mastery champions (`$profile`, `$p`) |
 | `/recent [user\|riot_id] [region] [queue]` | anywhere | Most recent game as a rendered scoreboard image; LP shown if it was recorded |
 | `/graph [user\|riot_id] [region] [games] [queue]` | anywhere | LP-over-games chart on tier bands, with peak, current rank and W/L strip |
 | `/daily [user\|riot_id] [region] [queue]` | anywhere | Today's games, W/L and LP |
