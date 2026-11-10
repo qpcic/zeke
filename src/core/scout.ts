@@ -90,18 +90,19 @@ export function assignRoles(counts: Map<string, Record<string, number>>): Map<st
 /** Laplace-smoothed winrate x sqrt(games): favours champs that are both played a lot and won a lot. */
 const threat = (c: ChampStat) => ((c.wins + 1) / (c.games + 2)) * Math.sqrt(c.games);
 
+/** A champion needs at least this many games to be a ban target (filters out 3W 0L flukes). */
+export const MIN_BAN_GAMES = 5;
+
 /**
- * Of the 10 most played champs, the 3 best winrates, counting only champs with a real
- * sample: at least 2 games, or 5% of the player's games if that's more. If nothing
- * qualifies (tiny sample), fall back to the most played ones.
+ * Of the 10 most played champs, the 3 best winrates among those with MIN_BAN_GAMES+ games.
+ * Fewer (or none) are returned when not enough champs have a real sample.
  */
 export function topBans(champs: ChampStat[]): ChampStat[] {
-  const total = champs.reduce((n, c) => n + c.games, 0);
-  const minGames = Math.max(2, Math.ceil(total * 0.05));
   const top10 = [...champs].sort((a, b) => b.games - a.games || b.wins - a.wins).slice(0, 10);
-  const pool = top10.filter((c) => c.games >= minGames);
-  if (!pool.length) return top10.slice(0, 3);
-  return [...pool].sort((a, b) => b.wins / b.games - a.wins / a.games || b.games - a.games).slice(0, 3);
+  return top10
+    .filter((c) => c.games >= MIN_BAN_GAMES)
+    .sort((a, b) => b.wins / b.games - a.wins / a.games || b.games - a.games)
+    .slice(0, 3);
 }
 
 export async function scoutTeam(

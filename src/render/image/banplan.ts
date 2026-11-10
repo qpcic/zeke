@@ -1,6 +1,6 @@
 import type { AssetSource, StaticData } from '../../assets/ddragon.ts';
 import { championName } from '../../assets/ddragon.ts';
-import type { ChampStat, MemberReport, Role, ScoutReport } from '../../core/scout.ts';
+import { MIN_BAN_GAMES, type ChampStat, type MemberReport, type Role, type ScoutReport } from '../../core/scout.ts';
 import { C, createCanvas, decode, ensureFonts, fit, font, icon, rounded, type Image, type SKRSContext2D } from './canvas.ts';
 
 /** Ban plan PNG: 5 role columns (player, most played, ban picks) + team priority bans. */
@@ -95,12 +95,12 @@ export async function renderBanPlan(r: ScoutReport, assets: AssetSource | null):
   if (!r.priorityBans.length) {
     ctx.fillStyle = C.sub;
     ctx.font = font(600, 16);
-    ctx.fillText('Not enough games to suggest bans.', PAD + 18, py + 90);
+    ctx.fillText(`No champion with ${MIN_BAN_GAMES}+ games yet, so no bans to suggest.`, PAD + 18, py + 90);
   }
 
   ctx.fillStyle = C.faint;
   ctx.font = font(400, 12);
-  ctx.fillText('Roles: best fit of each player\'s positions in these games. Bans: top 3 winrates among each player\'s 10 most played (min. 2 games or 5% of their games).', PAD + 8, H - 14);
+  ctx.fillText(`Roles: best fit of each player's positions in these games. Bans: top 3 winrates among each player's 10 most played (min. ${MIN_BAN_GAMES} games).`, PAD + 8, H - 14);
   return canvas.toBuffer('image/png');
 }
 
@@ -177,6 +177,6 @@ function drawColumn(ctx: SKRSContext2D, x: number, y: number, role: Role, m: Mem
   if (!m.bans.length) {
     ctx.fillStyle = C.faint;
     ctx.font = font(400, 13);
-    ctx.fillText('Not enough games', x + 14, y + 262);
+    ctx.fillText(`No champion with ${MIN_BAN_GAMES}+ games`, x + 14, y + 262);
   }
 }

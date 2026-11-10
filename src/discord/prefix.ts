@@ -11,7 +11,7 @@ import { errorEmbed, payload } from './handlers.ts';
 
 const ALIASES: Record<string, CommandName> = {
   link: 'link', unlink: 'unlink',
-  recent: 'recent', r: 'recent', last: 'recent',
+  recent: 'recent', r: 'recent', rs: 'recent', last: 'recent',
   graph: 'graph', g: 'graph',
   daily: 'daily', d: 'daily', today: 'daily',
   weekly: 'weekly', w: 'weekly', week: 'weekly',

@@ -19,15 +19,12 @@ test('assignRoles resolves conflicts for the best total', () => {
   assert.deepEqual(Object.fromEntries(r), { a: 'TOP', b: 'MIDDLE', c: 'JUNGLE', d: 'BOTTOM', e: 'UTILITY' });
 });
 
-test('topBans: top 3 winrate among 10 most played, ignoring one-offs', () => {
+test('topBans: top 3 winrate among 10 most played, min 5 games per champion', () => {
   const c = (n: string, games: number, wins: number) => ({ championId: 1, championName: n, games, wins, version: '1.1' });
-  const bans = topBans([c('A', 10, 5), c('B', 6, 5), c('C', 4, 3), c('D', 1, 1), c('E', 8, 2), c('F', 3, 3)]);
-  assert.deepEqual(bans.map((b) => b.championName), ['F', 'B', 'C'], '32 games -> min 2: D (1 game) ignored');
-  // 60 games -> min 3: a 2-0 champ doesn't qualify
-  const big = topBans([c('A', 30, 15), c('B', 20, 12), c('C', 8, 6), c('D', 2, 2)]);
-  assert.deepEqual(big.map((b) => b.championName), ['C', 'B', 'A']);
-  // fewer than 3 qualifying -> fewer bans, no 1-game filler
-  assert.deepEqual(topBans([c('A', 9, 5), c('B', 1, 1), c('C', 1, 1)]).map((b) => b.championName), ['A']);
+  const bans = topBans([c('A', 10, 5), c('B', 6, 5), c('C', 5, 4), c('Fluke', 3, 3), c('E', 8, 2), c('One', 1, 1)]);
+  assert.deepEqual(bans.map((b) => b.championName), ['B', 'C', 'A'], '3W 0L and 1-game picks are ignored');
+  assert.deepEqual(topBans([c('A', 9, 5), c('B', 4, 4), c('C', 2, 2)]).map((b) => b.championName), ['A'], 'fewer than 3 if not enough qualify');
+  assert.deepEqual(topBans([c('A', 4, 4), c('B', 3, 1)]), [], 'none if nobody has 5 games');
 });
 
 function premade() {

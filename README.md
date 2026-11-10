@@ -34,7 +34,7 @@ The bot never posts on its own. A background poller records every ranked game an
 ### Text commands (`$` prefix)
 
 Every command also works as a message: `$recent`, `$graph flex 30 @friend`, `$link EUNE ferks kitten#retro`, `$track add EUW Name#TAG`, `$lb week`, `$help`.
-- **Aliases:** `$r` = recent, `$g` = graph, `$d` = daily, `$w` = weekly, `$lb` = leaderboard.
+- **Aliases:** `$r` / `$rs` = recent, `$g` = graph, `$d` = daily, `$w` = weekly, `$lb` = leaderboard.
 - Only known command names trigger a reply, and each user has a 2.5s cooldown.
 - They work only where the bot is a member (servers it's in, and its DMs), not where the app is just user-installed.
 - They need the **Message Content** privileged intent. Change the prefix with `PREFIX=` in `.env`; set it to empty to turn text commands off.
@@ -80,7 +80,7 @@ The CLI still works for debugging without Discord: `npm run cli -- add EUW "Name
 Scouts a premade team from one name, using the player's last 50 Flex + Ranked 5s games:
 1. **Team:** the player plus the 4 allies who appear most often (at least 3 shared games).
 2. **Roles:** the best overall assignment of everyone's positions across those games, so two mids get split sensibly.
-3. **Bans per player:** of their 10 most played champions, the 3 with the best winrate. A champion needs at least 2 games, or 5% of the player's games if that's more.
+3. **Bans per player:** of their 10 most played champions, the 3 with the best winrate. A champion needs at least **5 games** to count, so 3W 0L flukes are ignored.
 4. **Priority bans:** the team's top 5 overall, ranked by winrate (smoothed) × how often it's played.
 
 The Ranked 5s queue ID isn't documented. The first scan finds it automatically (ranked games that are neither Solo/Duo nor Flex) and stores it in the database. Scouted players are **not** added to tracking. A cold scan costs ~50–55 Riot requests (cached afterwards), so it can take ~1 minute on a dev or personal key. Set `DEFAULT_REGION=EUNE` to skip typing the region.

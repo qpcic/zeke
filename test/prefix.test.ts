@@ -13,6 +13,7 @@ test('parsePrefix: commands, aliases, args, mentions', () => {
 
   assert.equal(parsePrefix('$recent', '$', ctx)!.name, 'recent');
   assert.equal(parsePrefix('$R', '$', ctx)!.name, 'recent');
+  assert.equal(parsePrefix('$rs flex', '$', ctx)!.name, 'recent');
 
   const l = parsePrefix('$link eune ferks kitten#retro', '$', ctx)!;
   assert.deepEqual([l.name, l.region, l.riotId], ['link', 'eune', 'ferks kitten#retro']);
