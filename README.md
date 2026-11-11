@@ -84,4 +84,6 @@ TypeScript on Node.js 22+ · discord.js · built-in `node:sqlite` · `@napi-rs/c
 
 ---
 
+<sub>[Terms of Service](docs/terms-of-service.md) · [Privacy Policy](docs/privacy-policy.md)</sub>
+
 <sub>Zeke isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc.</sub>
