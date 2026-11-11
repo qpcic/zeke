@@ -30,13 +30,15 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
     <td align="center"><img src="docs/images/daily.png" alt="Daily recap" width="420"><br><sub><code>/daily</code> · today's games and LP</sub></td>
     <td align="center"><img src="docs/images/leaderboard.png" alt="Leaderboard" width="420"><br><sub><code>/leaderboard</code> · who climbed today</sub></td>
   </tr>
-  <!-- Add more screenshots here, e.g.:
   <tr>
-    <td align="center"><img src="docs/images/recent.png" alt="Scoreboard" width="420"><br><sub><code>/recent</code> · latest game</sub></td>
-    <td align="center"><img src="docs/images/graph.png" alt="LP graph" width="420"><br><sub><code>/graph</code> · LP over time</sub></td>
+    <td align="center" colspan="2"><img src="docs/images/recent.png" alt="Match scoreboard" width="860"><br><sub><code>/recent</code> · full scoreboard of the latest game</sub></td>
   </tr>
   <tr>
-    <td align="center" colspan="2"><img src="docs/images/scout.png" alt="Scout" width="860"><br><sub><code>/scout</code> · scout a premade</sub></td>
+    <td align="center" colspan="2"><img src="docs/images/scout.png" alt="Scout" width="860"><br><sub><code>/scout</code> · scout a premade: roles, best champions and what to ban</sub></td>
+  </tr>
+  <!-- Add an LP graph screenshot as docs/images/graph.png and uncomment:
+  <tr>
+    <td align="center" colspan="2"><img src="docs/images/graph.png" alt="LP graph" width="860"><br><sub><code>/graph</code> · LP over time</sub></td>
   </tr>
   -->
 </table>
@@ -76,19 +78,6 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 - **Personal commands work anywhere** (servers, DMs, group chats) if you install the app to your account. Server commands need Zeke in the server. `$` commands work wherever the bot is a member.
 - `$help` lists everything.
 
-## Running your own Zeke
-
-Zeke is self-hosted: you run your own copy with your own Discord bot and Riot API key. It's one small Node.js process with a SQLite database, so a $5/month host or a spare machine is plenty.
-
-```bash
-git clone https://github.com/qpcic/zeke.git && cd zeke
-npm install
-npm run demo          # try it offline: simulated games, no keys needed
-cp .env.example .env  # add DISCORD_TOKEN, DISCORD_CLIENT_ID, RIOT_API_KEY
-npm run dev           # slash commands register themselves on first start
-```
-
-The full guide covers creating the Discord app, getting a Riot API key, Docker and Railway deploys, and moving your data between hosts: **[docs/self-hosting.md](docs/self-hosting.md)**.
 
 ## Tech
 
