@@ -1,6 +1,7 @@
 import { AttachmentBuilder, PermissionFlagsBits, type Message } from 'discord.js';
 import { UserError, type Reply, type Service } from '../core/service.ts';
 import { runCommand, type CommandName, type CommandRequest } from './actions.ts';
+import type { CommandLogger } from './commandLog.ts';
 import { parsePlatform, PLATFORM_LABEL, type Platform } from '../riot/regions.ts';
 import { errorEmbed, payload } from './handlers.ts';
 import { stageImport } from '../core/dbImport.ts';
@@ -140,7 +141,25 @@ export function parsePrefix(
 
 const COOLDOWN_MS = 2500;
 
-export function createPrefixHandler(service: Service, prefix: string, botUserId: () => string | undefined, log: (m: string) => void) {
+export function createPrefixHandler(
+  service: Service,
+  prefix: string,
+  botUserId: () => string | undefined,
+  log: (m: string) => void,
+  cmdLog?: CommandLogger,
+) {
+  const audit = (msg: Message, started: number, ok: boolean, error?: string) =>
+    cmdLog?.({
+      text: msg.content,
+      userId: msg.author.id,
+      userName: msg.author.username,
+      guildId: msg.guildId,
+      guildName: msg.guild?.name,
+      channelId: msg.channelId,
+      ok,
+      error,
+      ms: Date.now() - started,
+    });
   const lastUse = new Map<string, number>();
 
   /** Owner-only: replace the database with an attached export (npm run export-db), then restart. */
@@ -236,9 +255,20 @@ export function createPrefixHandler(service: Service, prefix: string, botUserId:
     if (msg.author.bot || !msg.content.startsWith(prefix)) return;
     {
       const [head, ...args] = msg.content.slice(prefix.length).trim().split(/\s+/);
-      if (head?.toLowerCase() === 'admin') return void (await handleAdmin(msg, args));
+      if (head?.toLowerCase() === 'admin') {
+        // Only the owner in the console channel gets a reply; log just those (others are ignored silently).
+        if (config.ownerId && msg.author.id === config.ownerId && msg.channelId === config.consoleChannelId) {
+          const t = Date.now();
+          await handleAdmin(msg, args);
+          audit(msg, t, true);
+        }
+        return;
+      }
     }
-    if (msg.content.slice(prefix.length).trim().toLowerCase() === 'import') return void (await handleImport(msg));
+    if (msg.content.slice(prefix.length).trim().toLowerCase() === 'import') {
+      if (msg.author.id === config.ownerId) audit(msg, Date.now(), true);
+      return void (await handleImport(msg));
+    }
     const mentioned = msg.mentions.users.find((u) => u.id !== botUserId());
     const req = parsePrefix(msg.content, prefix, {
       callerId: msg.author.id,
@@ -260,7 +290,9 @@ export function createPrefixHandler(service: Service, prefix: string, botUserId:
     try {
       const reply = await runCommand(service, req);
       await msg.reply({ ...payload(reply), allowedMentions: { repliedUser: false } });
+      audit(msg, now, true);
     } catch (e) {
+      audit(msg, now, false, (e as Error).message);
       if (!(e instanceof UserError)) log(`${prefix}${req.name} failed: ${(e as Error).stack}`);
       await msg.reply({ embeds: [errorEmbed(e)], allowedMentions: { repliedUser: false } }).catch(() => {});
     } finally {

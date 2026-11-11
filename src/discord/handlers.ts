@@ -9,6 +9,7 @@ import { UserError, type Reply, type Service } from '../core/service.ts';
 import { COLORS } from '../render/embed.ts';
 import { PLATFORM_LABEL } from '../riot/regions.ts';
 import { info, PRIVATE, runCommand, tag, type CommandName, type CommandRequest } from './actions.ts';
+import type { CommandLogger } from './commandLog.ts';
 
 export const payload = (r: Reply) => ({
   embeds: [r.embed],
@@ -42,7 +43,7 @@ function toRequest(i: ChatInputCommandInteraction): CommandRequest {
   };
 }
 
-export function createInteractionHandler(service: Service, log: (m: string) => void) {
+export function createInteractionHandler(service: Service, log: (m: string) => void, cmdLog?: CommandLogger) {
   async function onAutocomplete(i: AutocompleteInteraction) {
     if (i.commandName !== 'track' || !i.guildId) return i.respond([]);
     const q = i.options.getFocused().toLowerCase();
@@ -61,11 +62,26 @@ export function createInteractionHandler(service: Service, log: (m: string) => v
     }
     if (!i.isChatInputCommand()) return;
     const req = toRequest(i);
+    const started = Date.now();
+    const audit = (ok: boolean, error?: string) =>
+      cmdLog?.({
+        text: i.toString(),
+        userId: i.user.id,
+        userName: i.user.username,
+        guildId: i.guildId,
+        guildName: i.guild?.name,
+        channelId: i.channelId,
+        ok,
+        error,
+        ms: Date.now() - started,
+      });
     try {
       // Defer first: Riot calls + rendering can exceed Discord's 3s reply window.
       await i.deferReply(PRIVATE.has(req.name) ? { flags: MessageFlags.Ephemeral } : {});
       await i.editReply(payload(await runCommand(service, req)));
+      audit(true);
     } catch (e) {
+      audit(false, (e as Error).message);
       if (!(e instanceof UserError)) log(`/${i.commandName} failed: ${(e as Error).stack}`);
       try {
         if (i.deferred || i.replied) await i.editReply({ embeds: [errorEmbed(e)], files: [] });

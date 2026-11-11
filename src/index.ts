@@ -4,6 +4,7 @@ import { bootstrap, log } from './bootstrap.ts';
 import { config, requireDiscord } from './config.ts';
 import { createInteractionHandler } from './discord/handlers.ts';
 import { createPrefixHandler } from './discord/prefix.ts';
+import { createCommandLogger } from './discord/commandLog.ts';
 import { commands } from './discord/commands.ts';
 import { createHash } from 'node:crypto';
 import { LogSink } from './sinks/logSink.ts';
@@ -28,8 +29,10 @@ const client = new Client({
   ],
   partials: prefixOn ? [Partials.Channel] : [], // DM channels arrive uncached
 });
-client.on(Events.InteractionCreate, createInteractionHandler(service, log));
-if (prefixOn) client.on(Events.MessageCreate, createPrefixHandler(service, config.prefix, () => client.user?.id, log));
+// Every command is logged to stdout and, if CONSOLE_CHANNEL_ID is set, to that channel.
+const cmdLog = createCommandLogger(client, config.consoleChannelId, log);
+client.on(Events.InteractionCreate, createInteractionHandler(service, log, cmdLog));
+if (prefixOn) client.on(Events.MessageCreate, createPrefixHandler(service, config.prefix, () => client.user?.id, log, cmdLog));
 client.once(Events.ClientReady, async (c) => {
   log(`Discord: logged in as ${c.user.tag} · ${c.guilds.cache.size} server(s)${prefixOn ? ` · prefix "${config.prefix}"` : ''}`);
   // Keep Discord's slash command list in sync with the code: re-register only when definitions changed.
