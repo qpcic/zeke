@@ -14,7 +14,7 @@ import { renderProfile, type ProfileData, type QueueCard } from '../render/image
 import { isApex } from './rank.ts';
 import { scoutTeam } from './scout.ts';
 import { formatRank } from './rank.ts';
-import { previousDay, previousWeek, recapTitle, recapWindow, zonedParts } from './time.ts';
+import { personalSpan, personalTitle, personalWindow, previousDay, previousWeek, recapTitle, recapWindow, zonedParts, type DailyWindow } from './time.ts';
 import type { GameResult } from './events.ts';
 import { QUEUE_TYPE_BY_ID } from '../riot/types.ts';
 import { buildLeaderboardEmbed, buildPersonalRecapEmbed } from '../render/statsEmbeds.ts';
@@ -322,8 +322,8 @@ export class Service {
   }
 
   /** Data behind the personal recap image (exposed for tests). Null when there are no games. */
-  recapData(player: PlayerRow, kind: 'daily' | 'weekly', queueId = SOLO, tz = this.defaultTz): { header: RecapHeader; games: RecapGame[] } | null {
-    const period = recapWindow(kind, this.now(), tz);
+  recapData(player: PlayerRow, kind: 'daily' | 'weekly', queueId = SOLO, window: DailyWindow = 'today', tz = this.defaultTz): { header: RecapHeader; games: RecapGame[] } | null {
+    const period = personalWindow(kind, window, this.now(), tz);
     const stats = playerStats(this.repo, player, period, queueId);
     const rows = this.repo.doneMatchesBetween(player.puuid, period.from, period.to).filter((m) => m.queue_id === queueId).reverse(); // newest first
     if (!rows.length) return null;
@@ -344,7 +344,7 @@ export class Service {
     const snap = stats.ranks.find((r) => r.queue_type === QUEUE_TYPE_BY_ID[queueId]);
     return {
       header: {
-        name: player.game_name, tag: player.tag_line, title: `${recapTitle(kind)} · ${queueName(queueId)}`,
+        name: player.game_name, tag: player.tag_line, title: `${personalTitle(kind, window)} · ${queueName(queueId)}`,
         subtitle: period.label,
         games: stats.games, wins: stats.wins, losses: stats.losses, lpNet: stats.lpNet,
         rank: snap ? { tier: snap.tier, division: snap.division, lp: snap.lp, queue: queueName(queueId) } : null,
@@ -356,12 +356,12 @@ export class Service {
   }
 
   /** Personal daily/weekly recap: rendered list of games (champ, KDA, W/L, LP). */
-  async personalRecap(player: PlayerRow, kind: 'daily' | 'weekly', queueId = SOLO, tz = this.defaultTz): Promise<Reply> {
-    const data = this.recapData(player, kind, queueId, tz);
-    const title = `${recapTitle(kind)} · ${queueName(queueId)}`;
+  async personalRecap(player: PlayerRow, kind: 'daily' | 'weekly', queueId = SOLO, window: DailyWindow = 'today', tz = this.defaultTz): Promise<Reply> {
+    const data = this.recapData(player, kind, queueId, window, tz);
+    const title = `${personalTitle(kind, window)} · ${queueName(queueId)}`;
     if (!data) {
       const pending = this.repo.pendingMatches(player.puuid).filter((m) => m.queue_id === queueId).length;
-      const desc = `No ${queueName(queueId)} games in the ${kind === 'daily' ? 'past 24 hours' : 'past 7 days'}. 💤` + (pending ? `\n_${pending} game${pending === 1 ? '' : 's'} waiting for LP to update_` : '');
+      const desc = `No ${queueName(queueId)} games ${personalSpan(kind, window)}. 💤` + (pending ? `\n_${pending} game${pending === 1 ? '' : 's'} waiting for LP to update_` : '');
       return { embed: { author: { name: `${player.game_name}#${player.tag_line} · ${PLATFORM_LABEL[player.platform]}` }, title, description: desc, color: 0x5865f2 }, files: [] };
     }
     const lpNet = data.header.lpNet;
@@ -371,7 +371,7 @@ export class Service {
       return { embed: { color: lpNet > 0 ? 0x2ecc71 : lpNet < 0 ? 0xe74c3c : 0x5865f2, image: { url: `attachment://${name}` } }, files: [{ name, data: png }] };
     } catch (e) {
       this.log(`recap render failed, using text: ${(e as Error).message}`);
-      const period = recapWindow(kind, this.now(), tz);
+      const period = personalWindow(kind, window, this.now(), tz);
       const rows = this.repo.doneMatchesBetween(player.puuid, period.from, period.to).filter((m) => m.queue_id === queueId).reverse();
       return {
         embed: buildPersonalRecapEmbed({ player, periodLabel: title, stats: playerStats(this.repo, player, period, queueId), games: rows.map((row) => ({ row, match: this.repo.getCachedMatch(row.match_id) })), pending: data.header.pending }),

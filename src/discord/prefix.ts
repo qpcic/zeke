@@ -27,7 +27,8 @@ const ALIASES: Record<string, CommandName> = {
 };
 
 const QUEUE_WORDS: Record<string, number> = { solo: 420, soloq: 420, solo_duo: 420, soloduo: 420, duo: 420, sd: 420, flex: 440 };
-const KEYWORDS = new Set([...Object.keys(QUEUE_WORDS), 'daily', 'weekly', 'week', 'w', 'today']);
+const WINDOW_24H = new Set(['24h', '24', 'last24', 'last24h', 'rolling', 'past24h']);
+const KEYWORDS = new Set([...Object.keys(QUEUE_WORDS), ...WINDOW_24H, 'daily', 'weekly', 'week', 'w', 'today']);
 const isKeyword = (w: string) => KEYWORDS.has(w.toLowerCase()) || /^\d+$/.test(w) || !!parsePlatform(w);
 
 /**
@@ -90,6 +91,15 @@ export function parsePrefix(
       const region = ex.rest.find((w) => parsePlatform(w));
       if (region) req.region = region;
       words = ex.rest.filter((w) => w !== region);
+    }
+  }
+
+  // "$daily 24h" / "$daily today": window option (before the queue, which is last)
+  if (name === 'daily') {
+    const w = words.find((x) => WINDOW_24H.has(x.toLowerCase()) || x.toLowerCase() === 'today');
+    if (w) {
+      req.window = w.toLowerCase() === 'today' ? 'today' : '24h';
+      words = words.filter((x) => x !== w);
     }
   }
 

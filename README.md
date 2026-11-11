@@ -19,7 +19,7 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
 - **Automatic LP tracking:** link your Riot ID once. Zeke watches for finished ranked games in the background and records the exact LP gained or lost in each one, including promotions, demotions, remakes, dodges and decay.
 - **Profile cards:** Solo/Duo, Flex and Ranked 5s ranks side by side (best first), W/L, ladder position for Master+, top champions and mastery stats.
 - **Match scoreboards:** your latest game as a full 10-player scoreboard with items, runes, damage and MVP/ACE badges.
-- **Daily and weekly recaps:** every game from the past 24 hours or 7 days with champion, KDA, result and LP, plus the net total.
+- **Daily and weekly recaps:** every game from today (or the past 24 hours) or the past 7 days with champion, KDA, result and LP, plus the net total.
 - **LP graphs:** your climb over the last games, drawn on the tier and division ladder with your peak marked.
 - **Server leaderboards:** who climbed the most in the past 24 hours or 7 days, with win/loss, LP trend and current rank.
 - **Scout:** type one name from the enemy Ranked 5s or Flex team. Zeke finds their five-stack, works out each player's role and best champions, and suggests what to ban.
@@ -27,7 +27,7 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
 
 <table>
   <tr>
-    <td align="center"><img src="docs/images/daily.png" alt="Daily recap" width="420"><br><sub><code>/daily</code> · games and LP from the past 24h</sub></td>
+    <td align="center"><img src="docs/images/daily.png" alt="Daily recap" width="420"><br><sub><code>/daily</code> · today's games and LP</sub></td>
     <td align="center"><img src="docs/images/leaderboard.png" alt="Leaderboard" width="420"><br><sub><code>/leaderboard</code> · who climbed in the past 24h</sub></td>
   </tr>
   <tr>
@@ -56,7 +56,7 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 | `/mode [solo\|flex]` | Set your default queue for stats commands (Solo/Duo unless changed) · `$mode flex` |
 | `/profile [@user \| Name#TAG]` | Profile card: ranks, W/L, ladder position, top champions · `$p` |
 | `/recent [@user \| Name#TAG] [solo\|flex]` | Scoreboard of the latest game · `$rs` |
-| `/daily [@user \| Name#TAG] [solo\|flex]` | Games and LP from the past 24 hours · `$d` |
+| `/daily [@user \| Name#TAG] [24h] [solo\|flex]` | Today's games and LP; add `24h` for the past 24 hours instead · `$d` |
 | `/weekly [@user \| Name#TAG] [solo\|flex]` | Games and LP from the past 7 days · `$w` |
 | `/graph [@user \| Name#TAG] [games] [solo\|flex]` | LP graph over recorded games · `$g` |
 | `/scout <Name#TAG> [region]` | Scout that player's Ranked 5s / Flex team: roles, best champs, bans · `$scout` |
