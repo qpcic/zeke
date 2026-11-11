@@ -27,7 +27,12 @@ const ALIASES: Record<string, CommandName> = {
   help: 'help', commands: 'help',
 };
 
-const QUEUE_WORDS: Record<string, number> = { solo: 420, soloq: 420, solo_duo: 420, soloduo: 420, duo: 420, sd: 420, flex: 440 };
+const QUEUE_WORDS: Record<string, number> = {
+  solo: 420, soloq: 420, solo_duo: 420, soloduo: 420, duo: 420, sd: 420,
+  flex: 440,
+  // Ranked 5s: resolved to the real queue id by the service (FIVES pseudo id)
+  '5s': 5, fives: 5, '5v5': 5, r5: 5, r5s: 5, premade: 5,
+};
 const WINDOW_24H = new Set(['24h', '24', 'last24', 'last24h', 'rolling', 'past24h']);
 const KEYWORDS = new Set([...Object.keys(QUEUE_WORDS), ...WINDOW_24H, 'daily', 'weekly', 'week', 'w', 'today']);
 const isKeyword = (w: string) => KEYWORDS.has(w.toLowerCase()) || /^\d+$/.test(w) || !!parsePlatform(w);
@@ -228,7 +233,7 @@ export function createPrefixHandler(
         case 'glb': {
           const words = rest.map((w) => w.toLowerCase());
           const kind = words.some((w) => ['weekly', 'week', 'w'].includes(w)) ? 'weekly' : 'daily';
-          const q = words.includes('flex') ? 440 : 420;
+          const q = words.includes('flex') ? 440 : words.some((w) => QUEUE_WORDS[w] === 5) ? await service.resolveQueue(5) : 420;
           const r = await service.globalLeaderboard(kind, q);
           await send(r.embed, r.files);
           return;
@@ -239,7 +244,7 @@ export function createPrefixHandler(
             description: [
               `\`${prefix}admin list [page]\` all known accounts`,
               `\`${prefix}admin links [page]\` Discord → Riot links (10 per page)`,
-              `\`${prefix}admin globallb [daily|weekly] [solo|flex]\` leaderboard of every account`,
+              `\`${prefix}admin globallb [daily|weekly] [solo|flex|5s]\` leaderboard of every account`,
               `\`${prefix}admin remove <Name#TAG> [confirm]\` delete an account's games and links`,
             ].join('\n'),
             color: COLORS.info,

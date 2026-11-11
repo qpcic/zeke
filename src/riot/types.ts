@@ -95,6 +95,19 @@ export const QUEUE_TYPE_BY_ID: Record<number, RankedQueueType> = {
   440: 'RANKED_FLEX_SR',
 };
 
+export const FIVES_QUEUE_TYPE = 'RANKED_PREMADE_5x5';
+
+/**
+ * Ranked 5s has no documented queue id. Once one is seen in match data it's registered
+ * here so every queueId -> queueType / label lookup treats it like Solo and Flex.
+ */
+export function registerFivesQueue(id: number): void {
+  if (!Number.isFinite(id) || id === 420 || id === 440) return;
+  QUEUE_TYPE_BY_ID[id] = FIVES_QUEUE_TYPE;
+  QUEUE_LABEL[id] = 'Ranked 5s';
+}
+export const isFivesQueue = (id: number) => QUEUE_TYPE_BY_ID[id] === FIVES_QUEUE_TYPE;
+
 export const QUEUE_LABEL: Record<number, string> = {
   420: 'Ranked Solo/Duo',
   440: 'Ranked Flex',

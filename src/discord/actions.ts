@@ -1,5 +1,5 @@
 import { formatRank } from '../core/rank.ts';
-import { FLEX, queueName, UserError, type Reply, type Service } from '../core/service.ts';
+import { FIVES, FLEX, queueName, UserError, type Reply, type Service } from '../core/service.ts';
 import type { PlayerRow } from '../db/repo.ts';
 import { COLORS, type Embed } from '../render/embed.ts';
 import { PLATFORM_LABEL } from '../riot/regions.ts';
@@ -35,7 +35,7 @@ export interface CommandRequest {
 /** Replies that should only be visible to the caller where the transport supports it. */
 export const PRIVATE: ReadonlySet<CommandName> = new Set(['link', 'unlink', 'mode', 'help']);
 
-const QUEUE_NAME: Record<string, string> = { RANKED_SOLO_5x5: 'Solo/Duo', RANKED_FLEX_SR: 'Flex' };
+const QUEUE_NAME: Record<string, string> = { RANKED_SOLO_5x5: 'Solo/Duo', RANKED_FLEX_SR: 'Flex', RANKED_PREMADE_5x5: 'Ranked 5s' };
 export const tag = (p: PlayerRow) => `${p.game_name}#${p.tag_line}`;
 export const info = (title: string, description: string, color: number = COLORS.info): Embed => ({ title, description, color });
 const only = (embed: Embed): Reply => ({ embed, files: [] });
@@ -52,9 +52,9 @@ export function helpEmbed(p: string): Embed {
   return info('Zeke commands', [
     `${c('link <region> <Name#TAG>')} link your Riot account`,
     `${c('unlink')} remove your link`,
-    `${c('mode [solo|flex]')} your default queue for stats commands (default Solo/Duo)`,
+    `${c('mode [solo|flex|5s]')} your default queue for stats commands (default Solo/Duo)`,
     `${c('profile [@user | Name#TAG [region]]')} rank, W/L, ladder position, top champions`,
-    `${c('recent [@user | Name#TAG [region]] [solo|flex]')} latest game scoreboard`,
+    `${c('recent [@user | Name#TAG [region]] [solo|flex|5s]')} latest ranked game scoreboard (any queue unless you name one)`,
     `${c('graph [@user | Name#TAG [region]] [games] [solo|flex]')} LP graph`,
     `${c('daily [24h]')} today's games and LP, or the past 24h · ${c('weekly')} past 7 days (same arguments as recent)`,
     '_Accounts are tracked globally: once anyone adds or looks one up, its games are recorded everywhere._',
@@ -64,7 +64,7 @@ export function helpEmbed(p: string): Embed {
     `${c('leaderboard [daily|weekly] [solo|flex]')} LP leaderboard`,
     `${c('track add <region> <Name#TAG>')} · ${c('track remove <Name#TAG>')} · ${c('track list')} (Manage Server)`,
     '',
-    `_Queue is always the last argument; without one, your ${c('mode')} is used (Solo/Duo unless changed)._`,
+    `_Queue (\`solo\`, \`flex\` or \`5s\`) is always the last argument; without one, your ${c('mode')} is used (Solo/Duo unless changed). ${c('recent')} without one shows your latest ranked game._`,
     `Regions: ${Object.values(PLATFORM_LABEL).join(' ')}`,
   ].join('\n'));
 }
@@ -95,15 +95,16 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
     return v;
   };
 
+  // Explicit queue, else the caller's /mode, else Solo/Duo. Ranked 5s is resolved per command (needs a player).
   const queue = service.queueFor(req.callerId, req.queue);
 
   switch (req.name) {
     case 'mode': {
       if (req.queue === undefined) {
-        return only(info(`Default mode: ${queueName(queue)}`, `Stats commands use **${queueName(queue)}** unless you add a queue.\nChange it with \`${p}mode solo\` or \`${p}mode flex\`.`));
+        return only(info(`Default mode: ${queueName(queue)}`, `Stats commands use **${queueName(queue)}** unless you add a queue.\nChange it with \`${p}mode solo\`, \`${p}mode flex\` or \`${p}mode 5s\`.`));
       }
       service.setDefaultQueue(req.callerId, req.queue);
-      return only(info(`Default mode set to ${queueName(req.queue)}`, `\`${p}recent\`, \`${p}daily\`, \`${p}weekly\`, \`${p}graph\` and \`${p}leaderboard\` now use **${queueName(req.queue)}** when you don't name a queue. Add \`${req.queue === FLEX ? 'solo' : 'flex'}\` at the end to override once.`, COLORS.win));
+      return only(info(`Default mode set to ${queueName(req.queue)}`, `\`${p}daily\`, \`${p}weekly\`, \`${p}graph\` and \`${p}leaderboard\` now use **${queueName(req.queue)}** when you don't name a queue (\`${p}recent\` always shows the latest ranked game). Add \`${req.queue === FLEX || req.queue === FIVES ? 'solo' : 'flex'}\` at the end to override once.`, COLORS.win));
     }
 
     case 'help':
@@ -125,12 +126,13 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
       return withNote(await service.profile(await target()));
 
     case 'recent':
-      return withNote(await service.recent(await target(), queue));
+      // No queue given: newest ranked game of any queue; /mode deliberately doesn't apply.
+      return withNote(await service.recent(await target(), req.queue));
 
     case 'graph': {
       const pl = await target();
       try {
-        return withNote(await service.graph(pl, queue, Math.min(200, Math.max(5, req.games ?? 50))));
+        return withNote(await service.graph(pl, await service.resolveQueue(queue, pl), Math.min(200, Math.max(5, req.games ?? 50))));
       } catch (e) {
         if (newNote && e instanceof UserError) throw new UserError(`${newNote} The graph fills up as they play.`);
         throw e;
@@ -139,13 +141,16 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
 
     case 'daily':
     case 'weekly':
-      return withNote(await service.personalRecap(await target(), req.name, queue, req.window ?? 'today'));
+    {
+      const pl = await target();
+      return withNote(await service.personalRecap(pl, req.name, await service.resolveQueue(queue, pl), req.window ?? 'today'));
+    }
 
     case 'scout':
       return service.banPlan(need(req.riotId, 'scout <Name#TAG> [region]'), req.region);
 
     case 'leaderboard':
-      return service.leaderboard(needGuild(), req.period ?? 'daily', queue);
+      return service.leaderboard(needGuild(), req.period ?? 'daily', await service.resolveQueue(queue));
 
     case 'track': {
       const guildId = needGuild();

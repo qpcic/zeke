@@ -107,7 +107,7 @@ With `OWNER_ID` and `CONSOLE_CHANNEL_ID` set, the owner can run these in that ch
 |---|---|
 | `$admin list [page]` | All known accounts with games, links and servers |
 | `$admin links [page]` | Discord user → Riot account links, 10 per page |
-| `$admin globallb [daily\|weekly] [solo\|flex]` | Leaderboard of every known account |
+| `$admin globallb [daily\|weekly] [solo\|flex\|5s]` | Leaderboard of every known account |
 | `$admin remove <Name#TAG> [confirm]` | Delete an account's games, LP history, links and server tracks. Without `confirm` it only shows what would be deleted |
 
 ## Backups

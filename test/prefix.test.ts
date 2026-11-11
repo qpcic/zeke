@@ -52,7 +52,7 @@ test('prefix flow end to end: link, recent, track needs Manage Server, server-on
   assert.match(linked.embed.title!, /Linked ferks kitten#retro/);
   assert.match(linked.embed.description!, /`\$daily`/, 'usage hints use the prefix style');
 
-  await assert.rejects(run('$recent'), /No Solo\/Duo games found/);
+  await assert.rejects(run('$recent'), /No ranked games found/);
   await assert.rejects(run('$recent', { callerId: 'u2' }), /You have no linked account. Use `\$link`/);
 
   await assert.rejects(run('$track add EUNE ferks kitten#retro'), /Manage Server/);

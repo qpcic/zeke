@@ -138,6 +138,9 @@ export class Repo {
   getSnapshots(puuid: string) {
     return this.db.prepare('SELECT * FROM rank_snapshots WHERE puuid = ?').all(puuid) as unknown as SnapshotRow[];
   }
+  deleteSnapshots(queueType: string) {
+    this.db.prepare('DELETE FROM rank_snapshots WHERE queue_type = ?').run(queueType);
+  }
   putSnapshot(s: SnapshotRow) {
     this.db.prepare(`
       INSERT INTO rank_snapshots (puuid, queue_type, tier, division, lp, wins, losses, taken_at)
