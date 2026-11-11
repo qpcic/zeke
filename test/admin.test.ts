@@ -85,5 +85,5 @@ test('$admin globallb: leaderboard over every known account', async () => {
   const r = (await run('$admin globallb'))[0]!;
   assert.equal((r.files ?? []).length, 1, 'image attached');
   const weeklyFlex = (await run('$admin glb week flex'))[0]!.embeds[0]!;
-  assert.match(weeklyFlex.description!, /No Flex games played this week by the 2 known accounts/);
+  assert.match(weeklyFlex.description!, /No Flex games in the past 7 days by the 2 known accounts/);
 });

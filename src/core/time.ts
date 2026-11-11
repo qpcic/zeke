@@ -101,6 +101,20 @@ export function thisWeek(t: number, tz: string): Period {
   return { from: zonedMidnight(y, m, d, tz), to: t + 1, key: `${wy}-W${String(wn).padStart(2, '0')}`, label: 'This week' };
 }
 
+/**
+ * Rolling window ending now: the last `hours` hours. Used by /daily (24h), /weekly (168h)
+ * and leaderboards, so "daily" at 01:00 still includes last night's games.
+ */
+export function rolling(t: number, hours: number, tz: string): Period {
+  const from = t - hours * 3600_000;
+  const f = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  return { from, to: t + 1, key: `last-${hours}h`, label: `${f.format(from)} – now` };
+}
+
+/** /daily and /weekly windows. */
+export const recapWindow = (kind: 'daily' | 'weekly', t: number, tz: string) => rolling(t, kind === 'daily' ? 24 : 24 * 7, tz);
+export const recapTitle = (kind: 'daily' | 'weekly') => (kind === 'daily' ? 'Past 24h' : 'Past 7 days');
+
 export function isValidTimeZone(tz: string): boolean {
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: tz });

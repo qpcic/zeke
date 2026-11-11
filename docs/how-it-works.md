@@ -13,7 +13,7 @@ Riot's match data (match-v5) contains no LP. Zeke works it out by comparing the 
 - **Dodges, decay and leaver penalties** are LP changes without a game. They're recorded separately and included in recaps, so totals always match the ladder.
 - **Timeout:** if the ladder doesn't update within `LP_SETTLE_TIMEOUT_SEC`, the game is recorded with LP unknown.
 
-"Today" and "this week" (Mon–Sun) use local midnight in `DEFAULT_TZ` and handle daylight-saving changes.
+Daily and weekly views are rolling windows: the past 24 hours and the past 7 × 24 hours, counted back from when you run the command. Late-night games still show the next morning.
 
 ## Polling
 

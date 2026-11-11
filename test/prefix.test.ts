@@ -79,7 +79,7 @@ test('global tracking: look up anyone by Riot ID from any server; region only ne
   await assert.rejects(run('$daily Global Guy#EUW'), /don't know \*\*Global Guy#EUW\*\* yet. Add the region/);
   const first = await run('$daily Global Guy#EUW euw');
   assert.match(first.embed.description!, /Started tracking \*\*Global Guy#EUW\*\*/);
-  assert.match(first.embed.description!, /No Solo\/Duo games today/);
+  assert.match(first.embed.description!, /No Solo\/Duo games in the past 24 hours/);
   assert.equal(repo.activePlayers().length, 1);
 
   clock.advance(30 * 60_000);

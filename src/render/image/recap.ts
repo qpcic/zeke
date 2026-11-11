@@ -22,7 +22,7 @@ export interface RecapGame {
 export interface RecapHeader {
   name: string;
   tag: string;
-  title: string; // "Today" / "This week"
+  title: string; // "Past 24h · Solo/Duo" / "Past 7 days · Flex"
   subtitle: string; // date or date range
   games: number;
   wins: number;

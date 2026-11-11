@@ -14,7 +14,7 @@ import { renderProfile, type ProfileData, type QueueCard } from '../render/image
 import { isApex } from './rank.ts';
 import { scoutTeam } from './scout.ts';
 import { formatRank } from './rank.ts';
-import { previousDay, previousWeek, thisWeek, today, zonedParts } from './time.ts';
+import { previousDay, previousWeek, recapTitle, recapWindow, zonedParts } from './time.ts';
 import type { GameResult } from './events.ts';
 import { QUEUE_TYPE_BY_ID } from '../riot/types.ts';
 import { buildLeaderboardEmbed, buildPersonalRecapEmbed } from '../render/statsEmbeds.ts';
@@ -323,7 +323,7 @@ export class Service {
 
   /** Data behind the personal recap image (exposed for tests). Null when there are no games. */
   recapData(player: PlayerRow, kind: 'daily' | 'weekly', queueId = SOLO, tz = this.defaultTz): { header: RecapHeader; games: RecapGame[] } | null {
-    const period = kind === 'daily' ? today(this.now(), tz) : thisWeek(this.now(), tz);
+    const period = recapWindow(kind, this.now(), tz);
     const stats = playerStats(this.repo, player, period, queueId);
     const rows = this.repo.doneMatchesBetween(player.puuid, period.from, period.to).filter((m) => m.queue_id === queueId).reverse(); // newest first
     if (!rows.length) return null;
@@ -342,11 +342,10 @@ export class Service {
       };
     });
     const snap = stats.ranks.find((r) => r.queue_type === QUEUE_TYPE_BY_ID[queueId]);
-    const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' });
     return {
       header: {
-        name: player.game_name, tag: player.tag_line, title: `${kind === 'daily' ? 'Today' : 'This week'} · ${queueName(queueId)}`,
-        subtitle: kind === 'daily' ? fmt.format(period.from) : `${fmt.format(period.from)} – ${fmt.format(period.to - 1)}`,
+        name: player.game_name, tag: player.tag_line, title: `${recapTitle(kind)} · ${queueName(queueId)}`,
+        subtitle: period.label,
         games: stats.games, wins: stats.wins, losses: stats.losses, lpNet: stats.lpNet,
         rank: snap ? { tier: snap.tier, division: snap.division, lp: snap.lp, queue: queueName(queueId) } : null,
         hiddenCount: Math.max(0, rows.length - MAX_ROWS),
@@ -359,10 +358,10 @@ export class Service {
   /** Personal daily/weekly recap: rendered list of games (champ, KDA, W/L, LP). */
   async personalRecap(player: PlayerRow, kind: 'daily' | 'weekly', queueId = SOLO, tz = this.defaultTz): Promise<Reply> {
     const data = this.recapData(player, kind, queueId, tz);
-    const title = `${kind === 'daily' ? 'Today' : 'This week'} · ${queueName(queueId)}`;
+    const title = `${recapTitle(kind)} · ${queueName(queueId)}`;
     if (!data) {
       const pending = this.repo.pendingMatches(player.puuid).filter((m) => m.queue_id === queueId).length;
-      const desc = `No ${queueName(queueId)} games ${kind === 'daily' ? 'today' : 'this week'} yet. 💤` + (pending ? `\n_${pending} game${pending === 1 ? '' : 's'} waiting for LP to update_` : '');
+      const desc = `No ${queueName(queueId)} games in the ${kind === 'daily' ? 'past 24 hours' : 'past 7 days'}. 💤` + (pending ? `\n_${pending} game${pending === 1 ? '' : 's'} waiting for LP to update_` : '');
       return { embed: { author: { name: `${player.game_name}#${player.tag_line} · ${PLATFORM_LABEL[player.platform]}` }, title, description: desc, color: 0x5865f2 }, files: [] };
     }
     const lpNet = data.header.lpNet;
@@ -372,7 +371,7 @@ export class Service {
       return { embed: { color: lpNet > 0 ? 0x2ecc71 : lpNet < 0 ? 0xe74c3c : 0x5865f2, image: { url: `attachment://${name}` } }, files: [{ name, data: png }] };
     } catch (e) {
       this.log(`recap render failed, using text: ${(e as Error).message}`);
-      const period = kind === 'daily' ? today(this.now(), tz) : thisWeek(this.now(), tz);
+      const period = recapWindow(kind, this.now(), tz);
       const rows = this.repo.doneMatchesBetween(player.puuid, period.from, period.to).filter((m) => m.queue_id === queueId).reverse();
       return {
         embed: buildPersonalRecapEmbed({ player, periodLabel: title, stats: playerStats(this.repo, player, period, queueId), games: rows.map((row) => ({ row, match: this.repo.getCachedMatch(row.match_id) })), pending: data.header.pending }),
@@ -386,7 +385,7 @@ export class Service {
   async leaderboard(guildId: string, kind: 'daily' | 'weekly', queueId = SOLO): Promise<Reply> {
     const g = this.guild(guildId);
     return this.leaderboardFor(this.repo.trackedInGuild(guildId), g.timezone, kind, queueId, {
-      title: `Leaderboard · ${kind === 'daily' ? 'Today' : 'This week'} · ${queueName(queueId)}`,
+      title: `Leaderboard · ${recapTitle(kind)} · ${queueName(queueId)}`,
       none: 'No accounts tracked in this server yet. Use `/track add` or `$track add`.',
       who: 'tracked account',
     });
@@ -395,21 +394,21 @@ export class Service {
   /** Admin: leaderboard across every account the bot knows (all servers, links and lookups). */
   async globalLeaderboard(kind: 'daily' | 'weekly', queueId = SOLO): Promise<Reply> {
     return this.leaderboardFor(this.repo.activePlayers(), this.defaultTz, kind, queueId, {
-      title: `Global leaderboard · ${kind === 'daily' ? 'Today' : 'This week'} · ${queueName(queueId)}`,
+      title: `Global leaderboard · ${recapTitle(kind)} · ${queueName(queueId)}`,
       none: 'No accounts known yet.',
       who: 'known account',
     });
   }
 
   private async leaderboardFor(list: PlayerRow[], tz: string, kind: 'daily' | 'weekly', queueId: number, text: { title: string; none: string; who: string }): Promise<Reply> {
-    const period = kind === 'daily' ? today(this.now(), tz) : thisWeek(this.now(), tz);
+    const period = recapWindow(kind, this.now(), tz);
     const d = digestFor(this.repo, list, 'adhoc', period, queueId);
     const { title } = text;
     const played = d.players.filter((p) => p.games > 0);
 
     if (!played.length) {
       const msg = d.players.length
-        ? `No ${queueName(queueId)} games played ${kind === 'daily' ? 'today' : 'this week'} by the ${d.players.length} ${text.who}${d.players.length === 1 ? '' : 's'}. 💤`
+        ? `No ${queueName(queueId)} games in the ${kind === 'daily' ? 'past 24 hours' : 'past 7 days'} by the ${d.players.length} ${text.who}${d.players.length === 1 ? '' : 's'}. 💤`
         : text.none;
       return { embed: { title, description: msg, color: 0x5865f2 }, files: [] };
     }
@@ -417,8 +416,7 @@ export class Service {
     const rows = this.leaderboardRows(played, period, queueId).slice(0, 20);
     const sd = this.assets ? await this.assets.staticData(rows.find((r) => r.champ)?.champ?.version ?? '99.99').catch(() => null) : null;
     const t = d.totals;
-    const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' });
-    const subtitle = kind === 'daily' ? fmt.format(period.from) : `${fmt.format(period.from)} – ${fmt.format(period.to - 1)}`;
+    const subtitle = period.label;
     try {
       const png = await renderLeaderboard(rows, {
         title,
