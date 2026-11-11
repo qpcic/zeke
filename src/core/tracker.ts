@@ -1,7 +1,8 @@
 import { tx } from '../db/db.ts';
 import type { PlayerMatchRow, PlayerRow, Repo, SnapshotRow } from '../db/repo.ts';
 import { isStalePuuidError, type RiotClient } from '../riot/client.ts';
-import { QUEUE_TYPE_BY_ID, type LeagueEntryDto, type MatchDto } from '../riot/types.ts';
+import { FIVES_QUEUE_TYPE, isFivesQueue, QUEUE_TYPE_BY_ID, type LeagueEntryDto, type MatchDto } from '../riot/types.ts';
+import { loadFivesQueue, saveFivesQueue } from './queues.ts';
 import type { GameNote, GameResult, LpAdjustment } from './events.ts';
 import { absoluteLp, compareDivision, type Rank } from './rank.ts';
 
@@ -62,6 +63,31 @@ export class Tracker {
     this.now = opts.now ?? Date.now;
     this.log = opts.log ?? (() => {});
     this.rankedOnly = opts.trackedQueues.every((q) => q in QUEUE_TYPE_BY_ID);
+    loadFivesQueue(repo);
+  }
+
+  /** Ranked 5s is tracked alongside the configured queues once its queue id is known. */
+  private isTracked(queueId: number): boolean {
+    return this.opts.trackedQueues.includes(queueId) || isFivesQueue(queueId);
+  }
+
+  /**
+   * First time 5s is tracked: drop 5s rank snapshots taken while it wasn't, so W/L from
+   * untracked games isn't attributed to the first tracked game (or logged as a fake adjustment).
+   */
+  private ensureFivesBaseline(): void {
+    if (!Object.values(QUEUE_TYPE_BY_ID).includes(FIVES_QUEUE_TYPE) || this.repo.getKv('fives_tracking_since')) return;
+    this.repo.deleteSnapshots(FIVES_QUEUE_TYPE);
+    this.repo.setKv('fives_tracking_since', String(this.now()));
+  }
+
+  /** A `type=ranked` game that isn't Solo/Duo or Flex on a 10-player map is Ranked 5s. */
+  private noteFivesQueue(m: MatchDto): void {
+    const q = m.info.queueId;
+    if (!this.rankedOnly || q in QUEUE_TYPE_BY_ID || m.info.participants.length !== 10) return;
+    saveFivesQueue(this.repo, q);
+    this.log(`discovered Ranked 5s queue id ${q}; tracking it from now on`);
+    this.ensureFivesBaseline();
   }
 
   /** Snapshot current rank so the first tracked game has a baseline. Call when a player is added. */
@@ -79,6 +105,7 @@ export class Tracker {
     const before = this.riot.requestCount;
     const games: GameResult[] = [];
     const adjustments: LpAdjustment[] = [];
+    this.ensureFivesBaseline();
     for (const due of this.repo.duePlayers(this.now())) {
       let player = due;
       try {
@@ -141,9 +168,10 @@ export class Tracker {
     for (const id of fresh) {
       const m = await this.getMatch(player, id);
       if (!m) continue;
+      this.noteFivesQueue(m);
       const gameEnd = m.info.gameEndTimestamp ?? m.info.gameStartTimestamp + m.info.gameDuration * 1000;
       // The look-back window reaches before tracking began; those games were already in the baseline.
-      const tracked = this.opts.trackedQueues.includes(m.info.queueId) && gameEnd >= player.created_at;
+      const tracked = this.isTracked(m.info.queueId) && gameEnd >= player.created_at;
       const p = m.info.participants.find((x) => x.puuid === player.puuid);
       this.repo.insertPlayerMatch({
         match_id: id,
@@ -198,6 +226,7 @@ export class Tracker {
 
     const queueTypes = new Set<string>([
       ...this.opts.trackedQueues.map((q) => QUEUE_TYPE_BY_ID[q]).filter((x): x is string => !!x),
+      ...(Object.values(QUEUE_TYPE_BY_ID).includes(FIVES_QUEUE_TYPE) ? [FIVES_QUEUE_TYPE] : []),
     ]);
 
     // Non-ranked tracked queues (ARAM etc.) have no LP: resolve immediately.

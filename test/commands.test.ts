@@ -47,7 +47,7 @@ test('linked account stays polled when untracked from a server', async () => {
   assert.equal(repo.activePlayers().length, 1);
 });
 
-test('/recent: recorded game shows LP; before tracking says n/a; queue-scoped (solo default, flex on request)', async () => {
+test('/recent: recorded game shows LP; before tracking says n/a; any ranked queue by default, scoped on request', async () => {
   const { mock, service, clock } = setup();
   const a = mock.addAccount('Recent', 'EUW', 'EUW1', ranks('EMERALD', 'II', 40));
   mock.play({ players: [{ puuid: a.puuid, team: 100, champion: 'Ahri' }], winner: 100 });
@@ -69,11 +69,13 @@ test('/recent: recorded game shows LP; before tracking says n/a; queue-scoped (s
   assert.match(e.title!, /Victory · Jinx/);
   assert.match(e.description!, /\+24 LP/);
 
-  // a later flex game doesn't change solo /recent; queue=flex shows it
+  // no queue: newest ranked game of any queue (the later flex game); solo still reachable explicitly
   clock.advance(30 * MIN);
   mock.play({ players: [{ puuid: a.puuid, team: 100, champion: 'Lux' }], winner: 200, queueId: 440 });
-  e = (await service.recent(player)).embed;
+  e = (await service.recent(player, 420)).embed;
   assert.match(e.title!, /Victory · Jinx/);
+  e = (await service.recent(player)).embed;
+  assert.match(e.title!, /Defeat · Lux/);
   e = (await service.recent(player, 440)).embed;
   assert.match(e.title!, /Defeat · Lux/);
   assert.match(e.footer!.text, /Ranked Flex/);

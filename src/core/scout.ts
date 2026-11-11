@@ -1,4 +1,5 @@
 import type { Repo } from '../db/repo.ts';
+import { loadFivesQueue, saveFivesQueue } from './queues.ts';
 import type { RiotClient } from '../riot/client.ts';
 import type { Platform } from '../riot/regions.ts';
 import type { MatchDto, ParticipantDto } from '../riot/types.ts';
@@ -61,13 +62,12 @@ export interface ScoutReport {
   premadeShare: number; // fraction of games where the 4 detected teammates were all present
 }
 
-const KV_FIVES = 'ranked5s_queue_id';
 const MIN_SHARED = 3; // an ally must appear at least this often to count as a teammate
 
 /** Find the Ranked 5s queue id: ranked games that are neither 420 nor 440. Cached in kv once found. */
 export async function discoverFivesQueue(repo: Repo, riot: RiotClient, platform: Platform, puuid: string): Promise<number | null> {
-  const known = repo.getKv(KV_FIVES);
-  if (known) return Number(known);
+  const known = loadFivesQueue(repo);
+  if (known) return known;
   const [ranked, solo, flex] = await Promise.all([
     riot.getMatchIds(platform, puuid, { type: 'ranked', count: 100 }),
     riot.getMatchIds(platform, puuid, { queue: 420, count: 100 }),
@@ -80,7 +80,7 @@ export async function discoverFivesQueue(repo: Repo, riot: RiotClient, platform:
     repo.cacheMatch(m);
     const q = m.info.queueId;
     if (q !== 420 && q !== 440 && m.info.participants.length === 10) {
-      repo.setKv(KV_FIVES, String(q));
+      saveFivesQueue(repo, q);
       return q;
     }
   }

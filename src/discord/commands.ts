@@ -31,8 +31,8 @@ const withRegionAndId = (b: SlashCommandBuilder) =>
 /** Who to show: a Discord user's linked account, or any Riot ID (+region if the bot hasn't seen it). */
 /** Queue option: always added LAST so it's the final argument in every command. */
 const queueOpt = (b: SlashCommandOptionsOnlyBuilder) =>
-  b.addStringOption((o) => o.setName('queue').setDescription('Queue (default Solo/Duo)')
-    .addChoices({ name: 'Solo/Duo', value: '420' }, { name: 'Flex', value: '440' }));
+  b.addStringOption((o) => o.setName('queue').setDescription('Queue (default: your /mode, else Solo/Duo)')
+    .addChoices({ name: 'Solo/Duo', value: '420' }, { name: 'Flex', value: '440' }, { name: 'Ranked 5s', value: '5' }));
 
 const userOpt = (b: SlashCommandOptionsOnlyBuilder) =>
   b
@@ -47,13 +47,13 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
   new SlashCommandBuilder().setName('unlink').setDescription('Remove your linked Riot account')
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
-  queueOpt(new SlashCommandBuilder().setName('mode').setDescription('Your default queue for stats commands (Solo/Duo or Flex); leave empty to see it'))
+  queueOpt(new SlashCommandBuilder().setName('mode').setDescription('Your default queue for stats commands (Solo/Duo, Flex or Ranked 5s); leave empty to see it'))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
   userOpt(new SlashCommandBuilder().setName('profile').setDescription('Rank, W/L, ladder position and top champions'))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
-  queueOpt(userOpt(new SlashCommandBuilder().setName('recent').setDescription('Show the most recent game')))
+  queueOpt(userOpt(new SlashCommandBuilder().setName('recent').setDescription('Latest ranked game (any queue unless you pick one)')))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
   queueOpt(userOpt(new SlashCommandBuilder().setName('graph').setDescription('LP graph over recorded games'))

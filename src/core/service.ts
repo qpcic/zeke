@@ -12,11 +12,12 @@ import { renderRecap, type RecapGame, type RecapHeader } from '../render/image/r
 import { renderBanPlan } from '../render/image/banplan.ts';
 import { renderProfile, type ProfileData, type QueueCard } from '../render/image/profile.ts';
 import { isApex } from './rank.ts';
-import { scoutTeam } from './scout.ts';
+import { discoverFivesQueue, scoutTeam } from './scout.ts';
+import { saveFivesQueue } from './queues.ts';
 import { formatRank } from './rank.ts';
 import { personalSpan, personalTitle, personalWindow, previousDay, previousWeek, recapTitle, recapWindow, zonedParts, type DailyWindow } from './time.ts';
 import type { GameResult } from './events.ts';
-import { QUEUE_TYPE_BY_ID } from '../riot/types.ts';
+import { isFivesQueue, QUEUE_TYPE_BY_ID } from '../riot/types.ts';
 import { buildLeaderboardEmbed, buildPersonalRecapEmbed } from '../render/statsEmbeds.ts';
 import type { Embed } from '../render/embed.ts';
 import type { AssetSource } from '../assets/ddragon.ts';
@@ -32,7 +33,12 @@ export class UserError extends Error {}
 /** Ranked queues the commands can be scoped to. Default everywhere: Solo/Duo. */
 export const SOLO = 420;
 export const FLEX = 440;
-export const queueName = (q: number) => (q === FLEX ? 'Flex' : 'Solo/Duo');
+/**
+ * Ranked 5s as chosen in commands and stored by /mode. Riot doesn't document the real
+ * queue id; resolveQueue() swaps this for the discovered one before any lookup.
+ */
+export const FIVES = 5;
+export const queueName = (q: number) => (q === FLEX ? 'Flex' : q === FIVES || isFivesQueue(q) ? 'Ranked 5s' : 'Solo/Duo');
 
 /** A reply: embed plus optional PNG attachments referenced as attachment://<name>. */
 export interface Reply { embed: Embed; files: { name: string; data: Buffer }[] }
@@ -248,8 +254,20 @@ export class Service {
     return explicit ?? this.repo.getDefaultQueue(discordUserId) ?? SOLO;
   }
   setDefaultQueue(discordUserId: string, queueId: number) {
-    if (queueId !== SOLO && queueId !== FLEX) throw new UserError('Mode must be `solo` or `flex`.');
+    if (queueId !== SOLO && queueId !== FLEX && queueId !== FIVES) throw new UserError('Mode must be `solo`, `flex` or `5s`.');
     this.repo.setDefaultQueue(discordUserId, queueId);
+  }
+
+  /**
+   * Turn the Ranked 5s pseudo id into the real queue id: the stored one, else discovered
+   * from `player`'s match history. Stays FIVES (matches nothing) if 5s was never seen.
+   */
+  async resolveQueue(queueId: number, player?: PlayerRow): Promise<number> {
+    if (queueId !== FIVES) return queueId;
+    const known = Object.entries(QUEUE_TYPE_BY_ID).find(([id]) => isFivesQueue(Number(id)));
+    if (known) return Number(known[0]);
+    if (!player) return FIVES;
+    return (await discoverFivesQueue(this.repo, this.riot, player.platform, player.puuid).catch(() => null)) ?? FIVES;
   }
 
   /** The account a command should act on: the given Discord user's link (or the caller's). */
@@ -271,17 +289,23 @@ export class Service {
     }
   }
 
-  /** Most recent game of any queue, with LP if the tracker resolved it. */
-  recent(player: PlayerRow, queueId = SOLO): Promise<Reply> {
-    return this.fresh(player, (p) => this.recentImpl(p, queueId));
+  /**
+   * Most recent ranked game, with LP if the tracker resolved it. Without a queue it's the
+   * newest game across Solo/Duo, Flex and Ranked 5s (the /mode default doesn't apply here).
+   */
+  recent(player: PlayerRow, queueId?: number): Promise<Reply> {
+    return this.fresh(player, async (p) => this.recentImpl(p, queueId === undefined ? undefined : await this.resolveQueue(queueId, p)));
   }
 
-  private async recentImpl(player: PlayerRow, queueId: number): Promise<Reply> {
-    const [id] = await this.riot.getMatchIds(player.platform, player.puuid, { count: 1, queue: queueId });
-    if (!id) throw new UserError(`No ${queueName(queueId)} games found for **${player.game_name}#${player.tag_line}**.`);
+  private async recentImpl(player: PlayerRow, queueId: number | undefined): Promise<Reply> {
+    const [id] = await this.riot.getMatchIds(player.platform, player.puuid, queueId === undefined ? { count: 1, type: 'ranked' } : { count: 1, queue: queueId });
+    if (!id) throw new UserError(`No ${queueId === undefined ? 'ranked' : queueName(queueId)} games found for **${player.game_name}#${player.tag_line}**.`);
     const match = this.repo.getCachedMatch(id) ?? (await this.riot.getMatch(player.platform, id));
     if (!match) throw new UserError('Could not load that match from Riot, try again in a bit.');
     this.repo.cacheMatch(match);
+    // A ranked game outside Solo/Flex is Ranked 5s: remember its queue id.
+    const q = match.info.queueId;
+    if (queueId === undefined && !(q in QUEUE_TYPE_BY_ID) && match.info.participants.length === 10) saveFivesQueue(this.repo, q);
 
     const me = match.info.participants.find((p) => p.puuid === player.puuid)!;
     const pm = this.repo.getPlayerMatch(id, player.puuid);
