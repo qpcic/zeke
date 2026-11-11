@@ -40,7 +40,7 @@ cp .env.example .env
 | `PREFIX` | | Text command prefix (default `$`; empty turns `$` commands off) |
 | `OWNER_ID` | | Your Discord user ID; enables `$import` and `$admin` |
 | `CONSOLE_CHANNEL_ID` | | Channel where `$admin` commands work |
-| `DEFAULT_TZ` | | Timezone for "today" / "this week" (default `Europe/Ljubljana`) |
+| `DEFAULT_TZ` | | Timezone used for dates shown on the cards (default `Europe/Ljubljana`) |
 | `DB_PATH` | | SQLite file (default `./data/leaguebot.db`) |
 | `POLL_INTERVAL_SEC` | | Seconds between polls (default `120`) |
 | `TRACKED_QUEUES` | | Queues to record (default `420,440` = Solo/Duo, Flex) |

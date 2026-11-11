@@ -87,7 +87,7 @@ test('/daily and /weekly personal recaps render as images', async () => {
 
   const none = await service.personalRecap(player, 'daily');
   assert.equal(none.files.length, 0);
-  assert.match(none.embed.description!, /No Solo\/Duo games today yet/);
+  assert.match(none.embed.description!, /No Solo\/Duo games in the past 24 hours/);
 
   for (const [win, lp, champ] of [[true, 21, 'Ahri'], [false, -17, 'Jinx'], [true, 19, 'Lux']] as const) {
     clock.advance(35 * MIN);
@@ -95,7 +95,7 @@ test('/daily and /weekly personal recaps render as images', async () => {
     await service.tick();
   }
   const d = service.recapData(player, 'daily')!;
-  assert.deepEqual([d.header.title, d.header.games, d.header.wins, d.header.losses, d.header.lpNet], ['Today · Solo/Duo', 3, 2, 1, 23]);
+  assert.deepEqual([d.header.title, d.header.games, d.header.wins, d.header.losses, d.header.lpNet], ['Past 24h · Solo/Duo', 3, 2, 1, 23]);
   assert.deepEqual(d.games.map((g) => [g.championName, g.result, g.lpDelta]), [['Lux', 'win', 19], ['Jinx', 'loss', -17], ['Ahri', 'win', 21]], 'newest first');
   assert.deepEqual(d.header.rank, { tier: 'GOLD', division: 'II', lp: 73, queue: 'Solo/Duo' });
 
@@ -104,10 +104,16 @@ test('/daily and /weekly personal recaps render as images', async () => {
   assert.equal(img.files[0]!.data.subarray(1, 4).toString(), 'PNG');
   assert.equal(img.embed.image!.url, 'attachment://daily.png');
 
-  clock.advance(24 * 60 * MIN); // Wednesday: daily resets, weekly keeps
+  // games ended 08:35, 09:10, 09:45 UTC; it's now 09:45
+  // rolling windows: 22h later (next calendar day) the daily still has all 3 games
+  clock.advance(22 * 60 * MIN);
+  assert.equal(service.recapData(player, 'daily')!.header.games, 3, 'past 24h crosses midnight');
+  clock.advance(3 * 60 * MIN); // now >24h after every game
   assert.equal(service.recapData(player, 'daily'), null);
   assert.equal(service.recapData(player, 'weekly')!.header.lpNet, 23);
   assert.equal((await service.personalRecap(player, 'weekly')).files[0]!.name, 'weekly.png');
+  clock.advance(7 * 24 * 60 * MIN); // >7 days after the games
+  assert.equal(service.recapData(player, 'weekly'), null, 'past 7 days rolls off too');
 });
 
 test('/leaderboard: image of accounts that played, zero-game accounts hidden', async () => {
@@ -119,7 +125,7 @@ test('/leaderboard: image of accounts that played, zero-game accounts hidden', a
 
   const empty = await service.leaderboard('g1', 'daily');
   assert.equal(empty.files.length, 0);
-  assert.match(empty.embed.description!, /No Solo\/Duo games played today by the 3 tracked accounts/);
+  assert.match(empty.embed.description!, /No Solo\/Duo games in the past 24 hours by the 3 tracked accounts/);
   assert.match((await service.leaderboard('nobody', 'weekly')).embed.description!, /No accounts tracked/);
 
   clock.advance(30 * MIN);
@@ -206,7 +212,7 @@ test('solo and flex are tracked separately in daily/weekly and leaderboard', asy
   const solo = service.recapData(player, 'daily')!;
   assert.deepEqual([solo.header.games, solo.header.wins, solo.header.lpNet, solo.header.rank!.tier], [2, 2, 42, 'GOLD']);
   const flex = service.recapData(player, 'daily', 440)!;
-  assert.deepEqual([flex.header.games, flex.header.losses, flex.header.lpNet, flex.header.rank!.tier, flex.header.title], [2, 2, -31, 'SILVER', 'Today · Flex']);
+  assert.deepEqual([flex.header.games, flex.header.losses, flex.header.lpNet, flex.header.rank!.tier, flex.header.title], [2, 2, -31, 'SILVER', 'Past 24h · Flex']);
 
   const { computeDigest } = await import('../src/core/digest.ts');
   const { today } = await import('../src/core/time.ts');

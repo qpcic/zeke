@@ -60,10 +60,10 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
     .addIntegerOption((o) => o.setName('games').setDescription('How many recent games (default 50)').setMinValue(5).setMaxValue(200)))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
-  queueOpt(userOpt(new SlashCommandBuilder().setName('daily').setDescription("Today's games and LP")))
+  queueOpt(userOpt(new SlashCommandBuilder().setName('daily').setDescription('Games and LP from the past 24 hours')))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
-  queueOpt(userOpt(new SlashCommandBuilder().setName('weekly').setDescription("This week's games and LP")))
+  queueOpt(userOpt(new SlashCommandBuilder().setName('weekly').setDescription('Games and LP from the past 7 days')))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
   new SlashCommandBuilder().setName('scout').setDescription("Scout a player's Ranked 5s / Flex team: roles, best champs, bans")
@@ -86,7 +86,7 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
 
   queueOpt(new SlashCommandBuilder().setName('leaderboard').setDescription('LP leaderboard for accounts tracked in this server')
     .addStringOption((o) => o.setName('period').setDescription('Time window').setRequired(true)
-      .addChoices({ name: 'Today', value: 'daily' }, { name: 'This week', value: 'weekly' })))
+      .addChoices({ name: 'Past 24 hours', value: 'daily' }, { name: 'Past 7 days', value: 'weekly' })))
     .setIntegrationTypes(SERVER_ONLY.integrations).setContexts(SERVER_ONLY.contexts)
     .toJSON(),
 ];
