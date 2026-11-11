@@ -60,7 +60,9 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
     .addIntegerOption((o) => o.setName('games').setDescription('How many recent games (default 50)').setMinValue(5).setMaxValue(200)))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
-  queueOpt(userOpt(new SlashCommandBuilder().setName('daily').setDescription('Games and LP from the past 24 hours')))
+  queueOpt(userOpt(new SlashCommandBuilder().setName('daily').setDescription("Today's games and LP (or the past 24 hours)"))
+    .addStringOption((o) => o.setName('window').setDescription('Time window (default Today)')
+      .addChoices({ name: 'Today', value: 'today' }, { name: 'Past 24 hours', value: '24h' })))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
   queueOpt(userOpt(new SlashCommandBuilder().setName('weekly').setDescription('Games and LP from the past 7 days')))

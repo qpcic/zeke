@@ -111,9 +111,22 @@ export function rolling(t: number, hours: number, tz: string): Period {
   return { from, to: t + 1, key: `last-${hours}h`, label: `${f.format(from)} – now` };
 }
 
-/** /daily and /weekly windows. */
+/** Leaderboard windows: rolling 24h / 7 days. */
 export const recapWindow = (kind: 'daily' | 'weekly', t: number, tz: string) => rolling(t, kind === 'daily' ? 24 : 24 * 7, tz);
 export const recapTitle = (kind: 'daily' | 'weekly') => (kind === 'daily' ? 'Past 24h' : 'Past 7 days');
+
+/** /daily window: today since local midnight (default) or the past 24 hours. */
+export type DailyWindow = 'today' | '24h';
+
+/** Personal recap windows: /daily is today or past 24h, /weekly is the past 7 days. */
+export function personalWindow(kind: 'daily' | 'weekly', window: DailyWindow, t: number, tz: string): Period {
+  if (kind === 'weekly') return rolling(t, 24 * 7, tz);
+  if (window === '24h') return rolling(t, 24, tz);
+  const p = today(t, tz);
+  return { ...p, label: new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' }).format(p.from) };
+}
+export const personalTitle = (kind: 'daily' | 'weekly', window: DailyWindow) => (kind === 'weekly' ? 'Past 7 days' : window === '24h' ? 'Past 24h' : 'Today');
+export const personalSpan = (kind: 'daily' | 'weekly', window: DailyWindow) => (kind === 'weekly' ? 'in the past 7 days' : window === '24h' ? 'in the past 24 hours' : 'today');
 
 export function isValidTimeZone(tz: string): boolean {
   try {

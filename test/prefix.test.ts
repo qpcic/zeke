@@ -22,6 +22,11 @@ test('parsePrefix: commands, aliases, args, mentions', () => {
   assert.deepEqual([g.queue, g.games, g.targetUserId], [440, 30, '123456789']);
   assert.equal(parsePrefix('$graph 30', '$', ctx)!.queue, undefined, 'no queue -> service default (solo)');
   assert.equal(parsePrefix('$daily flex', '$', ctx)!.queue, 440);
+  const d24 = parsePrefix('$daily 24h flex', '$', ctx)!;
+  assert.deepEqual([d24.window, d24.queue], ['24h', 440]);
+  assert.equal(parsePrefix('$daily', '$', ctx)!.window, undefined, 'default -> today');
+  const dId = parsePrefix('$daily ferks kitten#retro eune 24h', '$', ctx)!;
+  assert.deepEqual([dId.riotId, dId.region, dId.window], ['ferks kitten#retro', 'eune', '24h']);
   assert.equal(parsePrefix('$recent solo', '$', ctx)!.queue, 420);
   const lbq = parsePrefix('$lb week flex', '$', ctx)!;
   assert.deepEqual([lbq.period, lbq.queue], ['weekly', 440]);
@@ -79,7 +84,7 @@ test('global tracking: look up anyone by Riot ID from any server; region only ne
   await assert.rejects(run('$daily Global Guy#EUW'), /don't know \*\*Global Guy#EUW\*\* yet. Add the region/);
   const first = await run('$daily Global Guy#EUW euw');
   assert.match(first.embed.description!, /Started tracking \*\*Global Guy#EUW\*\*/);
-  assert.match(first.embed.description!, /No Solo\/Duo games in the past 24 hours/);
+  assert.match(first.embed.description!, /No Solo\/Duo games today/);
   assert.equal(repo.activePlayers().length, 1);
 
   clock.advance(30 * 60_000);

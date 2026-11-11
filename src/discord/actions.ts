@@ -26,6 +26,8 @@ export interface CommandRequest {
   queue?: number;
   games?: number;
   sub?: 'add' | 'remove' | 'list';
+  /** /daily window: today (default) or past 24h */
+  window?: 'today' | '24h';
   /** track remove: puuid (slash autocomplete) or "Name#TAG" (prefix). */
   account?: string;
 }
@@ -54,7 +56,7 @@ export function helpEmbed(p: string): Embed {
     `${c('profile [@user | Name#TAG [region]]')} rank, W/L, ladder position, top champions`,
     `${c('recent [@user | Name#TAG [region]] [solo|flex]')} latest game scoreboard`,
     `${c('graph [@user | Name#TAG [region]] [games] [solo|flex]')} LP graph`,
-    `${c('daily')} · ${c('weekly')} games and LP (same arguments as recent)`,
+    `${c('daily [24h]')} today's games and LP, or the past 24h · ${c('weekly')} past 7 days (same arguments as recent)`,
     '_Accounts are tracked globally: once anyone adds or looks one up, its games are recorded everywhere._',
     `${c('scout <Name#TAG> [region]')} Scout a Ranked 5s / Flex team: roles, best champs, bans (aliases ${c('banfor')}, ${c('ban')})`,
     '',
@@ -137,7 +139,7 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
 
     case 'daily':
     case 'weekly':
-      return withNote(await service.personalRecap(await target(), req.name, queue));
+      return withNote(await service.personalRecap(await target(), req.name, queue, req.window ?? 'today'));
 
     case 'scout':
       return service.banPlan(need(req.riotId, 'scout <Name#TAG> [region]'), req.region);

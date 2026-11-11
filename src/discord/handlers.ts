@@ -36,6 +36,7 @@ function toRequest(i: ChatInputCommandInteraction): CommandRequest {
     period: o.getString('period') === 'weekly' ? 'weekly' : o.getString('period') ? 'daily' : undefined,
     queue: o.getString('queue') ? Number(o.getString('queue')) : undefined,
     games: o.getInteger('games') ?? undefined,
+    window: o.getString('window') === '24h' ? '24h' : o.getString('window') === 'today' ? 'today' : undefined,
     sub,
     account: sub === 'remove' ? o.getString('account') ?? undefined : undefined,
   };
