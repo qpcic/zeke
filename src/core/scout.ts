@@ -75,7 +75,7 @@ export async function discoverFivesQueue(repo: Repo, riot: RiotClient, platform:
   ]);
   const other = ranked.filter((id) => !solo.includes(id) && !flex.includes(id));
   for (const id of other.slice(0, 3)) {
-    const m = repo.getCachedMatch(id) ?? (await riot.getMatch(platform, id));
+    const m = repo.getCachedMatchSince(id, Number(repo.getKv('puuid_epoch') ?? 0)) ?? (await riot.getMatch(platform, id));
     if (!m) continue;
     repo.cacheMatch(m);
     const q = m.info.queueId;
@@ -148,7 +148,8 @@ export async function scoutTeam(
 
   const matches: MatchDto[] = [];
   await Promise.all(ids.map(async (id) => {
-    let m = repo.getCachedMatch(id);
+    // Matches cached before an API key change hold other-key PUUIDs: refetch so teammates line up.
+    let m = repo.getCachedMatchSince(id, Number(repo.getKv('puuid_epoch') ?? 0));
     if (!m) {
       m = await riot.getMatch(target.platform, id).catch(() => null);
       if (m) repo.cacheMatch(m);

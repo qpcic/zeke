@@ -2,6 +2,14 @@ import { parseLimitHeader, SlidingWindowLimiter, type Window } from './rateLimit
 import { accountRegion, matchRegion, type Platform } from './regions.ts';
 import type { AccountDto, ChampionMasteryDto, LeagueEntryDto, LeagueListDto, MatchDto, SummonerDto } from './types.ts';
 
+/**
+ * PUUIDs are encrypted per API key's app. After switching keys (e.g. dev -> personal),
+ * stored PUUIDs fail with 400 "Exception decrypting ...". Callers re-resolve by Riot ID.
+ */
+export function isStalePuuidError(e: unknown): boolean {
+  return e instanceof RiotApiError && e.status === 400 && /decrypt/i.test(e.body);
+}
+
 export class RiotApiError extends Error {
   constructor(
     readonly status: number,
