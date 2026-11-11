@@ -306,6 +306,9 @@ export class Repo {
   }
 
   // ---- posts / digests ----
+  isPosted(guildId: string, matchId: string, puuid: string): boolean {
+    return !!this.db.prepare('SELECT 1 FROM posts WHERE guild_id = ? AND match_id = ? AND puuid = ?').get(guildId, matchId, puuid);
+  }
   markPosted(guildId: string, matchId: string, puuid: string): boolean {
     const r = this.db.prepare('INSERT OR IGNORE INTO posts (guild_id, match_id, puuid, posted_at) VALUES (?, ?, ?, ?)').run(guildId, matchId, puuid, this.now());
     return r.changes > 0;

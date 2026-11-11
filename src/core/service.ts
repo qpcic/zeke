@@ -1,3 +1,4 @@
+import { signed } from '../render/format.ts';
 import type { GuildRow, PlayerRow, Repo } from '../db/repo.ts';
 import { isStalePuuidError, type RiotClient } from '../riot/client.ts';
 import { parsePlatform, PLATFORM_LABEL, type Platform } from '../riot/regions.ts';
@@ -29,6 +30,9 @@ import { QUEUE_LABEL } from '../riot/types.ts';
 import type { Tracker } from './tracker.ts';
 
 export class UserError extends Error {}
+
+/** posts.guild_id used to dedupe the global game log channel. */
+export const GAME_LOG_KEY = '#gamelog';
 
 /** Ranked queues the commands can be scoped to. Default everywhere: Solo/Duo. */
 export const SOLO = 420;
@@ -63,6 +67,12 @@ export class Service {
     /** Region assumed for /scout when the player is unknown and none was given ("" = require it). */
     private readonly defaultRegion = '',
   ) {}
+
+  /** Destination for the global game log (GAME_LOG_CHANNEL_ID); unset = off. */
+  private gameLog: ((r: Reply) => Promise<void>) | null = null;
+  setGameLog(fn: ((r: Reply) => Promise<void>) | null) {
+    this.gameLog = fn;
+  }
 
   guild(guildId: string): GuildRow {
     return this.repo.ensureGuild(guildId, this.defaultTz);
@@ -601,12 +611,45 @@ export class Service {
         await this.sink.send(guild, 'game', [buildGameEmbed(g, others)], { label: `${g.match.metadata.matchId}-${g.player.game_name}` });
       }
     }
+    await this.postGameLog(games);
     for (const a of adjustments) {
       for (const guild of this.repo.guildsTracking(a.player.puuid)) {
         await this.sink.send(guild, 'notice', [buildAdjustmentEmbed(a.player.game_name, a.queueType, a.delta, formatRank(a.rankBefore), formatRank(a.rankAfter))], { label: `adj-${a.player.game_name}` });
       }
     }
     return { games: games.length, requests };
+  }
+
+  /**
+   * Global game log: one post per match, however many known accounts played in it.
+   * Deduped in the posts table (pseudo-guild GAME_LOG_KEY), so restarts and accounts whose
+   * LP resolves in a later tick never post the same match twice.
+   */
+  async postGameLog(games: GameResult[]): Promise<void> {
+    if (!this.gameLog) return;
+    const byMatch = new Map<string, GameResult[]>();
+    for (const g of games) {
+      const id = g.match.metadata.matchId;
+      byMatch.set(id, [...(byMatch.get(id) ?? []), g]);
+    }
+    const ordered = [...byMatch.entries()].sort((a, b) => (a[1][0]!.match.info.gameEndTimestamp ?? 0) - (b[1][0]!.match.info.gameEndTimestamp ?? 0));
+    for (const [matchId, group] of ordered) {
+      if (this.repo.isPosted(GAME_LOG_KEY, matchId, '')) continue;
+      try {
+        const [first, ...rest] = group;
+        const reply = await this.gameReply(first!, new Set(rest.map((g) => g.player.puuid)));
+        if (rest.length) {
+          const lines = rest.map((g) => `**${g.player.game_name}#${g.player.tag_line}** · ${g.remake ? 'Remake' : g.win ? 'Victory' : 'Defeat'}${g.lpDelta !== null ? ` · ${signed(g.lpDelta)} LP` : ''}`);
+          reply.embed.description = `${reply.embed.description ?? ''}\nAlso in this game: ${lines.join(' · ')}`.trim();
+        }
+        await this.gameLog(reply);
+        this.repo.markPosted(GAME_LOG_KEY, matchId, '');
+      } catch (e) {
+        // Mark anyway so a broken channel/permission doesn't retry forever; the game is still recorded.
+        this.repo.markPosted(GAME_LOG_KEY, matchId, '');
+        this.log(`game log: could not post ${matchId}: ${(e as Error).message}`);
+      }
+    }
   }
 
   digest(guildId: string, kind: 'daily' | 'weekly'): Digest {
