@@ -78,19 +78,6 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 - **Personal commands work anywhere** (servers, DMs, group chats) if you install the app to your account. Server commands need Zeke in the server. `$` commands work wherever the bot is a member.
 - `$help` lists everything.
 
-## Running your own Zeke
-
-Zeke is self-hosted: you run your own copy with your own Discord bot and Riot API key. It's one small Node.js process with a SQLite database, so a $5/month host or a spare machine is plenty.
-
-```bash
-git clone https://github.com/qpcic/zeke.git && cd zeke
-npm install
-npm run demo          # try it offline: simulated games, no keys needed
-cp .env.example .env  # add DISCORD_TOKEN, DISCORD_CLIENT_ID, RIOT_API_KEY
-npm run dev           # slash commands register themselves on first start
-```
-
-The full guide covers creating the Discord app, getting a Riot API key, Docker and Railway deploys, and moving your data between hosts: **[docs/self-hosting.md](docs/self-hosting.md)**.
 
 ## Tech
 
