@@ -27,6 +27,8 @@ export const config = {
   autoRegister: process.env.AUTO_REGISTER !== '0',
   /** Channel where owner-only $admin commands are accepted. */
   consoleChannelId: process.env.CONSOLE_CHANNEL_ID ?? '',
+  /** Every newly recorded game of every known account is posted here, once per match. */
+  gameLogChannelId: process.env.GAME_LOG_CHANNEL_ID ?? '',
   /** Your Discord user ID: allows owner-only commands like $import. */
   ownerId: process.env.OWNER_ID ?? '',
   /** Message prefix for text commands ("$recent"). Empty string disables (and drops the Message Content intent). */

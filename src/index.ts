@@ -2,7 +2,7 @@ import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
 import { resolve } from 'node:path';
 import { bootstrap, log } from './bootstrap.ts';
 import { config, requireDiscord } from './config.ts';
-import { createInteractionHandler } from './discord/handlers.ts';
+import { createInteractionHandler, payload } from './discord/handlers.ts';
 import { createPrefixHandler } from './discord/prefix.ts';
 import { createCommandLogger } from './discord/commandLog.ts';
 import { commands } from './discord/commands.ts';
@@ -29,6 +29,15 @@ const client = new Client({
   ],
   partials: prefixOn ? [Partials.Channel] : [], // DM channels arrive uncached
 });
+// GAME_LOG_CHANNEL_ID: every newly recorded game of every known account, one post per match.
+if (config.gameLogChannelId) {
+  service.setGameLog(async (reply) => {
+    const ch = await client.channels.fetch(config.gameLogChannelId);
+    if (!ch?.isSendable()) throw new Error(`channel ${config.gameLogChannelId} not found or not sendable`);
+    await ch.send({ ...payload(reply), allowedMentions: { parse: [] } });
+  });
+}
+
 // Every command is logged to stdout and, if CONSOLE_CHANNEL_ID is set, to that channel.
 const cmdLog = createCommandLogger(client, config.consoleChannelId, log);
 client.on(Events.InteractionCreate, createInteractionHandler(service, log, cmdLog));
@@ -89,7 +98,7 @@ async function shutdown() {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-log(`Zeke · polling every ${config.pollIntervalSec}s · queues ${config.trackedQueues.join(',')} · ${repo.activePlayers().length} players`);
+log(`Zeke · polling every ${config.pollIntervalSec}s${config.gameLogChannelId ? ` · game log → #${config.gameLogChannelId}` : ''} · queues ${config.trackedQueues.join(',')} · ${repo.activePlayers().length} players`);
 // Persistence check: if these numbers drop to 0 after a redeploy, the volume isn't mounted at the DB's folder.
 {
   const n = (t: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
