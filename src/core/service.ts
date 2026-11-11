@@ -1,5 +1,5 @@
 import type { GuildRow, PlayerRow, Repo } from '../db/repo.ts';
-import type { RiotClient } from '../riot/client.ts';
+import { isStalePuuidError, type RiotClient } from '../riot/client.ts';
 import { parsePlatform, PLATFORM_LABEL, type Platform } from '../riot/regions.ts';
 import { formatRiotId, parseRiotId } from '../riot/riotId.ts';
 import type { LeagueEntryDto } from '../riot/types.ts';
@@ -78,6 +78,12 @@ export class Service {
     const account = await this.riot.getAccountByRiotId(platform, id.gameName, id.tagLine);
     if (!account) throw new UserError(`Riot ID **${formatRiotId(id)}** not found`);
 
+    // Same Riot ID stored under a PUUID from an older API key: move it over instead of duplicating.
+    const stale = this.repo.findPlayerByRiotId(account.gameName ?? id.gameName, account.tagLine ?? id.tagLine);
+    if (stale && stale.puuid !== account.puuid) {
+      this.repo.rekeyPlayer(stale.puuid, account.puuid);
+      this.repo.setKv('puuid_epoch', String(this.now()));
+    }
     const existing = this.repo.getPlayer(account.puuid);
     this.repo.upsertPlayer({
       puuid: account.puuid,
@@ -155,7 +161,12 @@ export class Service {
     const known = this.repo.findPlayerByRiotId(id.gameName, id.tagLine, platform ?? undefined);
     const plat = platform ?? known?.platform ?? (this.defaultRegion ? parsePlatform(this.defaultRegion) : null);
     if (!plat) throw new UserError(`Add the region, e.g. \`${formatRiotId(id)} EUNE\`.`);
-    let target = known ? { puuid: known.puuid, name: known.game_name, tag: known.tag_line, platform: plat } : null;
+    // Known players are re-resolved too: cheap, and guards against PUUIDs from an older API key.
+    let target: { puuid: string; name: string; tag: string; platform: Platform } | null = null;
+    if (known) {
+      const re = await this.tracker.rekey(known).catch(() => null);
+      if (re) target = { puuid: re.puuid, name: re.game_name, tag: re.tag_line, platform: plat };
+    }
     if (!target) {
       const acc = await this.riot.getAccountByRiotId(plat, id.gameName, id.tagLine);
       if (!acc) throw new UserError(`Riot ID **${formatRiotId(id)}** not found`);
@@ -190,7 +201,11 @@ export class Service {
   }
 
   /** Profile card: identity, Solo/Flex rank with W/L and ladder position, top mastery champions. */
-  async profile(player: PlayerRow): Promise<Reply> {
+  profile(player: PlayerRow): Promise<Reply> {
+    return this.fresh(player, (p) => this.profileImpl(p));
+  }
+
+  private async profileImpl(player: PlayerRow): Promise<Reply> {
     const [summoner, entries, mastery] = await Promise.all([
       this.riot.getSummoner(player.platform, player.puuid).catch(() => null),
       this.riot.getLeagueEntries(player.platform, player.puuid),
@@ -244,8 +259,24 @@ export class Service {
     return p;
   }
 
+  /** Run fn; if Riot can't decrypt the stored PUUID (API key changed), re-resolve the player and retry once. */
+  private async fresh<T>(player: PlayerRow, fn: (p: PlayerRow) => Promise<T>): Promise<T> {
+    try {
+      return await fn(player);
+    } catch (e) {
+      if (!isStalePuuidError(e)) throw e;
+      const re = await this.tracker.rekey(player);
+      if (!re) throw new UserError(`Couldn't refresh **${player.game_name}#${player.tag_line}** after an API key change (renamed?). Look them up again with their current Riot ID.`);
+      return fn(re);
+    }
+  }
+
   /** Most recent game of any queue, with LP if the tracker resolved it. */
-  async recent(player: PlayerRow, queueId = SOLO): Promise<Reply> {
+  recent(player: PlayerRow, queueId = SOLO): Promise<Reply> {
+    return this.fresh(player, (p) => this.recentImpl(p, queueId));
+  }
+
+  private async recentImpl(player: PlayerRow, queueId: number): Promise<Reply> {
     const [id] = await this.riot.getMatchIds(player.platform, player.puuid, { count: 1, queue: queueId });
     if (!id) throw new UserError(`No ${queueName(queueId)} games found for **${player.game_name}#${player.tag_line}**.`);
     const match = this.repo.getCachedMatch(id) ?? (await this.riot.getMatch(player.platform, id));

@@ -153,8 +153,39 @@ export class Repo {
     return r ? (JSON.parse(r.json) as MatchDto) : null;
   }
   cacheMatch(m: MatchDto) {
-    this.db.prepare('INSERT OR IGNORE INTO match_cache (match_id, json, fetched_at) VALUES (?, ?, ?)')
+    this.db.prepare('INSERT INTO match_cache (match_id, json, fetched_at) VALUES (?, ?, ?) ON CONFLICT(match_id) DO UPDATE SET json = excluded.json, fetched_at = excluded.fetched_at')
       .run(m.metadata.matchId, JSON.stringify(m), this.now());
+  }
+  /** Cached match only if fetched at/after `since` (older copies carry PUUIDs from a previous API key). */
+  getCachedMatchSince(matchId: string, since: number): MatchDto | null {
+    const r = this.db.prepare('SELECT json FROM match_cache WHERE match_id = ? AND fetched_at >= ?').get(matchId, since) as { json: string } | undefined;
+    return r ? (JSON.parse(r.json) as MatchDto) : null;
+  }
+
+  /**
+   * Move everything from an old PUUID to a new one (API key changed, so Riot re-encrypted it).
+   * Works whether or not a row for the new PUUID already exists (then they're merged).
+   */
+  rekeyPlayer(oldPuuid: string, newPuuid: string) {
+    if (oldPuuid === newPuuid) return;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare(`
+        INSERT OR IGNORE INTO players (puuid, platform, game_name, tag_line, last_match_check, last_rank_check, created_at, next_poll_at, last_game_at)
+        SELECT ?, platform, game_name, tag_line, last_match_check, last_rank_check, created_at, 0, last_game_at FROM players WHERE puuid = ?
+      `).run(newPuuid, oldPuuid);
+      for (const t of ['tracked', 'links', 'rank_snapshots', 'player_matches', 'lp_events', 'posts']) {
+        this.db.prepare(`UPDATE OR IGNORE ${t} SET puuid = ? WHERE puuid = ?`).run(newPuuid, oldPuuid);
+        this.db.prepare(`DELETE FROM ${t} WHERE puuid = ?`).run(oldPuuid); // leftovers that collided with existing rows
+      }
+      // cached matches: point this player's participant entry at the new id
+      this.db.prepare("UPDATE match_cache SET json = replace(json, ?, ?) WHERE instr(json, ?) > 0").run(oldPuuid, newPuuid, oldPuuid);
+      this.db.prepare('DELETE FROM players WHERE puuid = ?').run(oldPuuid);
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
   }
   knownMatchIds(puuid: string, ids: string[]): Set<string> {
     if (!ids.length) return new Set();

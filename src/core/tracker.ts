@@ -1,6 +1,6 @@
 import { tx } from '../db/db.ts';
 import type { PlayerMatchRow, PlayerRow, Repo, SnapshotRow } from '../db/repo.ts';
-import type { RiotClient } from '../riot/client.ts';
+import { isStalePuuidError, type RiotClient } from '../riot/client.ts';
 import { QUEUE_TYPE_BY_ID, type LeagueEntryDto, type MatchDto } from '../riot/types.ts';
 import type { GameNote, GameResult, LpAdjustment } from './events.ts';
 import { absoluteLp, compareDivision, type Rank } from './rank.ts';
@@ -79,9 +79,19 @@ export class Tracker {
     const before = this.riot.requestCount;
     const games: GameResult[] = [];
     const adjustments: LpAdjustment[] = [];
-    for (const player of this.repo.duePlayers(this.now())) {
+    for (const due of this.repo.duePlayers(this.now())) {
+      let player = due;
       try {
-        const r = await this.pollPlayer(player);
+        let r;
+        try {
+          r = await this.pollPlayer(player);
+        } catch (err) {
+          if (!isStalePuuidError(err)) throw err;
+          const re = await this.rekey(player);
+          if (!re) throw err;
+          player = re;
+          r = await this.pollPlayer(player);
+        }
         games.push(...r.games);
         adjustments.push(...r.adjustments);
       } catch (err) {
@@ -96,6 +106,24 @@ export class Tracker {
     }
     games.sort((a, b) => (a.match.info.gameEndTimestamp ?? 0) - (b.match.info.gameEndTimestamp ?? 0));
     return { games, adjustments, requests: this.riot.requestCount - before };
+  }
+
+  /**
+   * Re-resolve a player whose stored PUUID was encrypted by a previous API key.
+   * Looks them up by Riot ID with the current key and moves all their data over.
+   */
+  async rekey(player: PlayerRow): Promise<PlayerRow | null> {
+    const acc = await this.riot.getAccountByRiotId(player.platform, player.game_name, player.tag_line).catch(() => null);
+    if (!acc) {
+      this.log(`rekey: ${player.game_name}#${player.tag_line} not found by Riot ID (renamed?); keeping old id`);
+      return null;
+    }
+    if (acc.puuid !== player.puuid) {
+      this.repo.rekeyPlayer(player.puuid, acc.puuid);
+      this.repo.setKv('puuid_epoch', String(this.now()));
+      this.log(`rekey: ${player.game_name}#${player.tag_line} moved to the current API key's PUUID`);
+    }
+    return this.repo.getPlayer(acc.puuid) ?? null;
   }
 
   async pollPlayer(player: PlayerRow): Promise<{ games: GameResult[]; adjustments: LpAdjustment[] }> {

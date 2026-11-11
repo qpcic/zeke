@@ -214,6 +214,9 @@ export class MockRiot {
         headers: { 'content-type': 'application/json', 'x-app-rate-limit': '20:1,100:120', 'x-app-rate-limit-count': '1:1,1:120', 'x-method-rate-limit': '2000:10' },
       });
     const notFound = () => json({ status: { message: 'Data not found', status_code: 404 } }, 404);
+    // PUUIDs from "another API key" (tests prefix them with OLDKEY) can't be decrypted
+    const stale = path.match(/OLDKEY\w+/);
+    if (stale) return json({ status: { message: `Bad Request - Exception decrypting ${stale[0]}`, status_code: 400 } }, 400);
 
     let m: RegExpMatchArray | null;
     if ((m = path.match(/^\/riot\/account\/v1\/accounts\/by-riot-id\/([^/]+)\/([^/]+)$/))) {
