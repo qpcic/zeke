@@ -18,9 +18,10 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
 
 - **Automatic LP tracking:** link your Riot ID once (alts too). Zeke watches for finished ranked games in the background and records the exact LP gained or lost in each one, including promotions, demotions, remakes, dodges and decay.
 - **Profile cards:** Solo/Duo, Flex and Ranked 5s ranks side by side (best first), W/L, ladder position for Master+, top champions and mastery stats.
-- **Live games:** `/live` shows both teams of the game you're in right now, with each player's Solo/Duo and Flex rank, runes, spells and bans.
+- **Server recaps & game log:** pick a channel with `/recap` and every night the day's leaderboards are posted there automatically, with the week's on Mondays. `/log` posts every game of the tracked accounts to a channel.
+- **Live games:** `/live` shows both teams of the game you're in right now, with each player's rank for that queue, all their runes, spells and bans.
 - **Match scoreboards:** your latest game as a full 10-player scoreboard with items, runes, damage and MVP/ACE badges.
-- **Daily and weekly recaps:** every game from today (or the past 24 hours) or the past 7 days with champion, KDA, result and LP, plus the net total.
+- **Personal recaps:** `/daily` and `/weekly` list every game from today (or the past 24 hours) or the past 7 days with champion, KDA, result and LP, plus the net total.
 - **LP graphs:** your climb over the last games, drawn on the tier and division ladder with your peak marked.
 - **Server leaderboards:** who climbed the most in the past 24 hours or 7 days, with win/loss, LP trend and current rank.
 - **Scout:** type one name from the enemy Ranked 5s or Flex team. Zeke finds their five-stack, works out each player's role and best champions, and suggests what to ban.
@@ -38,6 +39,12 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
   </tr>
   <tr>
     <td align="center"><img src="docs/images/leaderboard.png" alt="Leaderboard" width="860"><br><sub><code>/leaderboard</code> · who climbed in the past 24h</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/recap.png" alt="Server recap" width="860"><br><sub><code>/recap</code> · posted every night after midnight: the day's LP leaderboard, one per queue played…</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/recap-games.png" alt="Games played" width="860"><br><sub>…followed by who played the most games. On Mondays the weekly recap comes after.</sub></td>
   </tr>
   <tr>
     <td align="center"><img src="docs/images/scout.png" alt="Scout" width="860"><br><sub><code>/scout</code> · scout a premade: roles, best champions and what to ban</sub></td>
