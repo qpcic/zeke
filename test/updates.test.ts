@@ -10,10 +10,12 @@ const env = {
 
 test('update post: subject as title, body without trailers, link to the commit', () => {
   const e = updateEmbed(commitFromEnv(env)!);
-  assert.equal(e.title, '🛠️ Multi-account linking');
-  assert.equal(e.description, '- Up to 10 accounts\n- Set main button');
+  assert.equal(e.title, 'Zeke Bot was just updated!');
+  assert.equal(e.description, 'Multi-account linking\n\n- Up to 10 accounts\n- Set main button');
   assert.equal(e.url, 'https://github.com/qpcic/zeke/commit/d0beb8f5c55b36df7d674d55965a23b8d54ad69b');
   assert.equal(e.footer.text, 'd0beb8f · qpcic · main');
   assert.equal(commitFromEnv({}), null);
+  const merge = updateEmbed(commitFromEnv({ ...env, RAILWAY_GIT_COMMIT_MESSAGE: 'Merge pull request #15 from qpcic/dev\n\nMulti-account linking with a /link button panel' })!);
+  assert.equal(merge.description, 'Multi-account linking with a /link button panel');
   assert.equal(stripTrailers('Fix typo'), 'Fix typo');
 });

@@ -24,14 +24,19 @@ export function stripTrailers(message: string): string {
   return lines.join('\n').trim();
 }
 
+/** Merge commits ("Merge pull request #15 from qpcic/dev"): the PR title/body below it is the real change. */
+export function changeText(message: string): string {
+  const lines = stripTrailers(message).split('\n');
+  if (/^Merge (pull request|branch|remote-tracking branch) /.test(lines[0] ?? '') && lines.slice(1).some((l) => l.trim())) lines.shift();
+  return lines.join('\n').trim();
+}
+
 export function updateEmbed(c: CommitInfo) {
-  const [subject, ...rest] = stripTrailers(c.message).split('\n');
-  const body = rest.join('\n').trim();
   const short = c.sha.slice(0, 7);
   return {
-    title: `🛠️ ${subject ?? 'Update'}`.slice(0, 256),
+    title: 'Zeke Bot was just updated!',
     url: c.repo ? `https://github.com/${c.repo}/commit/${c.sha}` : undefined,
-    description: (body || '_No details._').slice(0, 4000),
+    description: (changeText(c.message) || '_No details._').slice(0, 4000),
     color: COLORS.info,
     footer: { text: [short, c.author, c.branch].filter(Boolean).join(' · ') },
     timestamp: new Date().toISOString(),
