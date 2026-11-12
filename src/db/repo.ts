@@ -2,7 +2,10 @@ import type { DB } from './db.ts';
 import type { Platform } from '../riot/regions.ts';
 import type { MatchDto } from '../riot/types.ts';
 
-export interface GuildRow { guild_id: string; log_channel_id: string | null; timezone: string; created_at: number }
+export interface GuildRow {
+  guild_id: string; log_channel_id: string | null; timezone: string; created_at: number;
+  recap_channel_id: string | null; recap_posted_to: number;
+}
 export interface PlayerRow {
   puuid: string; platform: Platform; game_name: string; tag_line: string;
   last_match_check: number; last_rank_check: number; created_at: number;
@@ -148,6 +151,17 @@ export class Repo {
     return this.db.prepare('SELECT p.* FROM players p JOIN tracked t ON t.puuid = p.puuid WHERE t.guild_id = ? ORDER BY p.game_name COLLATE NOCASE')
       .all(guildId) as unknown as PlayerRow[];
   }
+  /** Set (or clear with null) the daily recap channel; postedTo marks days already covered. */
+  setRecapChannel(guildId: string, channelId: string | null, postedTo: number) {
+    this.db.prepare('UPDATE guilds SET recap_channel_id = ?, recap_posted_to = ? WHERE guild_id = ?').run(channelId, postedTo, guildId);
+  }
+  markRecapPosted(guildId: string, to: number) {
+    this.db.prepare('UPDATE guilds SET recap_posted_to = ? WHERE guild_id = ?').run(to, guildId);
+  }
+  recapGuilds(): GuildRow[] {
+    return this.db.prepare('SELECT * FROM guilds WHERE recap_channel_id IS NOT NULL').all() as unknown as GuildRow[];
+  }
+
   guildsTracking(puuid: string) {
     return this.db.prepare('SELECT g.* FROM guilds g JOIN tracked t ON t.guild_id = g.guild_id WHERE t.puuid = ?')
       .all(puuid) as unknown as GuildRow[];

@@ -16,9 +16,10 @@ import { isApex } from './rank.ts';
 import { discoverFivesQueue, scoutTeam } from './scout.ts';
 import { saveFivesQueue } from './queues.ts';
 import { renderLive, type LivePlayer } from '../render/image/live.ts';
+import { renderGamesBoard, type GamesRow } from '../render/image/gamesBoard.ts';
 import type { CurrentGameInfo } from '../riot/types.ts';
 import { formatRank } from './rank.ts';
-import { personalSpan, personalTitle, personalWindow, previousDay, previousWeek, recapTitle, recapWindow, zonedParts, type DailyWindow } from './time.ts';
+import { personalSpan, personalTitle, personalWindow, previousDay, previousWeek, recapTitle, recapWindow, zonedParts, type DailyWindow, type Period } from './time.ts';
 import type { GameResult } from './events.ts';
 import { isFivesQueue, QUEUE_TYPE_BY_ID } from '../riot/types.ts';
 import { buildLeaderboardEmbed, buildPersonalRecapEmbed } from '../render/statsEmbeds.ts';
@@ -38,6 +39,9 @@ export const GAME_LOG_KEY = '#gamelog';
 
 /** Riot accounts one Discord user can link. */
 export const MAX_LINKS = 10;
+
+/** Daily recap goes out this long after local midnight (late games' LP settles first). */
+export const RECAP_DELAY_MS = 10 * 60_000;
 
 /** Ranked queues the commands can be scoped to. Default everywhere: Solo/Duo. */
 export const SOLO = 420;
@@ -623,6 +627,123 @@ export class Service {
     });
   }
 
+  // ---- daily recap (scheduled) ----
+
+  /** Where the scheduled recap goes; unset = off (e.g. tests, CLI). */
+  private recapPoster: ((channelId: string, replies: Reply[]) => Promise<void>) | null = null;
+  setRecapPoster(fn: ((channelId: string, replies: Reply[]) => Promise<void>) | null) {
+    this.recapPoster = fn;
+  }
+
+  /** Turn the daily recap on for a channel (or off with null). Today's not-yet-finished day is the first one posted. */
+  setRecapChannel(guildId: string, channelId: string | null): GuildRow {
+    const g = this.guild(guildId);
+    this.repo.setRecapChannel(guildId, channelId, previousDay(this.now(), g.timezone).to);
+    return this.guild(guildId);
+  }
+
+  /**
+   * The recap for one finished local day: one leaderboard per queue anyone played in,
+   * covering exactly that day. A quiet day gets a one-line "no games" post.
+   */
+  async dailyRecap(guildId: string, period: Period): Promise<Reply[]> {
+    const g = this.guild(guildId);
+    const list = this.repo.trackedInGuild(guildId);
+    const out: Reply[] = [];
+    for (const q of await this.recapQueues()) {
+      if (!digestFor(this.repo, list, 'adhoc', period, q).players.some((p) => p.games > 0)) continue;
+      out.push(await this.leaderboardFor(list, g.timezone, 'daily', q, { title: `Daily recap · ${queueName(q)}`, none: '', who: 'tracked account' }, period));
+    }
+    if (out.length) out.push(await this.gamesLeaderboard(list, period, 'Games played today'));
+    if (!out.length) {
+      out.push({
+        embed: {
+          title: `Daily recap · ${period.label}`,
+          description: list.length ? `No ranked games by the ${list.length} tracked account${list.length === 1 ? '' : 's'} today. 💤` : 'No accounts tracked in this server yet. Use `/track add`.',
+          color: 0x5865f2,
+        },
+        files: [],
+      });
+    }
+    return out;
+  }
+
+  /** Weekly recap (Monday, after the daily one): the past Mon–Sun per queue, then games played. */
+  async weeklyRecap(guildId: string, period: Period): Promise<Reply[]> {
+    const g = this.guild(guildId);
+    const list = this.repo.trackedInGuild(guildId);
+    const out: Reply[] = [];
+    for (const q of await this.recapQueues()) {
+      if (!digestFor(this.repo, list, 'adhoc', period, q).players.some((p) => p.games > 0)) continue;
+      out.push(await this.leaderboardFor(list, g.timezone, 'weekly', q, { title: `Weekly recap · ${queueName(q)}`, none: '', who: 'tracked account' }, period));
+    }
+    if (out.length) out.push(await this.gamesLeaderboard(list, period, 'Games played this week'));
+    return out;
+  }
+
+  private async recapQueues(): Promise<number[]> {
+    return [SOLO, FLEX, ...(await this.resolveQueue(FIVES).then((q) => (q === FIVES ? [] : [q])))];
+  }
+
+  /** "Most games played" across Solo/Duo, Flex and 5s in a period (remakes excluded). */
+  async gamesLeaderboard(list: PlayerRow[], period: Period, title: string): Promise<Reply> {
+    const queues = new Set(await this.recapQueues());
+    const rows: GamesRow[] = [];
+    for (const p of list) {
+      const ms = this.repo.doneMatchesBetween(p.puuid, period.from, period.to).filter((m) => !m.remake && queues.has(m.queue_id));
+      if (!ms.length) continue;
+      const byQueue = new Map<string, number>();
+      const champs = new Map<number, { id: number; name: string; version: string; n: number }>();
+      for (const m of ms) {
+        byQueue.set(queueName(m.queue_id), (byQueue.get(queueName(m.queue_id)) ?? 0) + 1);
+        const match = this.repo.getCachedMatch(m.match_id);
+        const me = match?.info.participants.find((x) => x.puuid === p.puuid);
+        if (me && match) {
+          const c = champs.get(me.championId) ?? { id: me.championId, name: me.championName, version: match.info.gameVersion, n: 0 };
+          c.n++;
+          champs.set(me.championId, c);
+        }
+      }
+      const wins = ms.filter((m) => m.win).length;
+      const top = [...champs.values()].sort((a, b) => b.n - a.n)[0];
+      rows.push({ name: p.game_name, tag: p.tag_line, games: ms.length, wins, losses: ms.length - wins, byQueue: [...byQueue], champ: top ? { id: top.id, name: top.name, version: top.version } : null });
+    }
+    rows.sort((a, b) => b.games - a.games || b.wins - a.wins);
+    const shown = rows.slice(0, 20);
+    const sd = this.assets ? await this.assets.staticData(shown.find((r) => r.champ)?.champ?.version ?? '99.99').catch(() => null) : null;
+    const png = await renderGamesBoard(shown, { title, subtitle: rows.length > 20 ? `${period.label} · top 20 of ${rows.length}` : period.label, hiddenCount: list.length - rows.length }, this.assets, sd);
+    return { embed: { color: 0xf5c542, image: { url: 'attachment://games.png' } }, files: [{ name: 'games.png', data: png }] };
+  }
+
+  /**
+   * Post every recap that's due: the local day that just ended (10 min after midnight), once per guild. If the bot
+   * was down at midnight it catches up within 6h; older days are skipped, not spammed.
+   */
+  async postDueRecaps(): Promise<void> {
+    if (!this.recapPoster) return;
+    const now = this.now();
+    for (const g of this.repo.recapGuilds()) {
+      const day = previousDay(now, g.timezone);
+      if (g.recap_posted_to >= day.to) continue;
+      // Wait a few minutes past midnight so games that ended just before it have their LP.
+      if (now < day.to + RECAP_DELAY_MS) continue;
+      this.repo.markRecapPosted(g.guild_id, day.to); // before sending: a failure never double-posts
+      if (now - day.to > 6 * 3_600_000) continue;
+      try {
+        await this.recapPoster(g.recap_channel_id!, await this.dailyRecap(g.guild_id, day));
+        this.log(`recap: posted ${day.key} to guild ${g.guild_id}`);
+        // The day that just ended is a Sunday: the weekly recap follows.
+        if (zonedParts(day.to, g.timezone).weekday === 1) {
+          const week = previousWeek(day.to, g.timezone);
+          const weekly = await this.weeklyRecap(g.guild_id, week);
+          if (weekly.length) await this.recapPoster(g.recap_channel_id!, weekly);
+        }
+      } catch (e) {
+        this.log(`recap: guild ${g.guild_id} failed: ${(e as Error).message}`);
+      }
+    }
+  }
+
   /** Admin: leaderboard across every account the bot knows (all servers, links and lookups). */
   async globalLeaderboard(kind: 'daily' | 'weekly', queueId = SOLO): Promise<Reply> {
     return this.leaderboardFor(this.repo.activePlayers(), this.defaultTz, kind, queueId, {
@@ -632,8 +753,8 @@ export class Service {
     });
   }
 
-  private async leaderboardFor(list: PlayerRow[], tz: string, kind: 'daily' | 'weekly', queueId: number, text: { title: string; none: string; who: string }): Promise<Reply> {
-    const period = recapWindow(kind, this.now(), tz);
+  private async leaderboardFor(list: PlayerRow[], tz: string, kind: 'daily' | 'weekly', queueId: number, text: { title: string; none: string; who: string }, fixed?: Period): Promise<Reply> {
+    const period = fixed ?? recapWindow(kind, this.now(), tz);
     const d = digestFor(this.repo, list, 'adhoc', period, queueId);
     const { title } = text;
     const played = d.players.filter((p) => p.games > 0);
@@ -771,7 +892,7 @@ export class Service {
     for (const g of games) {
       const guilds = this.repo.guildsTracking(g.player.puuid);
       // Linked-only players have no guild; still surface them to the sink under a pseudo-guild.
-      if (!guilds.length) guilds.push({ guild_id: 'linked', log_channel_id: null, timezone: this.defaultTz, created_at: 0 });
+      if (!guilds.length) guilds.push({ guild_id: 'linked', log_channel_id: null, timezone: this.defaultTz, created_at: 0, recap_channel_id: null, recap_posted_to: 0 });
       for (const guild of guilds) {
         if (guild.guild_id !== 'linked' && !this.repo.markPosted(guild.guild_id, g.match.metadata.matchId, g.player.puuid)) continue;
         const others = new Set(this.repo.trackedInGuild(guild.guild_id).map((p) => p.puuid).filter((x) => x !== g.player.puuid));
@@ -779,6 +900,8 @@ export class Service {
       }
     }
     await this.postGameLog(games);
+    await this.postGuildLogs(games);
+    await this.postDueRecaps();
     for (const a of adjustments) {
       for (const guild of this.repo.guildsTracking(a.player.puuid)) {
         await this.sink.send(guild, 'notice', [buildAdjustmentEmbed(a.player.game_name, a.queueType, a.delta, formatRank(a.rankBefore), formatRank(a.rankAfter))], { label: `adj-${a.player.game_name}` });
@@ -793,7 +916,22 @@ export class Service {
    * LP resolves in a later tick never post the same match twice.
    */
   async postGameLog(games: GameResult[]): Promise<void> {
-    if (!this.gameLog) return;
+    if (this.gameLog) await this.postMatches(games, GAME_LOG_KEY, this.gameLog);
+  }
+
+  /** Per-server game log (/log): games of the server's tracked accounts, one post per match. */
+  async postGuildLogs(games: GameResult[]): Promise<void> {
+    if (!this.guildLog || !games.length) return;
+    for (const g of this.repo.listGuilds().filter((x) => x.log_channel_id)) {
+      const tracked = new Set(this.repo.trackedInGuild(g.guild_id).map((p) => p.puuid));
+      const mine = games.filter((x) => tracked.has(x.player.puuid));
+      const ch = g.log_channel_id!;
+      if (mine.length) await this.postMatches(mine, `#log:${g.guild_id}`, (r) => this.guildLog!(ch, r));
+    }
+  }
+
+  /** One post per match (several known accounts in a game share it), deduped in `posts` under `key`. */
+  private async postMatches(games: GameResult[], key: string, send: (r: Reply) => Promise<void>): Promise<void> {
     const byMatch = new Map<string, GameResult[]>();
     for (const g of games) {
       const id = g.match.metadata.matchId;
@@ -801,7 +939,7 @@ export class Service {
     }
     const ordered = [...byMatch.entries()].sort((a, b) => (a[1][0]!.match.info.gameEndTimestamp ?? 0) - (b[1][0]!.match.info.gameEndTimestamp ?? 0));
     for (const [matchId, group] of ordered) {
-      if (this.repo.isPosted(GAME_LOG_KEY, matchId, '')) continue;
+      if (this.repo.isPosted(key, matchId, '')) continue;
       try {
         const [first, ...rest] = group;
         const reply = await this.gameReply(first!, new Set(rest.map((g) => g.player.puuid)));
@@ -809,14 +947,48 @@ export class Service {
           const lines = rest.map((g) => `**${g.player.game_name}#${g.player.tag_line}** · ${g.remake ? 'Remake' : g.win ? 'Victory' : 'Defeat'}${g.lpDelta !== null ? ` · ${signed(g.lpDelta)} LP` : ''}`);
           reply.embed.description = `${reply.embed.description ?? ''}\nAlso in this game: ${lines.join(' · ')}`.trim();
         }
-        await this.gameLog(reply);
-        this.repo.markPosted(GAME_LOG_KEY, matchId, '');
+        await send(reply);
       } catch (e) {
-        // Mark anyway so a broken channel/permission doesn't retry forever; the game is still recorded.
-        this.repo.markPosted(GAME_LOG_KEY, matchId, '');
-        this.log(`game log: could not post ${matchId}: ${(e as Error).message}`);
+        // A broken channel/permission is logged, not retried forever; the game is still recorded.
+        this.log(`game log ${key}: could not post ${matchId}: ${(e as Error).message}`);
       }
+      this.repo.markPosted(key, matchId, '');
     }
+  }
+
+  /** Destination for per-server game logs (/log); unset = off. */
+  private guildLog: ((channelId: string, r: Reply) => Promise<void>) | null = null;
+  setGuildLogPoster(fn: ((channelId: string, r: Reply) => Promise<void>) | null) {
+    this.guildLog = fn;
+  }
+
+  /** Turn the server's game log on for a channel (or off with null). Only games from now on are posted. */
+  setLogChannel(guildId: string, channelId: string | null): GuildRow {
+    this.guild(guildId);
+    this.repo.setGuildChannel(guildId, channelId);
+    return this.guild(guildId);
+  }
+
+  /** /server: tracked accounts, recap and game-log channels. */
+  serverInfo(guildId: string, guildName?: string): Reply {
+    const g = this.guild(guildId);
+    const tracked = this.repo.trackedInGuild(guildId);
+    const active = tracked.filter((p) => p.last_game_at && this.now() - p.last_game_at < 7 * 86_400_000).length;
+    const ch = (id: string | null) => (id ? `<#${id}>` : '_off_');
+    return {
+      embed: {
+        title: guildName ? `${guildName} · Zeke` : 'Server settings',
+        color: 0x5865f2,
+        fields: [
+          { name: 'Tracked accounts', value: `**${tracked.length}**${tracked.length ? ` · ${active} played in the past 7 days` : ''}`, inline: true },
+          { name: 'Timezone', value: g.timezone, inline: true },
+          { name: 'Daily recap', value: `${ch(g.recap_channel_id)}${g.recap_channel_id ? ` · 00:${String(RECAP_DELAY_MS / 60_000).padStart(2, '0')} daily, weekly on Mondays` : ''}`, inline: false },
+          { name: 'Game log', value: `${ch(g.log_channel_id)}${g.log_channel_id ? ' · every game of the tracked accounts' : ''}`, inline: false },
+        ],
+        footer: { text: 'Change with /recap and /log (Manage Server) · accounts with /track' },
+      },
+      files: [],
+    };
   }
 
   digest(guildId: string, kind: 'daily' | 'weekly'): Digest {

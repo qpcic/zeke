@@ -18,6 +18,9 @@ const ALIASES: Record<string, CommandName> = {
   link: 'link', unlink: 'unlink', mode: 'mode', queue: 'mode',
   profile: 'profile', p: 'profile', pf: 'profile', me: 'profile',
   recent: 'recent', r: 'recent', rs: 'recent', last: 'recent',
+  recap: 'recap', dailyrecap: 'recap',
+  log: 'log', gamelog: 'log',
+  server: 'server', serverinfo: 'server', settings: 'server',
   live: 'live', lg: 'live', ingame: 'live', spectate: 'live', game: 'live',
   graph: 'graph', g: 'graph',
   daily: 'daily', d: 'daily', today: 'daily',
@@ -54,7 +57,7 @@ export function extractRiotId(words: string[]): { riotId?: string; rest: string[
 export function parsePrefix(
   content: string,
   prefix: string,
-  ctx: { callerId: string; guildId: string | null; canManageGuild: boolean; mentionedUserId?: string },
+  ctx: { callerId: string; guildId: string | null; canManageGuild: boolean; mentionedUserId?: string; mentionedChannelId?: string },
 ): CommandRequest | null {
   if (!prefix || !content.startsWith(prefix)) return null;
   // drop user mentions from the argument text; they arrive via ctx.mentionedUserId
@@ -119,6 +122,14 @@ export function parsePrefix(
       } else {
         req.riotId = words.join(' ') || undefined;
       }
+      break;
+    }
+    case 'log':
+    case 'recap': {
+      // "$recap #channel" (channel mention) or "$recap off"
+      const ch = ctx.mentionedChannelId ?? /^<#(\d+)>$/.exec(words[0] ?? '')?.[1];
+      if (ch) req.channelId = ch;
+      else if (/^(off|stop|disable|none)$/i.test(words[0] ?? '')) req.off = true;
       break;
     }
     case 'unlink':
@@ -288,8 +299,10 @@ export function createPrefixHandler(
       guildId: msg.guildId,
       canManageGuild: !!msg.member?.permissions.has(PermissionFlagsBits.ManageGuild),
       mentionedUserId: mentioned?.id,
+      mentionedChannelId: msg.mentions.channels.first()?.id,
     });
     if (!req) return;
+    req.guildName = msg.guild?.name;
 
     const now = Date.now();
     if (now - (lastUse.get(msg.author.id) ?? 0) < COOLDOWN_MS) return;

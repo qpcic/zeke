@@ -1,5 +1,6 @@
 import { formatRank } from '../core/rank.ts';
 import { linkedStatus, linkPanel, unlinkedStatus } from './linkPanel.ts';
+import { logPanel, recapPanel } from './recapPanel.ts';
 import { FIVES, FLEX, queueName, UserError, type Reply, type Service } from '../core/service.ts';
 import type { PlayerRow } from '../db/repo.ts';
 import { COLORS, type Embed } from '../render/embed.ts';
@@ -10,7 +11,7 @@ import type { LeagueEntryDto } from '../riot/types.ts';
  * Transport-agnostic command logic. Slash commands and $prefix messages both
  * parse into a CommandRequest and render the returned Reply.
  */
-export type CommandName = 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
+export type CommandName = 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'recap' | 'log' | 'server' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
 
 export interface CommandRequest {
   name: CommandName;
@@ -31,10 +32,15 @@ export interface CommandRequest {
   window?: 'today' | '24h';
   /** track remove: puuid (slash autocomplete) or "Name#TAG" (prefix). */
   account?: string;
+  /** /recap: channel to post in, or turn it off */
+  channelId?: string;
+  off?: boolean;
+  /** For /server's title. */
+  guildName?: string;
 }
 
 /** Replies that should only be visible to the caller where the transport supports it. */
-export const PRIVATE: ReadonlySet<CommandName> = new Set(['link', 'unlink', 'mode', 'help']);
+export const PRIVATE: ReadonlySet<CommandName> = new Set(['link', 'unlink', 'mode', 'help', 'recap', 'log']);
 
 const QUEUE_NAME: Record<string, string> = { RANKED_SOLO_5x5: 'Solo/Duo', RANKED_FLEX_SR: 'Flex', RANKED_PREMADE_5x5: 'Ranked 5s' };
 export const tag = (p: PlayerRow) => `${p.game_name}#${p.tag_line}`;
@@ -89,6 +95,9 @@ export function helpEmbed(p: string): Embed {
         value: [
           `${c('leaderboard [daily|weekly]')} server LP leaderboard${a('lb')}`,
           `${c('track add|remove|list')} accounts on the leaderboard (Manage Server)`,
+          `${c('recap')} daily leaderboards every midnight, weekly on Mondays (Manage Server)`,
+          `${c('log')} post every new game of the tracked accounts to a channel (Manage Server)`,
+          `${c('server')} tracked accounts and this server's recap / game log channels`,
         ].join('\n'),
       },
       {
@@ -157,6 +166,37 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
 
     case 'profile':
       return withNote(await service.profile(await target()));
+
+    case 'recap': {
+      const g = needGuild();
+      if (!req.canManageGuild) throw new UserError('You need the **Manage Server** permission to set up the daily recap.');
+      if (req.off) {
+        service.setRecapChannel(g, null);
+        return recapPanel(service, g, { status: 'Daily recap turned off.' });
+      }
+      if (req.channelId) {
+        service.setRecapChannel(g, req.channelId);
+        return recapPanel(service, g, { status: `Daily recap will be posted in <#${req.channelId}>.` });
+      }
+      return recapPanel(service, g);
+    }
+
+    case 'log': {
+      const g = needGuild();
+      if (!req.canManageGuild) throw new UserError('You need the **Manage Server** permission to set up the game log.');
+      if (req.off) {
+        service.setLogChannel(g, null);
+        return logPanel(service, g, { status: 'Game log turned off.' });
+      }
+      if (req.channelId) {
+        service.setLogChannel(g, req.channelId);
+        return logPanel(service, g, { status: `New games will be logged in <#${req.channelId}>.` });
+      }
+      return logPanel(service, g);
+    }
+
+    case 'server':
+      return service.serverInfo(needGuild(), req.guildName);
 
     case 'live':
       // A Discord user (self or @mention): whichever linked account is in a game, main first.

@@ -8,7 +8,7 @@ This policy explains what the Zeke Discord bot ("Zeke") stores and why.
 
 - **Discord IDs:**
   - your Discord user ID, if you link one or more Riot accounts (`/link`) or set a preference (`/mode`), and which linked account is your main
-  - server IDs, for servers that use leaderboards (`/track`)
+  - server IDs, for servers that use leaderboards (`/track`), and the channels picked for the daily recap (`/recap`) and game log (`/log`)
 - **Riot account data:** Riot ID (name and tag), region and Riot's account identifier (PUUID) for accounts that are linked, tracked or looked up.
 - **Game data:** ranked match results, champion stats, rank and LP snapshots, and LP changes, taken from the public Riot Games API, along with cached match details.
 - **Preferences:** your default queue (Solo/Duo, Flex or Ranked 5s).

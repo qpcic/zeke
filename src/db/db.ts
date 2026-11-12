@@ -148,6 +148,16 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE links_v6 RENAME TO links;
   CREATE INDEX links_puuid ON links(puuid);
   `,
+  /* 7 */ `
+  -- Daily recap: the day's leaderboard posted to this channel after local midnight.
+  ALTER TABLE guilds ADD COLUMN recap_channel_id TEXT;
+  -- End (local midnight, epoch ms) of the last day posted, so each day goes out once.
+  ALTER TABLE guilds ADD COLUMN recap_posted_to INTEGER NOT NULL DEFAULT 0;
+  `,
+  /* 8 */ `
+  -- log_channel_id is now the /log game-log channel; clear values left from the old sink design.
+  UPDATE guilds SET log_channel_id = NULL;
+  `,
 ];
 
 export type DB = DatabaseSync;
