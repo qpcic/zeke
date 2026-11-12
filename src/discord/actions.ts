@@ -50,25 +50,53 @@ function ranksText(entries: LeagueEntryDto[]): string {
 
 export function helpEmbed(p: string): Embed {
   const c = (s: string) => `\`${p}${s}\``;
-  return info('Zeke commands', [
-    `${c('link')} your linked accounts with buttons to add, remove or pick a main · ${c('link <region> <Name#TAG>')} adds one directly`,
-    `${c('unlink [Name#TAG]')} remove a linked account (your oldest alt becomes main if you remove the main)`,
-    `${c('mode [solo|flex|5s]')} your default queue for stats commands (default Solo/Duo)`,
-    `${c('profile [@user | Name#TAG [region]]')} rank, W/L, ladder position, top champions`,
-    `${c('recent [@user | Name#TAG [region]] [solo|flex|5s]')} latest ranked game scoreboard, newest across all your linked accounts (any queue unless you name one)`,
-    `${c('graph [@user | Name#TAG [region]] [games] [solo|flex|5s]')} LP graph`,
-    '_@user and no argument use the main account (except recent)._',
-    `${c('daily [24h]')} today's games and LP, or the past 24h · ${c('weekly')} past 7 days (same arguments as recent)`,
-    '_Accounts are tracked globally: once anyone adds or looks one up, its games are recorded everywhere._',
-    `${c('scout <Name#TAG> [region]')} Scout a Ranked 5s / Flex team: roles, best champs, bans (aliases ${c('banfor')}, ${c('ban')})`,
-    '',
-    '**Server only**',
-    `${c('leaderboard [daily|weekly] [solo|flex|5s]')} LP leaderboard`,
-    `${c('track add <region> <Name#TAG>')} · ${c('track remove <Name#TAG>')} · ${c('track list')} (Manage Server)`,
-    '',
-    `_Queue (\`solo\`, \`flex\` or \`5s\`) is always the last argument; without one, your ${c('mode')} is used (Solo/Duo unless changed). ${c('recent')} without one shows your latest ranked game._`,
-    `Regions: ${Object.values(PLATFORM_LABEL).join(' ')}`,
-  ].join('\n'));
+  const slash = p === '/';
+  // Prefix users get the short aliases; slash users see the plain names.
+  const a = (...names: string[]) => (slash ? '' : ` · ${names.map((n) => `\`${p}${n}\``).join(' ')}`);
+  return {
+    title: 'Zeke commands',
+    color: COLORS.info,
+    description: [
+      `Every command works as \`/name\` or \`$name\`.`,
+      `With nothing after it, a command uses **your main account**. Add \`@user\` or \`Name#TAG\` to see someone else.`,
+    ].join('\n'),
+    fields: [
+      {
+        name: '🔗 Accounts',
+        value: [
+          `${c('link')} add, remove or pick your main account`,
+          `${c('unlink [Name#TAG]')} remove a linked account`,
+          `${c('mode solo|flex|5s')} your default queue`,
+        ].join('\n'),
+      },
+      {
+        name: '📊 Stats',
+        value: [
+          `${c('profile')} rank, ladder spot, top champions${a('p')}`,
+          `${c('recent')} latest game, across all your accounts${a('rs')}`,
+          `${c('daily [24h]')} today, or the past 24 hours${a('d')}`,
+          `${c('weekly')} the past 7 days${a('w')}`,
+          `${c('graph [games]')} LP graph${a('g')}`,
+        ].join('\n'),
+      },
+      {
+        name: '🛡️ Scout',
+        value: `${c('scout Name#TAG [region]')} a Ranked 5s / Flex team's roles, best champs and bans${a('ban')}`,
+      },
+      {
+        name: '🏆 Server',
+        value: [
+          `${c('leaderboard [daily|weekly]')} server LP leaderboard${a('lb')}`,
+          `${c('track add|remove|list')} accounts on the leaderboard (Manage Server)`,
+        ].join('\n'),
+      },
+      {
+        name: '💡 Queues',
+        value: `Put \`solo\`, \`flex\` or \`5s\` last, e.g. ${c('daily flex')}. Without one, your ${c('mode')} is used (Solo/Duo by default).`,
+      },
+    ],
+    footer: { text: `Regions: ${Object.values(PLATFORM_LABEL).join(' · ')}` },
+  };
 }
 
 export async function runCommand(service: Service, req: CommandRequest): Promise<Reply> {

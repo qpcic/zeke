@@ -1,3 +1,4 @@
+import { validateEmbed } from '../src/render/embed.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { runCommand } from '../src/discord/actions.ts';
@@ -63,7 +64,12 @@ test('prefix flow end to end: link, recent, track needs Manage Server, server-on
 
   await assert.rejects(run('$leaderboard', { guildId: null }), /only works in a server/);
   await assert.rejects(run('$link EUNE'), /link <region> <Name#TAG>/);
-  assert.match((await run('$help')).embed.description!, /\$graph .*\[games\] \[solo\|flex\|5s\]/);
+  {
+    const h = (await run('$help')).embed;
+    const text = [h.description, ...(h.fields ?? []).map((f) => `${f.name}\n${f.value}`)].join('\n');
+    assert.match(text, /`\$graph \[games\]` LP graph · `\$g`/, 'prefix style with aliases');
+    assert.deepEqual(validateEmbed(h), []);
+  }
 });
 
 test('extractRiotId handles spaces, keywords and regions around the ID', async () => {
