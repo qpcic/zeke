@@ -29,6 +29,7 @@ const ALIASES: Record<string, CommandName> = {
   track: 'track',
   scout: 'scout', banfor: 'scout', ban: 'scout', bans: 'scout',
   help: 'help', commands: 'help',
+  zeke: 'zeke', about: 'zeke', info: 'zeke', invite: 'zeke',
 };
 
 const QUEUE_WORDS: Record<string, number> = {
@@ -303,6 +304,7 @@ export function createPrefixHandler(
     });
     if (!req) return;
     req.guildName = msg.guild?.name;
+    req.serverCount = msg.client.guilds.cache.size;
 
     const now = Date.now();
     if (now - (lastUse.get(msg.author.id) ?? 0) < COOLDOWN_MS) return;

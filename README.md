@@ -59,6 +59,8 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 
 | Command | What it does |
 |---|---|
+| `/zeke` | Short intro, getting started and links (support server, invite, GitHub, terms) · `$zeke` |
+| `/help` | All commands · `$help` |
 | `/link [Name#TAG] [region]` | Your linked accounts, with buttons to add one, remove one or pick your main. The first account is your main, later ones are alts · `$link euw Name#TAG` |
 | `/unlink [account]` | Remove a linked account. If it was your main, your oldest alt becomes main |
 | `/mode [solo\|flex\|5s]` | Set your default queue for stats commands (Solo/Duo unless changed; `/recent` ignores it) · `$mode 5s` |
