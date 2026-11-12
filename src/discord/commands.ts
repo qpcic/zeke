@@ -23,11 +23,6 @@ const SERVER_ONLY = {
 
 const regionChoices = PLATFORMS.map((p) => ({ name: PLATFORM_LABEL[p], value: p }));
 
-const withRegionAndId = (b: SlashCommandBuilder) =>
-  b
-    .addStringOption((o) => o.setName('region').setDescription('Server the account plays on').setRequired(true).addChoices(...regionChoices))
-    .addStringOption((o) => o.setName('riot_id').setDescription('Riot ID, e.g. Faker#KR1').setRequired(true).setMinLength(5).setMaxLength(22));
-
 /** Who to show: a Discord user's linked account, or any Riot ID (+region if the bot hasn't seen it). */
 /** Queue option: always added LAST so it's the final argument in every command. */
 const queueOpt = (b: SlashCommandOptionsOnlyBuilder) =>
@@ -41,10 +36,13 @@ const userOpt = (b: SlashCommandOptionsOnlyBuilder) =>
     .addStringOption((o) => o.setName('region').setDescription('Region, only needed for accounts the bot has never seen').addChoices(...regionChoices));
 
 export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
-  withRegionAndId(new SlashCommandBuilder().setName('link').setDescription('Link your Riot account to your Discord user'))
+  new SlashCommandBuilder().setName('link').setDescription('Your linked Riot accounts: add, remove, pick a main')
+    .addStringOption((o) => o.setName('riot_id').setDescription('Add this account right away, e.g. Faker#KR1').setMinLength(3).setMaxLength(30))
+    .addStringOption((o) => o.setName('region').setDescription('Server the account plays on (not needed for accounts the bot knows)').addChoices(...regionChoices))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
-  new SlashCommandBuilder().setName('unlink').setDescription('Remove your linked Riot account')
+  new SlashCommandBuilder().setName('unlink').setDescription('Remove one of your linked Riot accounts')
+    .addStringOption((o) => o.setName('account').setDescription('Which account (leave empty to pick from a list)').setAutocomplete(true))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
   queueOpt(new SlashCommandBuilder().setName('mode').setDescription('Your default queue for stats commands (Solo/Duo, Flex or Ranked 5s); leave empty to see it'))

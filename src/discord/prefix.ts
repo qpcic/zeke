@@ -111,11 +111,18 @@ export function parsePrefix(
 
   switch (name) {
     case 'link': {
-      // region first, everything after is the Riot ID (game names can contain spaces)
-      req.region = words[0];
-      req.riotId = words.slice(1).join(' ') || undefined;
+      // "$link euw Name#TAG" (region first; game names can contain spaces) or "$link Name#TAG" for known accounts
+      if (words.length && parsePlatform(words[0]!) && words.length > 1) {
+        req.region = words[0];
+        req.riotId = words.slice(1).join(' ');
+      } else {
+        req.riotId = words.join(' ') || undefined;
+      }
       break;
     }
+    case 'unlink':
+      req.account = words.join(' ') || undefined;
+      break;
     case 'graph': {
       const n = words.find((w) => /^\d+$/.test(w));
       if (n) req.games = Number(n);
@@ -209,7 +216,7 @@ export function createPrefixHandler(
         }
         case 'links': {
           const r = service.adminLinks(page);
-          const lines = r.rows.map((l) => `<@${l.discord_user_id}> → **${l.game_name}#${l.tag_line}** · ${PLATFORM_LABEL[l.platform as Platform] ?? l.platform} · <t:${Math.floor(l.linked_at / 1000)}:d>`);
+          const lines = r.rows.map((l) => `<@${l.discord_user_id}> → ${l.is_main ? '⭐ ' : ''}**${l.game_name}#${l.tag_line}** · ${PLATFORM_LABEL[l.platform as Platform] ?? l.platform} · <t:${Math.floor(l.linked_at / 1000)}:d>`);
           await send({ title: `Links (${r.total})`, description: lines.join('\n') || 'No links yet.', color: COLORS.info, footer: { text: `Page ${r.page}/${r.pages}${r.page < r.pages ? ` · ${prefix}admin links ${r.page + 1}` : ''}` } });
           return;
         }
