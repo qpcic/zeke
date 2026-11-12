@@ -21,6 +21,19 @@ const EMBLEM_CANDIDATES = [
   (t: string) => `${CD}/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-mini-crests/${t}.png`,
 ];
 
+/** Stat shard perk ids -> Data Dragon icon file. */
+export const STAT_SHARD_ICONS: Record<number, string> = {
+  5008: 'StatModsAdaptiveForceIcon.png',
+  5005: 'StatModsAttackSpeedIcon.png',
+  5007: 'StatModsCDRScalingIcon.png',
+  5010: 'StatModsMovementSpeedIcon.png',
+  5001: 'StatModsHealthScalingIcon.png',
+  5011: 'StatModsHealthPlusIcon.png',
+  5002: 'StatModsArmorIcon.png',
+  5003: 'StatModsMagicResIcon.png',
+  5013: 'StatModsTenacityIcon.png',
+};
+
 export interface ChampionInfo { id: string; key: number; name: string; image: string }
 export interface StaticData {
   version: string;
@@ -121,6 +134,10 @@ export class DDragon implements AssetSource {
     for (const style of runes ?? []) {
       sd.perks.set(style.id, style.icon);
       for (const slot of style.slots) for (const r of slot.runes) sd.perks.set(r.id, r.icon);
+    }
+    // Stat shards aren't in runesReforged.json; Data Dragon still hosts their icons.
+    for (const [id, file] of Object.entries(STAT_SHARD_ICONS)) {
+      if (!sd.perks.has(Number(id))) sd.perks.set(Number(id), `perk-images/StatMods/${file}`);
     }
     return sd;
   }

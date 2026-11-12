@@ -497,6 +497,10 @@ export class Service {
       const e = es.find((x) => x.queueType === q);
       return e ? { tier: e.tier, division: e.rank, lp: e.leaguePoints, wins: e.wins, losses: e.losses } : null;
     };
+    // Show the rank for the queue being played; Solo/Duo for normals, ARAM etc.
+    const q = g.gameQueueConfigId ?? 0;
+    const rankQueue = q === FLEX ? 'RANKED_FLEX_SR' : isFivesQueue(q) ? 'RANKED_PREMADE_5x5' : 'RANKED_SOLO_5x5';
+    const rankLabel = q === FLEX ? 'FLEX' : isFivesQueue(q) ? 'RANKED 5S' : 'SOLO/DUO';
     const players: LivePlayer[] = g.participants.map((p, i) => {
       const [gameName, tagLine] = p.riotId?.includes('#') ? [p.riotId.slice(0, p.riotId.lastIndexOf('#')), p.riotId.slice(p.riotId.lastIndexOf('#') + 1)] : [p.riotId || null, null];
       const known = p.puuid ? this.repo.getPlayer(p.puuid) : undefined;
@@ -510,18 +514,16 @@ export class Service {
         spells: [p.spell1Id, p.spell2Id],
         perkIds: p.perks?.perkIds ?? [],
         perkSubStyle: p.perks?.perkSubStyle ?? 0,
-        solo: rank(entries[i]!, 'RANKED_SOLO_5x5'),
-        flex: rank(entries[i]!, 'RANKED_FLEX_SR'),
+        rank: rank(entries[i]!, rankQueue),
         focus: p.puuid === player.puuid,
         known: !!known && p.puuid !== player.puuid,
       };
     });
-    const q = g.gameQueueConfigId;
     const queueLabel = (q && QUEUE_LABEL[q]) || (g.gameMode === 'CLASSIC' ? 'Summoner\'s Rift' : g.gameMode.charAt(0) + g.gameMode.slice(1).toLowerCase());
     // gameLength is only refreshed now and then; time since gameStartTime is more current.
     const seconds = g.gameStartTime > 0 ? Math.max(0, Math.round((this.now() - g.gameStartTime) / 1000)) : null;
     if (!this.assets) throw new UserError('Live games need images, which are turned off on this bot.');
-    const png = await renderLive({ queueLabel, seconds, bans: g.bannedChampions, players }, this.assets);
+    const png = await renderLive({ queueLabel, rankLabel, seconds, bans: g.bannedChampions, players }, this.assets);
     return {
       embed: {
         color: 0xf85149,
