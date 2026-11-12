@@ -18,6 +18,7 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
 
 - **Automatic LP tracking:** link your Riot ID once (alts too). Zeke watches for finished ranked games in the background and records the exact LP gained or lost in each one, including promotions, demotions, remakes, dodges and decay.
 - **Profile cards:** Solo/Duo, Flex and Ranked 5s ranks side by side (best first), W/L, ladder position for Master+, top champions and mastery stats.
+- **Live games:** `/live` shows both teams of the game you're in right now, with each player's Solo/Duo and Flex rank, runes, spells and bans.
 - **Match scoreboards:** your latest game as a full 10-player scoreboard with items, runes, damage and MVP/ACE badges.
 - **Daily and weekly recaps:** every game from today (or the past 24 hours) or the past 7 days with champion, KDA, result and LP, plus the net total.
 - **LP graphs:** your climb over the last games, drawn on the tier and division ladder with your peak marked.
@@ -55,6 +56,7 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 | `/unlink [account]` | Remove a linked account. If it was your main, your oldest alt becomes main |
 | `/mode [solo\|flex\|5s]` | Set your default queue for stats commands (Solo/Duo unless changed; `/recent` ignores it) · `$mode 5s` |
 | `/profile [@user \| Name#TAG]` | Profile card: ranks, W/L, ladder position, top champions · `$p` |
+| `/live [@user \| Name#TAG]` | The game you're in right now (from the loading screen on): both teams with ranks, runes, spells and bans. Checks all your linked accounts · `$lg` |
 | `/recent [@user \| Name#TAG] [solo\|flex\|5s]` | Scoreboard of the latest ranked game, any queue unless you name one · `$rs` |
 | `/daily [@user \| Name#TAG] [24h] [solo\|flex\|5s]` | Today's games and LP; add `24h` for the past 24 hours instead · `$d` |
 | `/weekly [@user \| Name#TAG] [solo\|flex\|5s]` | Games and LP from the past 7 days · `$w` |

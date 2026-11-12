@@ -51,6 +51,9 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
   userOpt(new SlashCommandBuilder().setName('profile').setDescription('Rank, W/L, ladder position and top champions'))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
+  userOpt(new SlashCommandBuilder().setName('live').setDescription('Live game right now: both teams, ranks and runes'))
+    .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
+
   queueOpt(userOpt(new SlashCommandBuilder().setName('recent').setDescription('Latest ranked game (any queue unless you pick one)')))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 

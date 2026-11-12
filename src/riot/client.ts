@@ -1,6 +1,6 @@
 import { parseLimitHeader, SlidingWindowLimiter, type Window } from './rateLimiter.ts';
 import { accountRegion, matchRegion, type Platform } from './regions.ts';
-import type { AccountDto, ChampionMasteryDto, LeagueEntryDto, LeagueListDto, MatchDto, SummonerDto } from './types.ts';
+import type { AccountDto, ChampionMasteryDto, CurrentGameInfo, LeagueEntryDto, LeagueListDto, MatchDto, SummonerDto } from './types.ts';
 
 /**
  * PUUIDs are encrypted per API key's app. After switching keys (e.g. dev -> personal),
@@ -161,6 +161,11 @@ export class RiotClient {
     q: { startTime?: number; endTime?: number; queue?: number; type?: 'ranked' | 'normal' | 'tourney' | 'tutorial'; start?: number; count?: number } = {},
   ): Promise<string[]> {
     return (await this.request<string[]>(matchRegion(platform), 'match-v5.idsByPuuid', `/lol/match/v5/matches/by-puuid/${puuid}/ids`, q)) ?? [];
+  }
+
+  /** The game the player is in right now (from the loading screen on), or null if none. */
+  getActiveGame(platform: Platform, puuid: string) {
+    return this.request<CurrentGameInfo>(platform.toLowerCase(), 'spectator-v5.byPuuid', `/lol/spectator/v5/active-games/by-summoner/${puuid}`);
   }
 
   getSummoner(platform: Platform, puuid: string) {
