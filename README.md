@@ -71,7 +71,9 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 | `/track add <region> <Name#TAG>` | Add an account to the server leaderboard *(Manage Server)* |
 | `/track remove <account>` | Remove an account from the leaderboard *(Manage Server)* |
 | `/track list` | Show tracked accounts |
-| `/recap` | Daily recap: pick a channel and every night just after midnight the day's server leaderboard is posted there, one image per queue played *(Manage Server)* · `$recap #channel`, `$recap off` |
+| `/recap` | Daily recap: pick a channel, and every night just after midnight the day's LP leaderboard (one per queue played) and a games-played leaderboard are posted there. On Mondays the weekly recap follows *(Manage Server)* · `$recap #channel`, `$recap off` |
+| `/log` | Game log: pick a channel and every new ranked game of the tracked accounts is posted there as a scoreboard, once per game *(Manage Server)* · `$log #channel`, `$log off` |
+| `/server` | Tracked accounts, timezone, and the recap and game log channels |
 
 **Good to know**
 - **Queue** is always the last argument: `$daily @friend flex`, `$lb week flex`. Without one, your `/mode` is used, which is Solo/Duo unless you change it.

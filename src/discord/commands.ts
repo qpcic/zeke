@@ -74,11 +74,22 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
     .addStringOption((o) => o.setName('region').setDescription('Region (needed if the bot has never seen them)').addChoices(...regionChoices))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
-  new SlashCommandBuilder().setName('recap').setDescription("Daily recap: post the day's server leaderboard to a channel every midnight")
+  new SlashCommandBuilder().setName('recap').setDescription('Daily recap: leaderboards every midnight, weekly on Mondays')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setIntegrationTypes(SERVER_ONLY.integrations).setContexts(SERVER_ONLY.contexts)
     .addChannelOption((o) => o.setName('channel').setDescription('Channel to post in (leave empty to open the settings)').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
     .addBooleanOption((o) => o.setName('off').setDescription('Turn the daily recap off'))
+    .toJSON(),
+
+  new SlashCommandBuilder().setName('log').setDescription('Game log: post every new game of the tracked accounts to a channel')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setIntegrationTypes(SERVER_ONLY.integrations).setContexts(SERVER_ONLY.contexts)
+    .addChannelOption((o) => o.setName('channel').setDescription('Channel to post in (leave empty to open the settings)').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
+    .addBooleanOption((o) => o.setName('off').setDescription('Turn the game log off'))
+    .toJSON(),
+
+  new SlashCommandBuilder().setName('server').setDescription("This server's tracked accounts, recap and game log channels")
+    .setIntegrationTypes(SERVER_ONLY.integrations).setContexts(SERVER_ONLY.contexts)
     .toJSON(),
 
   new SlashCommandBuilder().setName('track').setDescription('Manage accounts tracked in this server')

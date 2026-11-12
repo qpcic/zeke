@@ -56,3 +56,48 @@ export function recapPanel(service: Service, guildId: string, opts: { status?: s
     ],
   };
 }
+
+/**
+ * /log panel (Manage Server): channel picker for the server's game log (every new game of
+ * the tracked accounts). Custom ids: "glog:<action>:<guildId>".
+ */
+export const GLOG_PREFIX = 'glog:';
+export const glogId = (action: string, guildId: string) => `${GLOG_PREFIX}${action}:${guildId}`;
+export function parseGlogId(customId: string): { action: string; guildId: string } | null {
+  const m = /^glog:([a-z]+):([^:]+)$/.exec(customId);
+  return m ? { action: m[1]!, guildId: m[2]! } : null;
+}
+
+export function logPanel(service: Service, guildId: string, opts: { status?: string; ok?: boolean } = {}): Reply {
+  const g = service.guild(guildId);
+  const ch = g.log_channel_id;
+  const status = opts.status ? `${opts.ok === false ? '❌' : '✅'} ${opts.status}\n\n` : '';
+  return {
+    embed: {
+      title: 'Game log',
+      color: opts.ok === false ? COLORS.loss : COLORS.info,
+      description:
+        status +
+        (ch ? `Logging to <#${ch}>` : '**Off.** Pick a channel below to turn it on.') +
+        '\n\nEvery new ranked game of this server\'s tracked accounts is posted there as a scoreboard with LP, ' +
+        'once per game (tracked teammates share one post).',
+      footer: { text: 'Accounts come from /track add · needs Manage Server' },
+    },
+    files: [],
+    components: [
+      {
+        type: ROW,
+        components: [{
+          type: CHANNEL_SELECT,
+          custom_id: glogId('channel', guildId),
+          channel_types: [GUILD_TEXT, GUILD_ANNOUNCEMENT],
+          placeholder: ch ? 'Move the game log to another channel' : 'Pick the game log channel',
+          min_values: 1,
+          max_values: 1,
+          ...(ch ? { default_values: [{ id: ch, type: 'channel' }] } : {}),
+        }],
+      },
+      { type: ROW, components: [{ type: BUTTON, style: 4, label: 'Turn off', custom_id: glogId('off', guildId), disabled: !ch }] },
+    ],
+  };
+}

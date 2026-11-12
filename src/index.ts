@@ -47,6 +47,13 @@ service.setRecapPoster(async (channelId, replies) => {
   await ch.send({ ...recapMessage(replies), allowedMentions: { parse: [] } });
 });
 
+// /log: per-server game log channels.
+service.setGuildLogPoster(async (channelId, reply) => {
+  const ch = await client.channels.fetch(channelId);
+  if (!ch?.isSendable()) throw new Error(`channel ${channelId} not found or not sendable`);
+  await ch.send({ ...payload(reply), allowedMentions: { parse: [] } });
+});
+
 // Every command is logged to stdout and, if CONSOLE_CHANNEL_ID is set, to that channel.
 const cmdLog = createCommandLogger(client, config.consoleChannelId, log);
 client.on(Events.InteractionCreate, createInteractionHandler(service, log, cmdLog));

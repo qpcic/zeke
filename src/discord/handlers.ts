@@ -12,7 +12,7 @@ import { info, PRIVATE, runCommand, tag, type CommandName, type CommandRequest }
 import type { CommandLogger } from './commandLog.ts';
 import { LINK_PREFIX, onLinkComponent } from './linkComponents.ts';
 import { onRecapComponent } from './recapComponents.ts';
-import { RECAP_PREFIX } from './recapPanel.ts';
+import { GLOG_PREFIX, RECAP_PREFIX } from './recapPanel.ts';
 
 export const payload = (r: Reply) => ({
   embeds: [r.embed],
@@ -34,6 +34,7 @@ function toRequest(i: ChatInputCommandInteraction): CommandRequest {
     callerId: i.user.id,
     targetUserId: o.getUser('user')?.id,
     guildId: i.guildId,
+    guildName: i.guild?.name,
     // Discord enforces default_member_permissions (Manage Server) on /track itself.
     canManageGuild: true,
     style: '/',
@@ -45,8 +46,8 @@ function toRequest(i: ChatInputCommandInteraction): CommandRequest {
     window: o.getString('window') === '24h' ? '24h' : o.getString('window') === 'today' ? 'today' : undefined,
     sub,
     account: sub === 'remove' || i.commandName === 'unlink' ? o.getString('account') ?? undefined : undefined,
-    channelId: i.commandName === 'recap' ? o.getChannel('channel')?.id : undefined,
-    off: i.commandName === 'recap' ? o.getBoolean('off') ?? undefined : undefined,
+    channelId: i.commandName === 'recap' || i.commandName === 'log' ? o.getChannel('channel')?.id : undefined,
+    off: i.commandName === 'recap' || i.commandName === 'log' ? o.getBoolean('off') ?? undefined : undefined,
   };
 }
 
@@ -78,7 +79,7 @@ export function createInteractionHandler(service: Service, log: (m: string) => v
       await onLinkComponent(service, i, log, cmdLog);
       return;
     }
-    if ((i.isButton() || i.isChannelSelectMenu()) && i.customId.startsWith(RECAP_PREFIX)) {
+    if ((i.isButton() || i.isChannelSelectMenu()) && (i.customId.startsWith(RECAP_PREFIX) || i.customId.startsWith(GLOG_PREFIX))) {
       await onRecapComponent(service, i, log, cmdLog);
       return;
     }

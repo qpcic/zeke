@@ -19,6 +19,8 @@ const ALIASES: Record<string, CommandName> = {
   profile: 'profile', p: 'profile', pf: 'profile', me: 'profile',
   recent: 'recent', r: 'recent', rs: 'recent', last: 'recent',
   recap: 'recap', dailyrecap: 'recap',
+  log: 'log', gamelog: 'log',
+  server: 'server', serverinfo: 'server', settings: 'server',
   live: 'live', lg: 'live', ingame: 'live', spectate: 'live', game: 'live',
   graph: 'graph', g: 'graph',
   daily: 'daily', d: 'daily', today: 'daily',
@@ -122,6 +124,7 @@ export function parsePrefix(
       }
       break;
     }
+    case 'log':
     case 'recap': {
       // "$recap #channel" (channel mention) or "$recap off"
       const ch = ctx.mentionedChannelId ?? /^<#(\d+)>$/.exec(words[0] ?? '')?.[1];
@@ -299,6 +302,7 @@ export function createPrefixHandler(
       mentionedChannelId: msg.mentions.channels.first()?.id,
     });
     if (!req) return;
+    req.guildName = msg.guild?.name;
 
     const now = Date.now();
     if (now - (lastUse.get(msg.author.id) ?? 0) < COOLDOWN_MS) return;
