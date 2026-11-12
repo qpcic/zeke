@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { validateEmbed } from '../src/render/embed.ts';
 import { asGuildCommands, commands } from '../src/discord/commands.ts';
 import { setup } from './helpers.ts';
+import { runCommand } from '../src/discord/actions.ts';
 
 const MIN = 60_000;
 const ranks = (tier: string, rank: string, lp: number) => [{ queueType: 'RANKED_SOLO_5x5', tier, rank, lp, wins: 100, losses: 90 }];
@@ -18,24 +19,85 @@ test('command definitions are valid and scoped right', () => {
   assert.ok(asGuildCommands().every((c) => !('integration_types' in c) && !('contexts' in c)));
 });
 
-test('/link: one account per user, relink replaces, unlink keeps the account tracked globally', async () => {
+test('/link: several accounts per user, first is main, removing the main promotes the oldest alt', async () => {
   const { mock, service, repo } = setup();
   mock.addAccount('Main Acc', 'EUW', 'EUW1', ranks('GOLD', 'II', 10));
   mock.addAccount('Smurf', 'EUW', 'EUW1', ranks('PLATINUM', 'IV', 50));
+  mock.addAccount('Third', 'EUNE', 'EUN1', ranks('SILVER', 'I', 0));
 
   const a = await service.linkUser('u1', 'EUW1', 'Main Acc#EUW');
-  assert.equal(a.previous, null);
-  assert.equal(repo.activePlayers().length, 1);
-
+  assert.deepEqual([a.added, a.isMain], [true, true]);
   const b = await service.linkUser('u1', 'EUW1', 'Smurf#EUW');
-  assert.equal(b.previous?.game_name, 'Main Acc');
-  assert.equal(repo.linkedPlayer('u1')!.game_name, 'Smurf');
-  assert.equal(repo.activePlayers().length, 2, 'previous account keeps being tracked');
+  assert.deepEqual([b.added, b.isMain], [true, false]);
+  const again = await service.linkUser('u1', undefined, 'smurf#euw'); // known account: no region needed
+  assert.equal(again.added, false);
+  await service.linkUser('u1', 'EUNE', 'Third#EUNE');
 
-  service.unlinkUser('u1');
+  assert.deepEqual(service.linkedAccounts('u1').map((p) => p.game_name), ['Main Acc', 'Smurf', 'Third']);
+  assert.equal(repo.linkedPlayer('u1')!.game_name, 'Main Acc', 'main is used for mentions / stats');
+
+  // removing the main promotes the oldest alt
+  const r = service.unlinkUser('u1', 'Main Acc#EUW');
+  assert.equal(r.newMain?.game_name, 'Smurf');
+  assert.equal(repo.linkedPlayer('u1')!.game_name, 'Smurf');
+  // set main explicitly
+  service.setMainAccount('u1', 'Third#EUNE');
+  assert.deepEqual(service.linkedAccounts('u1').map((p) => [p.game_name, p.is_main]), [['Third', 1], ['Smurf', 0]]);
+  // removing an alt keeps the main
+  assert.equal(service.unlinkUser('u1', 'Smurf#EUW').newMain, null);
+  assert.throws(() => service.unlinkUser('u1', 'Nobody#X'), /isn't one of your linked accounts/);
+  service.unlinkUser('u1'); // only one left: no name needed
   assert.equal(repo.linkedPlayer('u1'), undefined);
-  assert.equal(repo.activePlayers().length, 2, 'players are never dropped');
+  assert.equal(repo.activePlayers().length, 3, 'players are never dropped');
   assert.throws(() => service.unlinkUser('u1'), /no linked account/);
+});
+
+test('/recent picks the newest game across all linked accounts; other stats use the main', async () => {
+  const { mock, service, clock } = setup();
+  const main = mock.addAccount('Mainy', 'EUW', 'EUW1', ranks('GOLD', 'II', 10));
+  const alt = mock.addAccount('Alty', 'EUNE', 'EUN1', ranks('GOLD', 'I', 10));
+  await service.linkUser('u1', 'EUW', 'Mainy#EUW');
+  await service.linkUser('u1', 'EUNE', 'Alty#EUNE');
+
+  clock.advance(30 * MIN);
+  mock.play({ players: [{ puuid: main.puuid, team: 100, champion: 'Ahri' }], winner: 100 });
+  clock.advance(40 * MIN);
+  mock.play({ players: [{ puuid: alt.puuid, team: 100, champion: 'Zed' }], winner: 200 });
+
+  const base = { callerId: 'u2', guildId: null, canManageGuild: false, style: '/' } as const;
+  let e = (await runCommand(service, { ...base, name: 'recent', targetUserId: 'u1' })).embed;
+  assert.match(e.title!, /Zed/, 'alt played last');
+
+  clock.advance(40 * MIN);
+  mock.play({ players: [{ puuid: main.puuid, team: 100, champion: 'Lux' }], winner: 100 });
+  e = (await runCommand(service, { ...base, callerId: 'u1', name: 'recent' })).embed;
+  assert.match(e.title!, /Lux/);
+  await assert.rejects(runCommand(service, { ...base, callerId: 'u1', name: 'recent', queue: 440 }), /No Flex games found on any linked account/);
+});
+
+test('link panel: accounts listed main first with add / remove / set-main buttons', async () => {
+  const { mock, service } = setup();
+  mock.addAccount('Panel Main', 'EUW', 'EUW1', ranks('GOLD', 'II', 10));
+  mock.addAccount('Panel Alt', 'EUW', 'EUW1', ranks('GOLD', 'II', 10));
+  const base = { callerId: '123', guildId: null, canManageGuild: false, style: '/' } as const;
+
+  const empty = await runCommand(service, { ...base, name: 'link' });
+  assert.match(empty.embed.description!, /No accounts linked yet/);
+  const btns = (r: typeof empty) => ((r.components![0] as { components: { label: string; custom_id: string; disabled?: boolean }[] }).components);
+  assert.deepEqual(btns(empty).map((b) => [b.label, !!b.disabled]), [['Add account', false], ['Remove account', true]]);
+
+  await runCommand(service, { ...base, name: 'link', region: 'EUW', riotId: 'Panel Main#EUW' });
+  const two = await runCommand(service, { ...base, name: 'link', riotId: 'Panel Alt#EUW', region: 'EUW' });
+  assert.match(two.embed.description!, /Linked \*\*Panel Alt#EUW\*\* as an alt/);
+  assert.match(two.embed.description!, /⭐ \*\*Panel Main#EUW\*\*.*main[\s\S]*▫️ \*\*Panel Alt#EUW\*\*/);
+  assert.deepEqual(btns(two).map((b) => b.custom_id), ['link:add:123', 'link:remove:123', 'link:main:123']);
+  assert.deepEqual(validateEmbed(two.embed), []);
+
+  // /unlink with several accounts and none named opens the remove picker
+  const pick = await runCommand(service, { ...base, name: 'unlink' });
+  const select = (pick.components![0] as { components: { custom_id: string; options: unknown[] }[] }).components[0]!;
+  assert.equal(select.custom_id, 'link:rmpick:123');
+  assert.equal(select.options.length, 2);
 });
 
 test('linked account stays polled when untracked from a server', async () => {

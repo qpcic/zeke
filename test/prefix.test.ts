@@ -49,8 +49,8 @@ test('prefix flow end to end: link, recent, track needs Manage Server, server-on
   const run = (text: string, extra: Partial<typeof ctx> = {}) => runCommand(service, parsePrefix(text, '$', { ...ctx, ...extra })!);
 
   const linked = await run('$link EUNE ferks kitten#retro');
-  assert.match(linked.embed.title!, /Linked ferks kitten#retro/);
-  assert.match(linked.embed.description!, /`\$daily`/, 'usage hints use the prefix style');
+  assert.match(linked.embed.description!, /Linked \*\*ferks kitten#retro\*\* as your main account/);
+  assert.ok(linked.components?.length, 'panel has buttons');
 
   await assert.rejects(run('$recent'), /No ranked games found/);
   await assert.rejects(run('$recent', { callerId: 'u2' }), /You have no linked account. Use `\$link`/);
@@ -62,8 +62,8 @@ test('prefix flow end to end: link, recent, track needs Manage Server, server-on
   assert.match((await run('$track remove FERKS KITTEN#RETRO', { canManageGuild: true })).embed.title!, /Removed from this server/);
 
   await assert.rejects(run('$leaderboard', { guildId: null }), /only works in a server/);
-  await assert.rejects(run('$link EUNE'), /Usage: `\$link <region> <Name#TAG>`/);
-  assert.match((await run('$help')).embed.description!, /\$graph .*\[games\] \[solo\|flex\]/);
+  await assert.rejects(run('$link EUNE'), /link <region> <Name#TAG>/);
+  assert.match((await run('$help')).embed.description!, /\$graph .*\[games\] \[solo\|flex\|5s\]/);
 });
 
 test('extractRiotId handles spaces, keywords and regions around the ID', async () => {

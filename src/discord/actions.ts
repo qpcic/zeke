@@ -1,4 +1,5 @@
 import { formatRank } from '../core/rank.ts';
+import { linkedStatus, linkPanel, unlinkedStatus } from './linkPanel.ts';
 import { FIVES, FLEX, queueName, UserError, type Reply, type Service } from '../core/service.ts';
 import type { PlayerRow } from '../db/repo.ts';
 import { COLORS, type Embed } from '../render/embed.ts';
@@ -50,18 +51,19 @@ function ranksText(entries: LeagueEntryDto[]): string {
 export function helpEmbed(p: string): Embed {
   const c = (s: string) => `\`${p}${s}\``;
   return info('Zeke commands', [
-    `${c('link <region> <Name#TAG>')} link your Riot account`,
-    `${c('unlink')} remove your link`,
+    `${c('link')} your linked accounts with buttons to add, remove or pick a main · ${c('link <region> <Name#TAG>')} adds one directly`,
+    `${c('unlink [Name#TAG]')} remove a linked account (your oldest alt becomes main if you remove the main)`,
     `${c('mode [solo|flex|5s]')} your default queue for stats commands (default Solo/Duo)`,
     `${c('profile [@user | Name#TAG [region]]')} rank, W/L, ladder position, top champions`,
-    `${c('recent [@user | Name#TAG [region]] [solo|flex|5s]')} latest ranked game scoreboard (any queue unless you name one)`,
-    `${c('graph [@user | Name#TAG [region]] [games] [solo|flex]')} LP graph`,
+    `${c('recent [@user | Name#TAG [region]] [solo|flex|5s]')} latest ranked game scoreboard, newest across all your linked accounts (any queue unless you name one)`,
+    `${c('graph [@user | Name#TAG [region]] [games] [solo|flex|5s]')} LP graph`,
+    '_@user and no argument use the main account (except recent)._',
     `${c('daily [24h]')} today's games and LP, or the past 24h · ${c('weekly')} past 7 days (same arguments as recent)`,
     '_Accounts are tracked globally: once anyone adds or looks one up, its games are recorded everywhere._',
     `${c('scout <Name#TAG> [region]')} Scout a Ranked 5s / Flex team: roles, best champs, bans (aliases ${c('banfor')}, ${c('ban')})`,
     '',
     '**Server only**',
-    `${c('leaderboard [daily|weekly] [solo|flex]')} LP leaderboard`,
+    `${c('leaderboard [daily|weekly] [solo|flex|5s]')} LP leaderboard`,
     `${c('track add <region> <Name#TAG>')} · ${c('track remove <Name#TAG>')} · ${c('track list')} (Manage Server)`,
     '',
     `_Queue (\`solo\`, \`flex\` or \`5s\`) is always the last argument; without one, your ${c('mode')} is used (Solo/Duo unless changed). ${c('recent')} without one shows your latest ranked game._`,
@@ -111,21 +113,28 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
       return only(helpEmbed(p));
 
     case 'link': {
-      const r = await service.linkUser(req.callerId, need(req.region, 'link <region> <Name#TAG>'), need(req.riotId, 'link <region> <Name#TAG>'));
-      const prev = r.previous ? `\nReplaced previous link **${tag(r.previous)}**.` : '';
-      return only(info(`Linked ${tag(r.player)} · ${PLATFORM_LABEL[r.player.platform]}`,
-        `${ranksText(r.entries)}${prev}\n\nGames from now on are recorded for \`${p}daily\`, \`${p}weekly\` and \`${p}graph\`.`, COLORS.win));
+      // No Riot ID: just the panel (accounts + Add / Remove / Set main buttons).
+      if (!req.riotId) return linkPanel(service, req.callerId, p);
+      const r = await service.linkUser(req.callerId, req.region, req.riotId);
+      return linkPanel(service, req.callerId, p, { status: linkedStatus(r) });
     }
 
     case 'unlink': {
-      const pl = service.unlinkUser(req.callerId);
-      return only(info('Unlinked', `**${tag(pl)}** is no longer linked to you.`));
+      // Several accounts and none named: open the panel's remove picker.
+      if (!req.account && service.linkedAccounts(req.callerId).length > 1) return linkPanel(service, req.callerId, p, { mode: 'remove' });
+      const r = service.unlinkUser(req.callerId, req.account);
+      return linkPanel(service, req.callerId, p, { status: unlinkedStatus(r) });
     }
 
     case 'profile':
       return withNote(await service.profile(await target()));
 
     case 'recent':
+      // A Discord user (self or @mention): newest game across all their linked accounts.
+      if (!req.riotId) {
+        const id = req.targetUserId ?? req.callerId;
+        return service.recentAcross(service.linkedAllOrThrow(id, id === req.callerId, p), req.queue);
+      }
       // No queue given: newest ranked game of any queue; /mode deliberately doesn't apply.
       return withNote(await service.recent(await target(), req.queue));
 

@@ -5,6 +5,7 @@ import { config, requireDiscord } from './config.ts';
 import { createInteractionHandler, payload } from './discord/handlers.ts';
 import { createPrefixHandler } from './discord/prefix.ts';
 import { createCommandLogger } from './discord/commandLog.ts';
+import { announceUpdate } from './discord/updates.ts';
 import { commands } from './discord/commands.ts';
 import { createHash } from 'node:crypto';
 import { LogSink } from './sinks/logSink.ts';
@@ -44,6 +45,7 @@ client.on(Events.InteractionCreate, createInteractionHandler(service, log, cmdLo
 if (prefixOn) client.on(Events.MessageCreate, createPrefixHandler(service, config.prefix, () => client.user?.id, log, cmdLog));
 client.once(Events.ClientReady, async (c) => {
   log(`Discord: logged in as ${c.user.tag} · ${c.guilds.cache.size} server(s)${prefixOn ? ` · prefix "${config.prefix}"` : ''}`);
+  void announceUpdate(client, repo, config.updatesChannelId, log);
   // Keep Discord's slash command list in sync with the code: re-register only when definitions changed.
   if (config.autoRegister) {
     const hash = createHash('sha256').update(JSON.stringify(commands)).digest('hex');

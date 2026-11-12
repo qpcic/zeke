@@ -61,7 +61,7 @@ test('$admin list and links', async () => {
   assert.match(list.description!, /\*\*Purge Me#EUW\*\* · EUW · 1 games · 1 link · 2 servers/);
   const links = (await run('$admin links'))[0]!.embeds[0]!;
   assert.equal(links.title, 'Links (2)');
-  assert.match(links.description!, /<@u1> → \*\*Keep Me#EUW\*\*/);
+  assert.match(links.description!, /<@u1> → ⭐ \*\*Keep Me#EUW\*\*/);
   assert.match(links.footer!.text, /Page 1\/1/);
 });
 

@@ -34,6 +34,9 @@ export class UserError extends Error {}
 /** posts.guild_id used to dedupe the global game log channel. */
 export const GAME_LOG_KEY = '#gamelog';
 
+/** Riot accounts one Discord user can link. */
+export const MAX_LINKS = 10;
+
 /** Ranked queues the commands can be scoped to. Default everywhere: Solo/Duo. */
 export const SOLO = 420;
 export const FLEX = 440;
@@ -45,7 +48,12 @@ export const FIVES = 5;
 export const queueName = (q: number) => (q === FLEX ? 'Flex' : q === FIVES || isFivesQueue(q) ? 'Ranked 5s' : 'Solo/Duo');
 
 /** A reply: embed plus optional PNG attachments referenced as attachment://<name>. */
-export interface Reply { embed: Embed; files: { name: string; data: Buffer }[] }
+export interface Reply {
+  embed: Embed;
+  files: { name: string; data: Buffer }[];
+  /** Discord message components (raw API JSON: action rows with buttons / selects). */
+  components?: object[];
+}
 
 /** If the bot was down at midnight, still post the digest if we come back within this window. */
 const DIGEST_CATCHUP_HOURS = 6;
@@ -126,18 +134,70 @@ export class Service {
     return { player: r.player, entries: r.entries, alreadyTracked: !r.changed };
   }
 
-  async linkUser(discordUserId: string, regionInput: string, riotIdInput: string): Promise<{ player: PlayerRow; entries: LeagueEntryDto[]; previous: PlayerRow | null }> {
-    const prevLink = this.repo.linkedPlayer(discordUserId) ?? null;
+  /** Add a linked account. The first one is the main; later ones are alts. */
+  async linkUser(discordUserId: string, regionInput: string | undefined, riotIdInput: string): Promise<{ player: PlayerRow; entries: LeagueEntryDto[]; added: boolean; isMain: boolean }> {
+    if (this.repo.linkedPlayers(discordUserId).length >= MAX_LINKS) {
+      throw new UserError(`You can link up to ${MAX_LINKS} accounts. Remove one first.`);
+    }
+    // Region is optional for accounts the bot already knows, else the configured default.
+    if (!regionInput?.trim()) {
+      let known: PlayerRow | undefined;
+      try {
+        const id = parseRiotId(riotIdInput);
+        known = this.repo.findPlayerByRiotId(id.gameName, id.tagLine);
+      } catch (e) {
+        throw new UserError(`${(e as Error).message} Use \`link <region> <Name#TAG>\`, e.g. \`link EUW Faker#KR1\`.`);
+      }
+      regionInput = known?.platform ?? this.defaultRegion;
+      if (!regionInput) throw new UserError('Which region does that account play on? Add it, e.g. `EUW`.');
+    }
+    let res = { added: false, isMain: false };
     const r = await this.resolvePlayer(regionInput, riotIdInput, (puuid) => {
-      this.repo.link(discordUserId, puuid);
-      return true;
+      res = this.repo.link(discordUserId, puuid);
+      return res.added;
     });
-    return { player: r.player, entries: r.entries, previous: prevLink && prevLink.puuid !== r.player.puuid ? prevLink : null };
+    return { player: r.player, entries: r.entries, ...res };
   }
 
-  unlinkUser(discordUserId: string): PlayerRow {
-    const p = this.repo.unlink(discordUserId);
-    if (!p) throw new UserError('You have no linked account.');
+  linkedAccounts(discordUserId: string) {
+    return this.repo.linkedPlayers(discordUserId);
+  }
+
+  /** Linked accounts with their best current rank, for the /link panel. */
+  linkPanelData(discordUserId: string): { player: PlayerRow; isMain: boolean; rank: string | null }[] {
+    const order = ['RANKED_SOLO_5x5', 'RANKED_FLEX_SR', 'RANKED_PREMADE_5x5'];
+    const label: Record<string, string> = { RANKED_SOLO_5x5: 'Solo', RANKED_FLEX_SR: 'Flex', RANKED_PREMADE_5x5: '5s' };
+    return this.repo.linkedPlayers(discordUserId).map((p, i) => {
+      const snaps = this.repo.getSnapshots(p.puuid).filter((s) => order.includes(s.queue_type)).sort((a, b) => order.indexOf(a.queue_type) - order.indexOf(b.queue_type));
+      const s = snaps[0];
+      // main is listed first (or the oldest, if none is flagged)
+      return { player: p, isMain: i === 0, rank: s ? `${formatRank(s)} ${label[s.queue_type]}` : null };
+    });
+  }
+
+  /** One of the user's linked accounts by PUUID or Riot ID; without one, only if they have exactly one. */
+  private pickLinked(discordUserId: string, account?: string): PlayerRow {
+    const links = this.repo.linkedPlayers(discordUserId);
+    if (!links.length) throw new UserError('You have no linked account.');
+    if (!account) {
+      if (links.length === 1) return links[0]!;
+      throw new UserError('You have several linked accounts. Say which one, or use the buttons on `/link`.');
+    }
+    const a = account.trim().toLowerCase();
+    const p = links.find((l) => l.puuid === account || `${l.game_name}#${l.tag_line}`.toLowerCase() === a);
+    if (!p) throw new UserError(`**${account}** isn't one of your linked accounts.`);
+    return p;
+  }
+
+  /** Remove a linked account. If it was the main, the oldest remaining one becomes main. */
+  unlinkUser(discordUserId: string, account?: string): { player: PlayerRow; newMain: PlayerRow | null } {
+    const p = this.pickLinked(discordUserId, account);
+    return this.repo.unlink(discordUserId, p.puuid)!;
+  }
+
+  setMainAccount(discordUserId: string, account: string): PlayerRow {
+    const p = this.pickLinked(discordUserId, account);
+    this.repo.setMainLink(discordUserId, p.puuid);
     return p;
   }
 
@@ -287,6 +347,13 @@ export class Service {
     return p;
   }
 
+  /** All accounts linked to a Discord user (main first). */
+  linkedAllOrThrow(discordUserId: string, isSelf: boolean, style = '/'): PlayerRow[] {
+    const ps = this.repo.linkedPlayers(discordUserId);
+    if (!ps.length) throw new UserError(isSelf ? `You have no linked account. Use \`${style}link\` first.` : 'That user has no linked account.');
+    return ps;
+  }
+
   /** Run fn; if Riot can't decrypt the stored PUUID (API key changed), re-resolve the player and retry once. */
   private async fresh<T>(player: PlayerRow, fn: (p: PlayerRow) => Promise<T>): Promise<T> {
     try {
@@ -307,8 +374,32 @@ export class Service {
     return this.fresh(player, async (p) => this.recentImpl(p, queueId === undefined ? undefined : await this.resolveQueue(queueId, p)));
   }
 
-  private async recentImpl(player: PlayerRow, queueId: number | undefined): Promise<Reply> {
-    const [id] = await this.riot.getMatchIds(player.platform, player.puuid, queueId === undefined ? { count: 1, type: 'ranked' } : { count: 1, queue: queueId });
+  /**
+   * /recent for a Discord user with several linked accounts: the newest game across all
+   * of them (by game end time), not just the main.
+   */
+  async recentAcross(players: PlayerRow[], queueId?: number): Promise<Reply> {
+    if (players.length === 1) return this.recent(players[0]!, queueId);
+    const latest = await Promise.all(players.map((pl) =>
+      this.fresh(pl, async (p) => {
+        const q = queueId === undefined ? undefined : await this.resolveQueue(queueId, p);
+        const [id] = await this.riot.getMatchIds(p.platform, p.puuid, q === undefined ? { count: 1, type: 'ranked' } : { count: 1, queue: q });
+        if (!id) return null;
+        const m = this.repo.getCachedMatch(id) ?? (await this.riot.getMatch(p.platform, id));
+        if (!m) return null;
+        this.repo.cacheMatch(m);
+        return { player: p, q, id, end: m.info.gameEndTimestamp ?? m.info.gameStartTimestamp + m.info.gameDuration * 1000 };
+      }).catch((e) => {
+        if (!(e instanceof UserError)) this.log(`recent: ${pl.game_name}#${pl.tag_line} failed: ${(e as Error).message}`);
+        return null;
+      })));
+    const best = latest.filter((x) => x !== null).sort((a, b) => b.end - a.end)[0];
+    if (!best) throw new UserError(`No ${queueId === undefined ? 'ranked' : queueName(queueId)} games found on any linked account.`);
+    return this.recentImpl(best.player, best.q, best.id);
+  }
+
+  private async recentImpl(player: PlayerRow, queueId: number | undefined, knownId?: string): Promise<Reply> {
+    const [id] = knownId ? [knownId] : await this.riot.getMatchIds(player.platform, player.puuid, queueId === undefined ? { count: 1, type: 'ranked' } : { count: 1, queue: queueId });
     if (!id) throw new UserError(`No ${queueId === undefined ? 'ranked' : queueName(queueId)} games found for **${player.game_name}#${player.tag_line}**.`);
     const match = this.repo.getCachedMatch(id) ?? (await this.riot.getMatch(player.platform, id));
     if (!match) throw new UserError('Could not load that match from Riot, try again in a bit.');

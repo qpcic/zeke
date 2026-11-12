@@ -97,30 +97,52 @@ export class Repo {
     return r.changes > 0;
   }
 
-  // ---- links ----
-  /** Returns the previously linked puuid, if any. */
-  link(discordUserId: string, puuid: string): string | null {
-    const prev = this.getLink(discordUserId);
-    this.db.prepare(`
-      INSERT INTO links (discord_user_id, puuid, linked_at) VALUES (?, ?, ?)
-      ON CONFLICT(discord_user_id) DO UPDATE SET puuid = excluded.puuid, linked_at = excluded.linked_at
-    `).run(discordUserId, puuid, this.now());
-    return prev?.puuid ?? null;
+  // ---- links (several accounts per Discord user, one main) ----
+  /** Link an account. The first one becomes main. */
+  link(discordUserId: string, puuid: string): { added: boolean; isMain: boolean } {
+    const existing = this.db.prepare('SELECT is_main FROM links WHERE discord_user_id = ? AND puuid = ?').get(discordUserId, puuid) as { is_main: number } | undefined;
+    if (existing) return { added: false, isMain: !!existing.is_main };
+    const isMain = !this.getLink(discordUserId);
+    this.db.prepare('INSERT INTO links (discord_user_id, puuid, is_main, linked_at) VALUES (?, ?, ?, ?)').run(discordUserId, puuid, isMain ? 1 : 0, this.now());
+    return { added: true, isMain };
   }
-  unlink(discordUserId: string): PlayerRow | null {
-    const prev = this.getLink(discordUserId);
-    if (!prev) return null;
-    const player = this.getPlayer(prev.puuid) ?? null;
-    this.db.prepare('DELETE FROM links WHERE discord_user_id = ?').run(discordUserId);
-    return player;
+  /** Remove one link. If it was the main, the oldest remaining account becomes main. */
+  unlink(discordUserId: string, puuid: string): { player: PlayerRow; newMain: PlayerRow | null } | null {
+    const row = this.db.prepare('SELECT is_main FROM links WHERE discord_user_id = ? AND puuid = ?').get(discordUserId, puuid) as { is_main: number } | undefined;
+    if (!row) return null;
+    const player = this.getPlayer(puuid)!;
+    this.db.prepare('DELETE FROM links WHERE discord_user_id = ? AND puuid = ?').run(discordUserId, puuid);
+    let newMain: PlayerRow | null = null;
+    if (row.is_main) {
+      const next = this.db.prepare('SELECT puuid FROM links WHERE discord_user_id = ? ORDER BY linked_at, rowid LIMIT 1').get(discordUserId) as { puuid: string } | undefined;
+      if (next) {
+        this.setMainLink(discordUserId, next.puuid);
+        newMain = this.getPlayer(next.puuid) ?? null;
+      }
+    }
+    return { player, newMain };
   }
+  setMainLink(discordUserId: string, puuid: string): boolean {
+    if (!this.db.prepare('SELECT 1 FROM links WHERE discord_user_id = ? AND puuid = ?').get(discordUserId, puuid)) return false;
+    this.db.prepare('UPDATE links SET is_main = CASE WHEN puuid = ? THEN 1 ELSE 0 END WHERE discord_user_id = ?').run(puuid, discordUserId);
+    return true;
+  }
+  /** The main link (falls back to the oldest if none is flagged). */
   getLink(discordUserId: string) {
-    return this.db.prepare('SELECT * FROM links WHERE discord_user_id = ?').get(discordUserId) as
-      { discord_user_id: string; puuid: string; linked_at: number } | undefined;
+    return this.db.prepare('SELECT * FROM links WHERE discord_user_id = ? ORDER BY is_main DESC, linked_at, rowid LIMIT 1').get(discordUserId) as
+      { discord_user_id: string; puuid: string; is_main: number; linked_at: number } | undefined;
   }
+  /** Main linked account: used for @mentions and stats commands. */
   linkedPlayer(discordUserId: string): PlayerRow | undefined {
-    return this.db.prepare('SELECT p.* FROM players p JOIN links l ON l.puuid = p.puuid WHERE l.discord_user_id = ?')
-      .get(discordUserId) as PlayerRow | undefined;
+    const l = this.getLink(discordUserId);
+    return l ? this.getPlayer(l.puuid) : undefined;
+  }
+  /** All linked accounts, main first, then in the order they were added. */
+  linkedPlayers(discordUserId: string): (PlayerRow & { is_main: number; linked_at: number })[] {
+    return this.db.prepare(`
+      SELECT p.*, l.is_main, l.linked_at FROM players p JOIN links l ON l.puuid = p.puuid
+      WHERE l.discord_user_id = ? ORDER BY l.is_main DESC, l.linked_at, l.rowid
+    `).all(discordUserId) as unknown as (PlayerRow & { is_main: number; linked_at: number })[];
   }
   trackedInGuild(guildId: string) {
     return this.db.prepare('SELECT p.* FROM players p JOIN tracked t ON t.puuid = p.puuid WHERE t.guild_id = ? ORDER BY p.game_name COLLATE NOCASE')
@@ -256,9 +278,9 @@ export class Repo {
   }
   allLinks() {
     return this.db.prepare(`
-      SELECT l.discord_user_id, l.linked_at, p.game_name, p.tag_line, p.platform
+      SELECT l.discord_user_id, l.linked_at, l.is_main, p.game_name, p.tag_line, p.platform
       FROM links l JOIN players p ON p.puuid = l.puuid ORDER BY l.linked_at
-    `).all() as unknown as { discord_user_id: string; linked_at: number; game_name: string; tag_line: string; platform: string }[];
+    `).all() as unknown as { discord_user_id: string; linked_at: number; is_main: number; game_name: string; tag_line: string; platform: string }[];
   }
   /** Rows that purgePlayer would delete. */
   playerFootprint(puuid: string) {

@@ -16,7 +16,7 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
 
 ## Features
 
-- **Automatic LP tracking:** link your Riot ID once. Zeke watches for finished ranked games in the background and records the exact LP gained or lost in each one, including promotions, demotions, remakes, dodges and decay.
+- **Automatic LP tracking:** link your Riot ID once (alts too). Zeke watches for finished ranked games in the background and records the exact LP gained or lost in each one, including promotions, demotions, remakes, dodges and decay.
 - **Profile cards:** Solo/Duo, Flex and Ranked 5s ranks side by side (best first), W/L, ladder position for Master+, top champions and mastery stats.
 - **Match scoreboards:** your latest game as a full 10-player scoreboard with items, runes, damage and MVP/ACE badges.
 - **Daily and weekly recaps:** every game from today (or the past 24 hours) or the past 7 days with champion, KDA, result and LP, plus the net total.
@@ -45,14 +45,14 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
 
 ## Commands
 
-Every command works as a slash command and as a message with the `$` prefix. With no account given, a command shows **your** linked account. You can also pass `@someone` (their linked account) or any Riot ID like `Name#TAG`.
+Every command works as a slash command and as a message with the `$` prefix. With no account given, a command shows **your** main linked account (`/recent` shows your newest game on any of your linked accounts). You can also pass `@someone` (their main account) or any Riot ID like `Name#TAG`.
 
 ### You
 
 | Command | What it does |
 |---|---|
-| `/link <region> <Name#TAG>` | Link your Riot account to your Discord user |
-| `/unlink` | Remove your link |
+| `/link [Name#TAG] [region]` | Your linked accounts, with buttons to add one, remove one or pick your main. The first account is your main, later ones are alts · `$link euw Name#TAG` |
+| `/unlink [account]` | Remove a linked account. If it was your main, your oldest alt becomes main |
 | `/mode [solo\|flex\|5s]` | Set your default queue for stats commands (Solo/Duo unless changed; `/recent` ignores it) · `$mode 5s` |
 | `/profile [@user \| Name#TAG]` | Profile card: ranks, W/L, ladder position, top champions · `$p` |
 | `/recent [@user \| Name#TAG] [solo\|flex\|5s]` | Scoreboard of the latest ranked game, any queue unless you name one · `$rs` |

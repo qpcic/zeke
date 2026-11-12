@@ -29,6 +29,8 @@ export const config = {
   consoleChannelId: process.env.CONSOLE_CHANNEL_ID ?? '',
   /** Every newly recorded game of every known account is posted here, once per match. */
   gameLogChannelId: process.env.GAME_LOG_CHANNEL_ID ?? '',
+  /** On startup, the deploying commit's message is posted here (once per commit). */
+  updatesChannelId: process.env.UPDATES_CHANNEL_ID ?? '',
   /** Your Discord user ID: allows owner-only commands like $import. */
   ownerId: process.env.OWNER_ID ?? '',
   /** Message prefix for text commands ("$recent"). Empty string disables (and drops the Message Content intent). */

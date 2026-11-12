@@ -7,7 +7,7 @@ This policy explains what the Zeke Discord bot ("Zeke") stores and why.
 ## What Zeke stores
 
 - **Discord IDs:**
-  - your Discord user ID, if you link a Riot account (`/link`) or set a preference (`/mode`)
+  - your Discord user ID, if you link one or more Riot accounts (`/link`) or set a preference (`/mode`), and which linked account is your main
   - server IDs, for servers that use leaderboards (`/track`)
 - **Riot account data:** Riot ID (name and tag), region and Riot's account identifier (PUUID) for accounts that are linked, tracked or looked up.
 - **Game data:** ranked match results, champion stats, rank and LP snapshots, and LP changes, taken from the public Riot Games API, along with cached match details.
@@ -26,7 +26,7 @@ The data is **not sold or shared** with third parties. It's shown only in Discor
 ## Retention and deletion
 
 Data is kept for as long as the bot runs, so that history (graphs, recaps) keeps working.
-- `/unlink` removes your Discord ↔ Riot link at any time.
+- `/unlink` removes any of your Discord ↔ Riot links at any time.
 - To have an account's stored games and history deleted completely, ask in the [Zeke Discord server](https://discord.gg/Zf6zYWEJNK) or open an issue on [GitHub](https://github.com/qpcic/zeke).
 
 ## Children

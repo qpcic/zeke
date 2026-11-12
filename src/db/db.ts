@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { applyPendingImport } from '../core/dbImport.ts';
 
-const MIGRATIONS: string[] = [
+export const MIGRATIONS: string[] = [
   /* 1 */ `
   CREATE TABLE guilds (
     guild_id        TEXT PRIMARY KEY,
@@ -133,6 +133,20 @@ const MIGRATIONS: string[] = [
     default_queue   INTEGER NOT NULL,
     updated_at      INTEGER NOT NULL
   );
+  `,
+  /* 6 */ `
+  -- Several Riot accounts per Discord user; exactly one is_main (used for @mentions and stats).
+  CREATE TABLE links_v6 (
+    discord_user_id TEXT NOT NULL,
+    puuid           TEXT NOT NULL REFERENCES players(puuid) ON DELETE CASCADE,
+    is_main         INTEGER NOT NULL DEFAULT 0,
+    linked_at       INTEGER NOT NULL,
+    PRIMARY KEY (discord_user_id, puuid)
+  );
+  INSERT INTO links_v6 (discord_user_id, puuid, is_main, linked_at) SELECT discord_user_id, puuid, 1, linked_at FROM links;
+  DROP TABLE links;
+  ALTER TABLE links_v6 RENAME TO links;
+  CREATE INDEX links_puuid ON links(puuid);
   `,
 ];
 
