@@ -27,20 +27,20 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
 
 <table>
   <tr>
-    <td align="center"><img src="docs/images/daily.png" alt="Daily recap" width="420"><br><sub><code>/daily</code> · today's games and LP</sub></td>
-    <td align="center"><img src="docs/images/leaderboard.png" alt="Leaderboard" width="420"><br><sub><code>/leaderboard</code> · who climbed in the past 24h</sub></td>
+    <td align="center"><img src="docs/images/recent.png" alt="Match scoreboard" width="860"><br><sub><code>/recent</code> · full scoreboard of the latest game</sub></td>
   </tr>
   <tr>
-    <td align="center" colspan="2"><img src="docs/images/recent.png" alt="Match scoreboard" width="860"><br><sub><code>/recent</code> · full scoreboard of the latest game</sub></td>
+    <td align="center"><img src="docs/images/graph.png" alt="LP graph" width="860"><br><sub><code>/graph</code> · LP over your last games on the rank ladder, peak marked</sub></td>
   </tr>
   <tr>
-    <td align="center" colspan="2"><img src="docs/images/scout.png" alt="Scout" width="860"><br><sub><code>/scout</code> · scout a premade: roles, best champions and what to ban</sub></td>
+    <td align="center"><img src="docs/images/daily.png" alt="Daily recap" width="860"><br><sub><code>/daily</code> · today's games and LP</sub></td>
   </tr>
-  <!-- Add an LP graph screenshot as docs/images/graph.png and uncomment:
   <tr>
-    <td align="center" colspan="2"><img src="docs/images/graph.png" alt="LP graph" width="860"><br><sub><code>/graph</code> · LP over time</sub></td>
+    <td align="center"><img src="docs/images/leaderboard.png" alt="Leaderboard" width="860"><br><sub><code>/leaderboard</code> · who climbed in the past 24h</sub></td>
   </tr>
-  -->
+  <tr>
+    <td align="center"><img src="docs/images/scout.png" alt="Scout" width="860"><br><sub><code>/scout</code> · scout a premade: roles, best champions and what to ban</sub></td>
+  </tr>
 </table>
 
 ## Commands
