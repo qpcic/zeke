@@ -4,8 +4,9 @@ import { formatTierDiv, type Rank } from '../../core/rank.ts';
 import { C, createCanvas, decode, ensureFonts, fit, font, icon, rounded, trimTransparent, type Image, type SKRSContext2D } from './canvas.ts';
 
 /**
- * Live game card: both teams with champion, spells, runes, Riot ID and Solo/Flex rank.
- * Layout (W=1120): champ | spells | keystone + runes | name/champion | Solo/Duo | Flex
+ * Live game card: both teams with champion, spells, every picked rune, Riot ID and the rank
+ * for the game's queue (Solo/Duo, Flex or 5s).
+ * Layout (W=1120): champ | spells | keystone + 5 runes | 3 shards | name/champion | rank
  */
 
 export interface LiveRank extends Rank {
@@ -22,11 +23,11 @@ export interface LivePlayer {
   championId: number;
   teamId: number;
   spells: [number, number];
-  /** keystone, 3 primary, 2 secondary (shards ignored) */
+  /** keystone, 3 primary, 2 secondary, 3 stat shards */
   perkIds: number[];
   perkSubStyle: number;
-  solo: LiveRank | null;
-  flex: LiveRank | null;
+  /** Rank in the queue being played (see LiveData.rankLabel) */
+  rank: LiveRank | null;
   /** The account the command was about */
   focus: boolean;
   /** Linked / tracked / known to the bot */
@@ -35,6 +36,8 @@ export interface LivePlayer {
 
 export interface LiveData {
   queueLabel: string;
+  /** Which rank is shown, e.g. "SOLO/DUO", "FLEX", "RANKED 5S". */
+  rankLabel: string;
   /** Seconds in game; null while still loading in. */
   seconds: number | null;
   bans: { teamId: number; championId: number }[];
@@ -48,7 +51,7 @@ const LABELS_H = 22;
 const TEAM_H = 40;
 const ROW_H = 60;
 const GAP = 12;
-const COL = { champ: 28, spells: 82, keystone: 112, runes: 150, name: 232, solo: 560, flex: 830 };
+const COL = { champ: 28, spells: 82, keystone: 112, runes: 150, shards: 226, name: 262, rank: 640 };
 
 interface Icons {
   champ: Map<number, Image | null>;
@@ -62,8 +65,8 @@ async function loadIcons(d: LiveData, assets: AssetSource, sd: StaticData | null
   const icons: Icons = { champ: new Map(), spell: new Map(), perk: new Map(), emblem: new Map() };
   const champs = new Set([...d.players.map((p) => p.championId), ...d.bans.map((b) => b.championId)].filter((c) => c > 0));
   const spells = new Set(d.players.flatMap((p) => p.spells));
-  const perks = new Set(d.players.flatMap((p) => [...p.perkIds.slice(0, 6), p.perkSubStyle]).filter((x) => x > 0));
-  const tiers = new Set(d.players.flatMap((p) => [p.solo?.tier, p.flex?.tier]).filter((t): t is string => !!t));
+  const perks = new Set(d.players.flatMap((p) => [...p.perkIds.slice(0, 9), p.perkSubStyle]).filter((x) => x > 0));
+  const tiers = new Set(d.players.map((p) => p.rank?.tier).filter((t): t is string => !!t));
   await Promise.all([
     ...[...champs].map(async (c) => icons.champ.set(c, sd ? await get(assets.championUrl(sd, c, sd.champions.get(c)?.id ?? '')) : null)),
     ...[...spells].map(async (s) => icons.spell.set(s, sd ? await get(assets.spellUrl(sd, s)) : null)),
@@ -107,8 +110,7 @@ export async function renderLive(d: LiveData, assets: AssetSource): Promise<Buff
   ctx.fillStyle = C.faint;
   ctx.font = font(600, 12);
   ctx.fillText('RUNES', COL.keystone, HEADER_H + 14);
-  ctx.fillText('SOLO/DUO', COL.solo, HEADER_H + 14);
-  ctx.fillText('FLEX', COL.flex, HEADER_H + 14);
+  ctx.fillText(d.rankLabel, COL.rank, HEADER_H + 14);
 
   let y = HEADER_H + LABELS_H;
   teams.forEach((team, i) => {
@@ -184,26 +186,34 @@ function drawRow(ctx: SKRSContext2D, y: number, p: LivePlayer, icons: Icons, sd:
   };
   [p1, p2, p3].forEach((id, i) => small(id, COL.runes + i * 22, mid - 21));
   [p.perkSubStyle, s1, s2].forEach((id, i) => small(id, COL.runes + i * 22, mid + 3));
+  // stat shards: 3 tiny icons stacked (offense / flex / defense)
+  p.perkIds.slice(6, 9).forEach((id, i) => {
+    const yy = mid - 25 + i * 17;
+    ctx.fillStyle = '#0d0e10';
+    ctx.beginPath();
+    ctx.arc(COL.shards + 8, yy + 8, 8, 0, Math.PI * 2);
+    ctx.fill();
+    icon(ctx, icons.perk.get(id) ?? null, COL.shards + 1, yy + 1, 14, 7);
+  });
 
   // name + champion
   const hidden = !p.gameName;
   const name = p.bot ? `${cname} Bot` : hidden ? 'Hidden player' : p.gameName!;
   ctx.font = font(p.focus ? 700 : 600, 17);
   ctx.fillStyle = hidden ? C.sub : p.focus ? '#ffffff' : C.text;
-  const shown = fit(ctx, name, 290);
+  const shown = fit(ctx, name, 330);
   ctx.fillText(shown, COL.name, mid - 3);
   if (p.tagLine && !p.bot) {
     const nw = ctx.measureText(shown).width;
     ctx.font = font(400, 14);
     ctx.fillStyle = C.faint;
-    ctx.fillText(fit(ctx, `#${p.tagLine}`, Math.max(0, 300 - nw)), COL.name + nw + 4, mid - 3);
+    ctx.fillText(fit(ctx, `#${p.tagLine}`, Math.max(0, 350 - nw)), COL.name + nw + 4, mid - 3);
   }
   ctx.font = font(400, 14);
   ctx.fillStyle = C.sub;
   ctx.fillText(cname, COL.name, mid + 17);
 
-  drawRank(ctx, COL.solo, mid, p.solo, icons, p.bot || hidden);
-  drawRank(ctx, COL.flex, mid, p.flex, icons, p.bot || hidden);
+  drawRank(ctx, COL.rank, mid, p.rank, icons, p.bot || hidden);
 }
 
 function drawRank(ctx: SKRSContext2D, x: number, mid: number, r: LiveRank | null, icons: Icons, unknown: boolean) {

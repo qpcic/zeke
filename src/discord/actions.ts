@@ -1,5 +1,6 @@
 import { formatRank } from '../core/rank.ts';
 import { linkedStatus, linkPanel, unlinkedStatus } from './linkPanel.ts';
+import { recapPanel } from './recapPanel.ts';
 import { FIVES, FLEX, queueName, UserError, type Reply, type Service } from '../core/service.ts';
 import type { PlayerRow } from '../db/repo.ts';
 import { COLORS, type Embed } from '../render/embed.ts';
@@ -10,7 +11,7 @@ import type { LeagueEntryDto } from '../riot/types.ts';
  * Transport-agnostic command logic. Slash commands and $prefix messages both
  * parse into a CommandRequest and render the returned Reply.
  */
-export type CommandName = 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
+export type CommandName = 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'recap' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
 
 export interface CommandRequest {
   name: CommandName;
@@ -31,10 +32,13 @@ export interface CommandRequest {
   window?: 'today' | '24h';
   /** track remove: puuid (slash autocomplete) or "Name#TAG" (prefix). */
   account?: string;
+  /** /recap: channel to post in, or turn it off */
+  channelId?: string;
+  off?: boolean;
 }
 
 /** Replies that should only be visible to the caller where the transport supports it. */
-export const PRIVATE: ReadonlySet<CommandName> = new Set(['link', 'unlink', 'mode', 'help']);
+export const PRIVATE: ReadonlySet<CommandName> = new Set(['link', 'unlink', 'mode', 'help', 'recap']);
 
 const QUEUE_NAME: Record<string, string> = { RANKED_SOLO_5x5: 'Solo/Duo', RANKED_FLEX_SR: 'Flex', RANKED_PREMADE_5x5: 'Ranked 5s' };
 export const tag = (p: PlayerRow) => `${p.game_name}#${p.tag_line}`;
@@ -89,6 +93,7 @@ export function helpEmbed(p: string): Embed {
         value: [
           `${c('leaderboard [daily|weekly]')} server LP leaderboard${a('lb')}`,
           `${c('track add|remove|list')} accounts on the leaderboard (Manage Server)`,
+          `${c('recap')} post the day's leaderboard to a channel every midnight (Manage Server)`,
         ].join('\n'),
       },
       {
@@ -157,6 +162,20 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
 
     case 'profile':
       return withNote(await service.profile(await target()));
+
+    case 'recap': {
+      const g = needGuild();
+      if (!req.canManageGuild) throw new UserError('You need the **Manage Server** permission to set up the daily recap.');
+      if (req.off) {
+        service.setRecapChannel(g, null);
+        return recapPanel(service, g, { status: 'Daily recap turned off.' });
+      }
+      if (req.channelId) {
+        service.setRecapChannel(g, req.channelId);
+        return recapPanel(service, g, { status: `Daily recap will be posted in <#${req.channelId}>.` });
+      }
+      return recapPanel(service, g);
+    }
 
     case 'live':
       // A Discord user (self or @mention): whichever linked account is in a game, main first.

@@ -6,6 +6,7 @@ import { createInteractionHandler, payload } from './discord/handlers.ts';
 import { createPrefixHandler } from './discord/prefix.ts';
 import { createCommandLogger } from './discord/commandLog.ts';
 import { announceUpdate } from './discord/updates.ts';
+import { recapMessage } from './discord/recapComponents.ts';
 import { commands } from './discord/commands.ts';
 import { createHash } from 'node:crypto';
 import { LogSink } from './sinks/logSink.ts';
@@ -38,6 +39,13 @@ if (config.gameLogChannelId) {
     await ch.send({ ...payload(reply), allowedMentions: { parse: [] } });
   });
 }
+
+// Daily recap: per-server channel picked with /recap, posted ~10 min after local midnight.
+service.setRecapPoster(async (channelId, replies) => {
+  const ch = await client.channels.fetch(channelId);
+  if (!ch?.isSendable()) throw new Error(`channel ${channelId} not found or not sendable`);
+  await ch.send({ ...recapMessage(replies), allowedMentions: { parse: [] } });
+});
 
 // Every command is logged to stdout and, if CONSOLE_CHANNEL_ID is set, to that channel.
 const cmdLog = createCommandLogger(client, config.consoleChannelId, log);
