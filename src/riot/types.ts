@@ -124,3 +124,33 @@ export interface LeagueListDto {
   queue: string;
   entries: { puuid: string; leaguePoints: number; wins: number; losses: number; rank: string }[];
 }
+
+// ---- spectator-v5 (live games) ----
+export interface CurrentGameParticipant {
+  championId: number;
+  teamId: number;
+  spell1Id: number;
+  spell2Id: number;
+  /** Empty / missing for players hidden by Riot (e.g. streamer mode). */
+  puuid?: string | null;
+  /** "Name#TAG". Not in Riot's docs, but sent since the Riot ID migration. */
+  riotId?: string;
+  bot?: boolean;
+  profileIconId?: number;
+  /** perkIds order: keystone, 3 primary, 2 secondary, 3 shards. */
+  perks?: { perkIds: number[]; perkStyle: number; perkSubStyle: number };
+}
+export interface CurrentGameInfo {
+  gameId: number;
+  gameType: string;
+  gameMode: string;
+  mapId: number;
+  /** Epoch ms; 0 while players are still loading in. */
+  gameStartTime: number;
+  /** Seconds since the game started (as of Riot's last update). */
+  gameLength: number;
+  gameQueueConfigId?: number;
+  platformId: string;
+  bannedChampions: { championId: number; teamId: number; pickTurn: number }[];
+  participants: CurrentGameParticipant[];
+}

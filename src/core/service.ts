@@ -15,6 +15,8 @@ import { renderProfile, type ProfileData, type QueueCard } from '../render/image
 import { isApex } from './rank.ts';
 import { discoverFivesQueue, scoutTeam } from './scout.ts';
 import { saveFivesQueue } from './queues.ts';
+import { renderLive, type LivePlayer } from '../render/image/live.ts';
+import type { CurrentGameInfo } from '../riot/types.ts';
 import { formatRank } from './rank.ts';
 import { personalSpan, personalTitle, personalWindow, previousDay, previousWeek, recapTitle, recapWindow, zonedParts, type DailyWindow } from './time.ts';
 import type { GameResult } from './events.ts';
@@ -456,6 +458,78 @@ export class Service {
       }
     }
     return { embed: buildGameEmbed(r, alsoTracked, { championDisplay: display, badge }), files: [] };
+  }
+
+  /**
+   * /live for a Discord user: the first of their linked accounts that's in a game
+   * (main first), else "not in game".
+   */
+  async liveAcross(players: PlayerRow[]): Promise<Reply> {
+    for (const pl of players) {
+      const r = await this.fresh(pl, (p) => this.liveGame(p)).catch((e) => {
+        if (!(e instanceof UserError)) this.log(`live: ${pl.game_name}#${pl.tag_line} failed: ${(e as Error).message}`);
+        return null;
+      });
+      if (r) return this.renderLiveReply(r.player, r.game);
+    }
+    throw new UserError(players.length > 1
+      ? "None of your linked accounts is in a game right now. Try again once you're on the loading screen."
+      : `**${players[0]!.game_name}#${players[0]!.tag_line}** isn't in a game right now. Try again once they're on the loading screen.`);
+  }
+
+  /** /live for one account. */
+  async live(player: PlayerRow): Promise<Reply> {
+    const r = await this.fresh(player, (p) => this.liveGame(p));
+    if (!r) throw new UserError(`**${player.game_name}#${player.tag_line}** isn't in a game right now. Try again once they're on the loading screen.`);
+    return this.renderLiveReply(r.player, r.game);
+  }
+
+  private async liveGame(player: PlayerRow): Promise<{ player: PlayerRow; game: CurrentGameInfo } | null> {
+    const game = await this.riot.getActiveGame(player.platform, player.puuid);
+    return game ? { player, game } : null;
+  }
+
+  private async renderLiveReply(player: PlayerRow, g: CurrentGameInfo): Promise<Reply> {
+    // Ranks for everyone (hidden players and bots have no PUUID to look up).
+    const entries = await Promise.all(g.participants.map((p) =>
+      p.puuid && !p.bot ? this.riot.getLeagueEntries(player.platform, p.puuid).catch(() => [] as LeagueEntryDto[]) : Promise.resolve([] as LeagueEntryDto[])));
+    const rank = (es: LeagueEntryDto[], q: string) => {
+      const e = es.find((x) => x.queueType === q);
+      return e ? { tier: e.tier, division: e.rank, lp: e.leaguePoints, wins: e.wins, losses: e.losses } : null;
+    };
+    const players: LivePlayer[] = g.participants.map((p, i) => {
+      const [gameName, tagLine] = p.riotId?.includes('#') ? [p.riotId.slice(0, p.riotId.lastIndexOf('#')), p.riotId.slice(p.riotId.lastIndexOf('#') + 1)] : [p.riotId || null, null];
+      const known = p.puuid ? this.repo.getPlayer(p.puuid) : undefined;
+      return {
+        puuid: p.puuid || null,
+        gameName: gameName ?? known?.game_name ?? null,
+        tagLine: tagLine ?? known?.tag_line ?? null,
+        bot: !!p.bot,
+        championId: p.championId,
+        teamId: p.teamId,
+        spells: [p.spell1Id, p.spell2Id],
+        perkIds: p.perks?.perkIds ?? [],
+        perkSubStyle: p.perks?.perkSubStyle ?? 0,
+        solo: rank(entries[i]!, 'RANKED_SOLO_5x5'),
+        flex: rank(entries[i]!, 'RANKED_FLEX_SR'),
+        focus: p.puuid === player.puuid,
+        known: !!known && p.puuid !== player.puuid,
+      };
+    });
+    const q = g.gameQueueConfigId;
+    const queueLabel = (q && QUEUE_LABEL[q]) || (g.gameMode === 'CLASSIC' ? 'Summoner\'s Rift' : g.gameMode.charAt(0) + g.gameMode.slice(1).toLowerCase());
+    // gameLength is only refreshed now and then; time since gameStartTime is more current.
+    const seconds = g.gameStartTime > 0 ? Math.max(0, Math.round((this.now() - g.gameStartTime) / 1000)) : null;
+    if (!this.assets) throw new UserError('Live games need images, which are turned off on this bot.');
+    const png = await renderLive({ queueLabel, seconds, bans: g.bannedChampions, players }, this.assets);
+    return {
+      embed: {
+        color: 0xf85149,
+        image: { url: 'attachment://live.png' },
+        footer: { text: `${player.game_name}#${player.tag_line} · ${PLATFORM_LABEL[player.platform]}` },
+      },
+      files: [{ name: 'live.png', data: png }],
+    };
   }
 
   /** LP graph for the last `games` recorded games in a queue. */

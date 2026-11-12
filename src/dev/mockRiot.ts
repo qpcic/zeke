@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { absoluteLp, TIERS } from '../core/rank.ts';
 import type { Platform } from '../riot/regions.ts';
-import { QUEUE_TYPE_BY_ID, type LeagueEntryDto, type MatchDto, type ParticipantDto } from '../riot/types.ts';
+import { QUEUE_TYPE_BY_ID, type CurrentGameInfo, type CurrentGameParticipant, type LeagueEntryDto, type MatchDto, type ParticipantDto } from '../riot/types.ts';
 
 /**
  * In-memory fake of the Riot endpoints we use, with league-v4 lagging behind
@@ -58,6 +58,8 @@ export interface PlayOpts {
 
 export class MockRiot {
   accounts = new Map<string, Account>();
+  /** Live games by participant PUUID (spectator-v5). */
+  live = new Map<string, CurrentGameInfo>();
   league = new Map<string, LeagueEntryDto[]>();
   matches = new Map<string, MatchDto>();
   matchIds = new Map<string, string[]>(); // newest first
@@ -79,6 +81,43 @@ export class MockRiot {
   }
 
   /** Simulate a finished game that ended "now". */
+  /** Put accounts into a live game (others are filled with random/hidden players). Returns the game. */
+  startLive(o: { players: { puuid: string; team: 100 | 200; championId: number }[]; startedAt?: number; queueId?: number; hidden?: number }): CurrentGameInfo {
+    const parts: CurrentGameParticipant[] = [];
+    let filler = 1;
+    for (const team of [100, 200] as const) {
+      const mine = o.players.filter((p) => p.team === team);
+      for (let i = 0; i < 5; i++) {
+        const tp = mine[i];
+        const acc = tp ? this.accounts.get(tp.puuid)! : null;
+        const hidden = !acc && (o.hidden ?? 0) >= filler;
+        parts.push({
+          championId: tp?.championId ?? 10 + filler * 7,
+          teamId: team,
+          spell1Id: 4,
+          spell2Id: i === 1 ? 11 : 14,
+          puuid: hidden ? null : acc?.puuid ?? `filler${filler}`,
+          riotId: hidden ? '' : acc ? `${acc.gameName}#${acc.tagLine}` : `Random ${filler}#EUW`,
+          bot: false,
+          perks: { perkIds: [8112, 8126, 8138, 8135, 8233, 8237, 5008, 5008, 5011], perkStyle: 8100, perkSubStyle: 8200 },
+        });
+        if (!tp) filler++;
+      }
+    }
+    const g: CurrentGameInfo = {
+      gameId: 7_000_000 + this.live.size, gameType: 'MATCHED', gameMode: 'CLASSIC', mapId: 11,
+      gameStartTime: o.startedAt ?? 0, gameLength: 0, gameQueueConfigId: o.queueId ?? 420, platformId: 'EUW1',
+      bannedChampions: [{ championId: 157, teamId: 100, pickTurn: 1 }, { championId: 238, teamId: 200, pickTurn: 6 }],
+      participants: parts,
+    };
+    for (const p of o.players) this.live.set(p.puuid, g);
+    return g;
+  }
+
+  endLive(puuid: string) {
+    this.live.delete(puuid);
+  }
+
   play(o: PlayOpts): MatchDto {
     const queueId = o.queueId ?? 420;
     const dur = o.remake ? 200 : o.durationSec ?? 1500 + Math.floor(this.rng() * 900);
@@ -269,6 +308,10 @@ export class MockRiot {
         return mm.info.gameStartTimestamp >= startTime;
       });
       return json(ids.slice(0, count));
+    }
+    if ((m = path.match(/^\/lol\/spectator\/v5\/active-games\/by-summoner\/(\w+)$/))) {
+      const g = this.live.get(m[1]!);
+      return g ? json(g) : notFound();
     }
     if ((m = path.match(/^\/lol\/match\/v5\/matches\/(\w+)$/))) {
       const mm = this.matches.get(m[1]!);

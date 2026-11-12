@@ -10,7 +10,7 @@ import type { LeagueEntryDto } from '../riot/types.ts';
  * Transport-agnostic command logic. Slash commands and $prefix messages both
  * parse into a CommandRequest and render the returned Reply.
  */
-export type CommandName = 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
+export type CommandName = 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
 
 export interface CommandRequest {
   name: CommandName;
@@ -74,6 +74,7 @@ export function helpEmbed(p: string): Embed {
         value: [
           `${c('profile')} rank, ladder spot, top champions${a('p')}`,
           `${c('recent')} latest game, across all your accounts${a('rs')}`,
+          `${c('live')} the game you're in right now: teams, ranks, runes${a('lg')}`,
           `${c('daily [24h]')} today, or the past 24 hours${a('d')}`,
           `${c('weekly')} the past 7 days${a('w')}`,
           `${c('graph [games]')} LP graph${a('g')}`,
@@ -156,6 +157,14 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
 
     case 'profile':
       return withNote(await service.profile(await target()));
+
+    case 'live':
+      // A Discord user (self or @mention): whichever linked account is in a game, main first.
+      if (!req.riotId) {
+        const id = req.targetUserId ?? req.callerId;
+        return service.liveAcross(service.linkedAllOrThrow(id, id === req.callerId, p));
+      }
+      return service.live(await target());
 
     case 'recent':
       // A Discord user (self or @mention): newest game across all their linked accounts.
