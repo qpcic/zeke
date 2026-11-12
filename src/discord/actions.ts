@@ -11,7 +11,7 @@ import type { LeagueEntryDto } from '../riot/types.ts';
  * Transport-agnostic command logic. Slash commands and $prefix messages both
  * parse into a CommandRequest and render the returned Reply.
  */
-export type CommandName = 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'recap' | 'log' | 'server' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
+export type CommandName = 'zeke' | 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'recap' | 'log' | 'server' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
 
 export interface CommandRequest {
   name: CommandName;
@@ -37,6 +37,8 @@ export interface CommandRequest {
   off?: boolean;
   /** For /server's title. */
   guildName?: string;
+  /** Servers the bot is in, for /zeke. */
+  serverCount?: number;
 }
 
 /** Replies that should only be visible to the caller where the transport supports it. */
@@ -54,6 +56,63 @@ function ranksText(entries: LeagueEntryDto[]): string {
   return rs.join('\n') || 'Unranked';
 }
 
+const REPO = 'https://github.com/qpcic/zeke';
+export const LINKS = {
+  support: 'https://discord.gg/Zf6zYWEJNK',
+  github: REPO,
+  terms: `${REPO}/blob/main/docs/terms-of-service.md`,
+  privacy: `${REPO}/blob/main/docs/privacy-policy.md`,
+};
+
+/** /zeke: what the bot is, how to start, and the useful links. */
+export function zekeEmbed(p: string, s: { players: number; linkedUsers: number; servers?: number }, env = process.env): Embed {
+  const c = (x: string) => `\`${p}${x}\``;
+  const clientId = env.DISCORD_CLIENT_ID;
+  const invite = clientId ? `https://discord.com/oauth2/authorize?client_id=${clientId}` : null;
+  const sha = env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7);
+  return {
+    title: 'Zeke',
+    url: LINKS.github,
+    color: COLORS.info,
+    description:
+      'League of Legends stats in Discord. Link your Riot account and Zeke records every ranked game with its LP, ' +
+      'so you get scoreboards, recaps, LP graphs, live games, server leaderboards and Scout reports, all as images.',
+    fields: [
+      {
+        name: '🚀 Get started',
+        value: [
+          `**1.** ${c('link')} your Riot account (alts too)`,
+          `**2.** Play a ranked game`,
+          `**3.** ${c('recent')} · ${c('daily')} · ${c('graph')} · ${c('live')} · ${c('profile')}`,
+        ].join('\n'),
+      },
+      {
+        name: '🏠 For servers',
+        value: `${c('track add')} accounts, then ${c('leaderboard')}. Mods can set up ${c('recap')} (nightly leaderboards) and ${c('log')} (every game in a channel).`,
+      },
+      {
+        name: '🔗 Links',
+        value: [
+          `[Support server](${LINKS.support})`,
+          invite ? `[Add Zeke to a server](${invite})` : null,
+          `[GitHub](${LINKS.github})`,
+          `[Terms](${LINKS.terms})`,
+          `[Privacy](${LINKS.privacy})`,
+        ].filter(Boolean).join(' · '),
+      },
+    ],
+    footer: {
+      text: [
+        `${s.players} player${s.players === 1 ? '' : 's'} tracked`,
+        `${s.linkedUsers} linked user${s.linkedUsers === 1 ? '' : 's'}`,
+        s.servers !== undefined ? `${s.servers} server${s.servers === 1 ? '' : 's'}` : null,
+        sha ? `version ${sha}` : null,
+        `${p}help for all commands`,
+      ].filter(Boolean).join(' · '),
+    },
+  };
+}
+
 export function helpEmbed(p: string): Embed {
   const c = (s: string) => `\`${p}${s}\``;
   const slash = p === '/';
@@ -65,6 +124,7 @@ export function helpEmbed(p: string): Embed {
     description: [
       `Every command works as \`/name\` or \`$name\`.`,
       `With nothing after it, a command uses **your main account**. Add \`@user\` or \`Name#TAG\` to see someone else.`,
+      `New here? ${c('zeke')} has a quick intro and links.`,
     ].join('\n'),
     fields: [
       {
@@ -149,6 +209,9 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
 
     case 'help':
       return only(helpEmbed(p));
+
+    case 'zeke':
+      return only(zekeEmbed(p, { ...service.stats(), servers: req.serverCount }));
 
     case 'link': {
       // No Riot ID: just the panel (accounts + Add / Remove / Set main buttons).

@@ -62,6 +62,10 @@ export class Repo {
     `).get(gameName, tagLine, platform ?? null, platform ?? null) as PlayerRow | undefined;
   }
   /** Every known player. Players are global: once added (any server, link or lookup) they stay tracked. */
+  /** Discord users with at least one linked account. */
+  linkedUserCount(): number {
+    return (this.db.prepare('SELECT COUNT(DISTINCT discord_user_id) AS n FROM links').get() as { n: number }).n;
+  }
   activePlayers() {
     return this.db.prepare('SELECT * FROM players ORDER BY created_at').all() as unknown as PlayerRow[];
   }

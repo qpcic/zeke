@@ -36,6 +36,12 @@ const userOpt = (b: SlashCommandOptionsOnlyBuilder) =>
     .addStringOption((o) => o.setName('region').setDescription('Region, only needed for accounts the bot has never seen').addChoices(...regionChoices));
 
 export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
+  new SlashCommandBuilder().setName('zeke').setDescription('What Zeke is, how to get started, and useful links')
+    .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
+
+  new SlashCommandBuilder().setName('help').setDescription('All Zeke commands')
+    .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
+
   new SlashCommandBuilder().setName('link').setDescription('Your linked Riot accounts: add, remove, pick a main')
     .addStringOption((o) => o.setName('riot_id').setDescription('Add this account right away, e.g. Faker#KR1').setMinLength(3).setMaxLength(30))
     .addStringOption((o) => o.setName('region').setDescription('Server the account plays on (not needed for accounts the bot knows)').addChoices(...regionChoices))

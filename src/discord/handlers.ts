@@ -35,6 +35,7 @@ function toRequest(i: ChatInputCommandInteraction): CommandRequest {
     targetUserId: o.getUser('user')?.id,
     guildId: i.guildId,
     guildName: i.guild?.name,
+    serverCount: i.client.guilds.cache.size,
     // Discord enforces default_member_permissions (Manage Server) on /track itself.
     canManageGuild: true,
     style: '/',

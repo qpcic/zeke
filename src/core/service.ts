@@ -165,6 +165,11 @@ export class Service {
     return { player: r.player, entries: r.entries, ...res };
   }
 
+  /** Totals for /zeke. */
+  stats(): { players: number; linkedUsers: number } {
+    return { players: this.repo.activePlayers().length, linkedUsers: this.repo.linkedUserCount() };
+  }
+
   linkedAccounts(discordUserId: string) {
     return this.repo.linkedPlayers(discordUserId);
   }
