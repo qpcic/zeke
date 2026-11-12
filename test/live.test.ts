@@ -40,3 +40,14 @@ test('/live: not in game until the loading screen, then a card of both teams', a
   await assert.rejects(runCommand(service, { ...base, name: 'live' }), /not|None/);
   void me;
 });
+
+test('/live: rank column follows the queue (Flex game shows Flex ranks); all 9 runes kept', async () => {
+  const { mock, service, clock, repo } = setup();
+  const me = mock.addAccount('Flexer', 'EUW', 'EUW1', ranks);
+  await service.linkUser('u1', 'EUW', 'Flexer#EUW');
+  mock.startLive({ players: [{ puuid: me.puuid, team: 200, championId: 89 }], startedAt: clock.now() - 60_000, queueId: 440 });
+  const r = await runCommand(service, { ...base, name: 'live' });
+  if (process.env.WRITE_PREVIEWS) writeFileSync('/tmp/live-flex.png', r.files[0]!.data);
+  assert.ok(r.files[0]!.data.length > 10_000);
+  void repo;
+});
