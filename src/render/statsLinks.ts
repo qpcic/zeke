@@ -13,6 +13,16 @@ export function liveGameLinks(platform: Platform, gameName: string, tagLine: str
   ];
 }
 
+/** Third-party profile pages for a Riot ID. */
+export function profileLinks(platform: Platform, gameName: string, tagLine: string): { label: string; url: string }[] {
+  const slug = encodeURIComponent(`${gameName}-${tagLine}`);
+  return [
+    { label: 'U.GG', url: `https://u.gg/lol/profile/${platform.toLowerCase()}/${slug}/overview` },
+    { label: 'OP.GG', url: `https://op.gg/lol/summoners/${PLATFORM_LABEL[platform].toLowerCase()}/${slug}` },
+    { label: 'DPM.LOL', url: `https://dpm.lol/${slug}` },
+  ];
+}
+
 /** One action row of link buttons (style 5). */
 export function linkButtonRow(links: { label: string; url: string }[]): object {
   return { type: 1, components: links.slice(0, 5).map((l) => ({ type: 2, style: 5, label: l.label, url: l.url })) };
