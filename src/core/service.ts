@@ -17,6 +17,7 @@ import { discoverFivesQueue, scoutTeam } from './scout.ts';
 import { saveFivesQueue } from './queues.ts';
 import { renderLive, type LivePlayer } from '../render/image/live.ts';
 import { renderGamesBoard, type GamesRow } from '../render/image/gamesBoard.ts';
+import { linkButtonRow, liveGameLinks } from '../render/statsLinks.ts';
 import type { CurrentGameInfo } from '../riot/types.ts';
 import { formatRank } from './rank.ts';
 import { personalSpan, personalTitle, personalWindow, previousDay, previousWeek, recapTitle, recapWindow, zonedParts, type DailyWindow, type Period } from './time.ts';
@@ -540,6 +541,7 @@ export class Service {
         footer: { text: `${player.game_name}#${player.tag_line} · ${PLATFORM_LABEL[player.platform]}` },
       },
       files: [{ name: 'live.png', data: png }],
+      components: [linkButtonRow(liveGameLinks(player.platform, player.game_name, player.tag_line))],
     };
   }
 

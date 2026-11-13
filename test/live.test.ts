@@ -28,6 +28,9 @@ test('/live: not in game until the loading screen, then a card of both teams', a
   assert.equal(r.files[0]!.name, 'live.png');
   assert.equal(r.embed.image?.url, 'attachment://live.png');
   assert.match(r.embed.footer!.text, /Live Alt#EUW · EUW/);
+  const btns = (r.components![0] as { components: { style: number; label: string; url: string }[] }).components;
+  assert.deepEqual(btns.map((b) => [b.style, b.label]), [[5, 'U.GG'], [5, 'OP.GG'], [5, 'DPM.LOL']]);
+  assert.equal(btns[0]!.url, 'https://u.gg/lol/profile/euw1/Live%20Alt-EUW/live-game');
   assert.ok(r.files[0]!.data.length > 10_000, 'rendered an image');
   if (process.env.WRITE_PREVIEWS) writeFileSync('/tmp/live.png', r.files[0]!.data);
 
@@ -50,4 +53,13 @@ test('/live: rank column follows the queue (Flex game shows Flex ranks); all 9 r
   if (process.env.WRITE_PREVIEWS) writeFileSync('/tmp/live-flex.png', r.files[0]!.data);
   assert.ok(r.files[0]!.data.length > 10_000);
   void repo;
+});
+
+test('live links match the sites\' URL formats', async () => {
+  const { liveGameLinks } = await import('../src/render/statsLinks.ts');
+  assert.deepEqual(liveGameLinks('EUN1', 'ferks kitten', 'retro').map((l) => l.url), [
+    'https://u.gg/lol/profile/eun1/ferks%20kitten-retro/live-game',
+    'https://op.gg/lol/summoners/eune/ferks%20kitten-retro/ingame',
+    'https://dpm.lol/ferks%20kitten-retro/live',
+  ]);
 });
