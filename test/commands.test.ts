@@ -296,6 +296,7 @@ test('/profile: rank cards, exact ladder position for Master+, mastery champs', 
   const { player } = await service.linkUser('u1', 'EUNE', 'Apex Guy#EUNE');
   const r = await service.profile(player);
   assert.equal(r.files[0]!.name, 'profile.png');
+  assert.deepEqual((r.components![0] as { components: { label: string }[] }).components.map((b) => b.label), ['U.GG', 'OP.GG', 'DPM.LOL']);
   assert.equal(r.files[0]!.data.subarray(1, 4).toString(), 'PNG');
   // 984 LP sits behind fake0 (1000) -> #2
   const pos = await (service as any).apexPosition('EUN1', 'RANKED_SOLO_5x5', player.puuid);

@@ -63,3 +63,12 @@ test('live links match the sites\' URL formats', async () => {
     'https://dpm.lol/ferks%20kitten-retro/live',
   ]);
 });
+
+test('profile links match the sites\' URL formats', async () => {
+  const { profileLinks } = await import('../src/render/statsLinks.ts');
+  assert.deepEqual(profileLinks('EUN1', 'ferks kitten', 'retro').map((l) => l.url), [
+    'https://u.gg/lol/profile/eun1/ferks%20kitten-retro/overview',
+    'https://op.gg/lol/summoners/eune/ferks%20kitten-retro',
+    'https://dpm.lol/ferks%20kitten-retro',
+  ]);
+});
