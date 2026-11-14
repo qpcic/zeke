@@ -56,6 +56,13 @@ export interface PlayOpts {
   stats?: Partial<ParticipantDto>;
 }
 
+/** Deterministic fake champion id per name (1..999). */
+export function mockChampionId(name: string): number {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 997;
+  return h + 1;
+}
+
 export class MockRiot {
   accounts = new Map<string, Account>();
   /** Live games by participant PUUID (spectator-v5). */
@@ -148,12 +155,14 @@ export class MockRiot {
         const r = (a: number, b: number) => a + Math.floor(this.rng() * (b - a + 1));
         const pos = POSITIONS[i]!;
         const support = pos === 'UTILITY';
+        const championName = tp?.champion ?? pickChamp();
         participants.push({
           puuid: acc?.puuid ?? randomUUID(),
           riotIdGameName: acc?.gameName ?? NAMES[r(0, NAMES.length - 1)]!,
           riotIdTagline: acc?.tagLine ?? 'EUW',
-          championName: tp?.champion ?? pickChamp(),
-          championId: r(1, 900),
+          championName,
+          // stable per champion name, like real ids
+          championId: mockChampionId(championName),
           champLevel: r(11, 18),
           teamId: team,
           teamPosition: pos,

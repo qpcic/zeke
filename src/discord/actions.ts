@@ -11,7 +11,7 @@ import type { LeagueEntryDto } from '../riot/types.ts';
  * Transport-agnostic command logic. Slash commands and $prefix messages both
  * parse into a CommandRequest and render the returned Reply.
  */
-export type CommandName = 'zeke' | 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'recap' | 'log' | 'server' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
+export type CommandName = 'zeke' | 'ladder' | 'champ' | 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'recap' | 'log' | 'server' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
 
 export interface CommandRequest {
   name: CommandName;
@@ -39,6 +39,10 @@ export interface CommandRequest {
   guildName?: string;
   /** Servers the bot is in, for /zeke. */
   serverCount?: number;
+  /** /champ: champion name as typed */
+  champion?: string;
+  /** /ladder: server members with linked accounts (resolved by the Discord layer) */
+  members?: { id: string; name: string }[];
 }
 
 /** Replies that should only be visible to the caller where the transport supports it. */
@@ -144,6 +148,7 @@ export function helpEmbed(p: string): Embed {
           `${c('daily [24h]')} today, or the past 24 hours${a('d')}`,
           `${c('weekly')} the past 7 days${a('w')}`,
           `${c('graph [games]')} LP graph${a('g')}`,
+          `${c('champ [champion]')} your games on a champion (last 50 ranked)${a('c')}`,
         ].join('\n'),
       },
       {
@@ -154,6 +159,7 @@ export function helpEmbed(p: string): Embed {
         name: '🏆 Server',
         value: [
           `${c('leaderboard [daily|weekly]')} server LP leaderboard${a('lb')}`,
+          `${c('ladder')} everyone in the server by current rank`,
           `${c('track add|remove|list')} accounts on the leaderboard (Manage Server)`,
           `${c('recap')} daily leaderboards every midnight, weekly on Mondays (Manage Server)`,
           `${c('log')} post every new game of the tracked accounts to a channel (Manage Server)`,
@@ -229,6 +235,13 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
 
     case 'profile':
       return withNote(await service.profile(await target()));
+
+    case 'ladder':
+      return service.ladder(needGuild(), req.members ?? [], queue);
+
+    case 'champ':
+      // Queue only if one was named: by default all ranked queues count.
+      return withNote(await service.champ(await target(), req.champion, req.queue));
 
     case 'recap': {
       const g = needGuild();

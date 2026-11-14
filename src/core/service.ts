@@ -12,20 +12,22 @@ import { renderLeaderboard, type LeaderboardRow } from '../render/image/leaderbo
 import { renderRecap, type RecapGame, type RecapHeader } from '../render/image/recap.ts';
 import { renderBanPlan } from '../render/image/banplan.ts';
 import { renderProfile, type ProfileData, type QueueCard } from '../render/image/profile.ts';
-import { isApex } from './rank.ts';
+import { compareDivision, isApex } from './rank.ts';
 import { discoverFivesQueue, scoutTeam } from './scout.ts';
 import { saveFivesQueue } from './queues.ts';
 import { renderLive, type LivePlayer } from '../render/image/live.ts';
 import { renderGamesBoard, type GamesRow } from '../render/image/gamesBoard.ts';
+import { renderLadder, type LadderRow } from '../render/image/ladder.ts';
+import { renderChamp, type ChampCard, type ChampGame } from '../render/image/champ.ts';
 import { linkButtonRow, liveGameLinks, matchLinks, profileLinks } from '../render/statsLinks.ts';
-import type { CurrentGameInfo } from '../riot/types.ts';
+import type { CurrentGameInfo, MatchDto, ParticipantDto } from '../riot/types.ts';
 import { formatRank } from './rank.ts';
 import { personalSpan, personalTitle, personalWindow, previousDay, previousWeek, recapTitle, recapWindow, zonedParts, type DailyWindow, type Period } from './time.ts';
 import type { GameResult } from './events.ts';
 import { isFivesQueue, QUEUE_TYPE_BY_ID } from '../riot/types.ts';
 import { buildLeaderboardEmbed, buildPersonalRecapEmbed } from '../render/statsEmbeds.ts';
 import type { Embed } from '../render/embed.ts';
-import type { AssetSource } from '../assets/ddragon.ts';
+import type { AssetSource, StaticData } from '../assets/ddragon.ts';
 import { championName } from '../assets/ddragon.ts';
 import { performances } from './performance.ts';
 import { renderScoreboard } from '../render/image/scoreboard.ts';
@@ -40,6 +42,25 @@ export const GAME_LOG_KEY = '#gamelog';
 
 /** Riot accounts one Discord user can link. */
 export const MAX_LINKS = 10;
+
+/** /champ looks at this many recent ranked games. */
+export const CHAMP_SAMPLE = 50;
+
+const normChamp = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+/** Champion id from user text: exact name/id, then prefix ("mf" style aliases too), then games seen. */
+export function findChampion(input: string, sd: StaticData | null, seen: { id: number; name: string }[]): number | null {
+  const q = normChamp(input);
+  if (!q) return null;
+  const alias: Record<string, string> = { mf: 'missfortune', tf: 'twistedfate', ww: 'warwick', j4: 'jarvaniv', asol: 'aurelionsol', mundo: 'drmundo', nunu: 'nunuwillump', kass: 'kassadin', yi: 'masteryi', lee: 'leesin', cass: 'cassiopeia', heim: 'heimerdinger', kog: 'kogmaw', voli: 'volibear', blitz: 'blitzcrank', naut: 'nautilus' };
+  const want = alias[q] ?? q;
+  const all = [
+    ...(sd ? [...sd.champions.values()].map((c) => ({ id: c.key, names: [normChamp(c.name), normChamp(c.id)] })) : []),
+    ...seen.map((s) => ({ id: s.id, names: [normChamp(s.name)] })),
+  ];
+  return all.find((c) => c.names.includes(want))?.id
+    ?? all.filter((c) => c.names.some((n) => n.startsWith(want))).sort((a, b) => a.names[0]!.length - b.names[0]!.length)[0]?.id
+    ?? null;
+}
 
 /** Daily recap goes out this long after local midnight (late games' LP settles first). */
 export const RECAP_DELAY_MS = 10 * 60_000;
@@ -164,6 +185,160 @@ export class Service {
       return res.added;
     });
     return { player: r.player, entries: r.entries, ...res };
+  }
+
+  /** For `$admin health`: Riot API metrics and rate-limit use. */
+  riotHealth(windowMs = 3_600_000) {
+    return { api: this.riot.metrics.summary(windowMs), limits: this.riot.limiterUsage() };
+  }
+
+  /** For `$admin health`: table sizes and the poll queue. */
+  dbHealth() {
+    return { counts: this.repo.tableCounts(), backlog: this.repo.pollBacklog(this.now()) };
+  }
+
+  /** For `$admin stats`. */
+  usage(since: number) {
+    return this.repo.usageSince(since);
+  }
+
+  /** Discord users with a linked account (for /ladder's member lookup). */
+  linkedUserIds(): string[] {
+    return this.repo.linkedUserIds();
+  }
+
+  /**
+   * /ladder: the server's tracked accounts plus every linked account (alts too) of the
+   * given server members, sorted by current rank in one queue.
+   */
+  async ladder(guildId: string, members: { id: string; name: string }[], queueId: number): Promise<Reply> {
+    const q = await this.resolveQueue(queueId);
+    const queueType = QUEUE_TYPE_BY_ID[q] ?? (queueId === FIVES ? 'RANKED_PREMADE_5x5' : 'RANKED_SOLO_5x5');
+    const entries = new Map<string, { player: PlayerRow; owners: string[] }>();
+    const add = (p: PlayerRow, owner?: string) => {
+      const e = entries.get(p.puuid) ?? { player: p, owners: [] };
+      if (owner) e.owners.push(owner);
+      entries.set(p.puuid, e);
+    };
+    for (const p of this.repo.trackedInGuild(guildId)) add(p);
+    for (const m of members) {
+      for (const p of this.repo.linkedPlayers(m.id)) add(p, `@${m.name}${p.is_main ? '' : ' · alt'}`);
+    }
+    const rows: LadderRow[] = [];
+    let unranked = 0;
+    for (const { player, owners } of entries.values()) {
+      const s = this.repo.getSnapshot(player.puuid, queueType);
+      if (!s || !s.tier || s.tier === 'UNRANKED') {
+        unranked++;
+        continue;
+      }
+      rows.push({ name: player.game_name, tag: player.tag_line, owner: owners.join(', ') || 'tracked', tier: s.tier, division: s.division, lp: s.lp, wins: s.wins, losses: s.losses });
+    }
+    rows.sort((a, b) => compareDivision(b, a) || b.lp - a.lp);
+    const shown = rows.slice(0, 25);
+    const png = await renderLadder(shown, {
+      title: `Server ladder · ${queueName(queueId)}`,
+      subtitle: `${rows.length} ranked account${rows.length === 1 ? '' : 's'}${rows.length > 25 ? ' · top 25' : ''}`,
+      footer: [unranked ? `${unranked} unranked hidden` : '', 'Tracked accounts + linked accounts of server members · ranks as of their last check'].filter(Boolean).join('  ·  '),
+    }, this.assets);
+    return { embed: { color: 0x5865f2, image: { url: 'attachment://ladder.png' } }, files: [{ name: 'ladder.png', data: png }] };
+  }
+
+  /** Champion names for /champ autocomplete. */
+  async championNames(): Promise<string[]> {
+    const sd = this.assets ? await this.assets.staticData('').catch(() => null) : null;
+    return sd ? [...sd.champions.values()].map((c) => c.name).sort() : [];
+  }
+
+  /**
+   * /champ: one player's games on a champion within their last 50 ranked games. The first
+   * run for a player fetches all 50 from Riot; later runs only fetch games not cached yet.
+   * Without a champion it picks their most played one.
+   */
+  async champ(player: PlayerRow, championInput?: string, queueId?: number): Promise<Reply> {
+    return this.fresh(player, (p) => this.champImpl(p, championInput, queueId));
+  }
+
+  private async champImpl(player: PlayerRow, championInput: string | undefined, queueId: number | undefined): Promise<Reply> {
+    const q = queueId === undefined ? undefined : await this.resolveQueue(queueId, player);
+    const ids = await this.riot.getMatchIds(player.platform, player.puuid, q === undefined ? { count: CHAMP_SAMPLE, type: 'ranked' } : { count: CHAMP_SAMPLE, queue: q });
+    let fetched = 0;
+    const matches = (await Promise.all(ids.map(async (id) => {
+      const cached = this.repo.getCachedMatch(id);
+      if (cached) return cached;
+      const m = await this.riot.getMatch(player.platform, id).catch(() => null);
+      if (m) {
+        this.repo.cacheMatch(m);
+        fetched++;
+      }
+      return m;
+    }))).filter((m): m is MatchDto => !!m);
+    if (fetched) this.log(`champ: fetched ${fetched} matches for ${player.game_name}#${player.tag_line}`);
+
+    const mine = matches
+      .map((m) => ({ m, me: m.info.participants.find((x) => x.puuid === player.puuid) }))
+      .filter((x): x is { m: MatchDto; me: ParticipantDto } => !!x.me && !x.me.gameEndedInEarlySurrender && x.m.info.gameDuration > 300);
+    if (!mine.length) throw new UserError(`No ranked games found for **${player.game_name}#${player.tag_line}**.`);
+
+    const sd = this.assets ? await this.assets.staticData('').catch(() => null) : null;
+    let championId: number;
+    if (championInput?.trim()) {
+      const found = findChampion(championInput, sd, mine.map((x) => ({ id: x.me.championId, name: x.me.championName })));
+      if (!found) throw new UserError(`I don't know a champion called **${championInput}**.`);
+      championId = found;
+    } else {
+      const counts = new Map<number, number>();
+      for (const x of mine) counts.set(x.me.championId, (counts.get(x.me.championId) ?? 0) + 1);
+      championId = [...counts].sort((a, b) => b[1] - a[1])[0]![0];
+    }
+    const on = mine.filter((x) => x.me.championId === championId).sort((a, b) => (b.m.info.gameEndTimestamp ?? 0) - (a.m.info.gameEndTimestamp ?? 0));
+    const info = sd?.champions.get(championId);
+    const champName = info?.name ?? mine.find((x) => x.me.championId === championId)?.me.championName ?? championInput ?? '?';
+    if (!on.length) {
+      throw new UserError(`**${player.game_name}#${player.tag_line}** has no ${champName} games in their last ${mine.length} ranked games.`);
+    }
+
+    const avg = (f: (x: (typeof on)[number]) => number) => on.reduce((s, x) => s + f(x), 0) / on.length;
+    const mins = (x: (typeof on)[number]) => Math.max(1, x.m.info.gameDuration / 60);
+    const kps = on.map((x) => x.me.challenges?.killParticipation).filter((v): v is number => typeof v === 'number');
+    const games: ChampGame[] = on.map((x) => {
+      const pm = this.repo.getPlayerMatch(x.m.metadata.matchId, player.puuid);
+      const cs = x.me.totalMinionsKilled + x.me.neutralMinionsKilled;
+      return {
+        win: x.me.win, kills: x.me.kills, deaths: x.me.deaths, assists: x.me.assists,
+        cs, csPerMin: cs / mins(x), damage: x.me.totalDamageDealtToChampions, role: x.me.teamPosition,
+        endedAt: x.m.info.gameEndTimestamp ?? x.m.info.gameStartTimestamp + x.m.info.gameDuration * 1000,
+        queue: queueName(x.m.info.queueId),
+        lpDelta: pm?.status === 'done' ? pm.lp_delta : null,
+      };
+    });
+    const k = avg((x) => x.me.kills), d = avg((x) => x.me.deaths), a = avg((x) => x.me.assists);
+    const lpGames = games.filter((g) => g.lpDelta !== null);
+    const roles = new Map<string, number>();
+    for (const x of on) if (x.me.teamPosition) roles.set(x.me.teamPosition, (roles.get(x.me.teamPosition) ?? 0) + 1);
+    const card: ChampCard = {
+      player: player.game_name, tag: player.tag_line,
+      championId, championKey: info?.id ?? champName.replace(/[^A-Za-z]/g, ''), championName: champName,
+      sampleSize: mine.length,
+      games,
+      totals: {
+        kda: d ? (k + a) / d : k + a, k, d, a,
+        csPerMin: avg((x) => (x.me.totalMinionsKilled + x.me.neutralMinionsKilled) / mins(x)),
+        dmgPerMin: avg((x) => x.me.totalDamageDealtToChampions / mins(x)),
+        kp: kps.length ? kps.reduce((s, v) => s + v, 0) / kps.length : null,
+        visionPerMin: avg((x) => x.me.visionScore / mins(x)),
+        lp: lpGames.length ? lpGames.reduce((s, g) => s + g.lpDelta!, 0) : null,
+        lpGames: lpGames.length,
+      },
+      mainRole: [...roles].sort((x, y) => y[1] - x[1])[0]?.[0] ?? null,
+      multikills: { penta: on.reduce((s, x) => s + x.me.pentaKills, 0), quadra: on.reduce((s, x) => s + x.me.quadraKills, 0), triple: on.reduce((s, x) => s + x.me.tripleKills, 0) },
+    };
+    const png = await renderChamp(card, this.assets, sd, this.now());
+    return {
+      embed: { color: 0x5865f2, image: { url: 'attachment://champ.png' }, ...(fetched >= 10 ? { footer: { text: `Fetched ${fetched} games from Riot for this; next time it's instant.` } } : {}) },
+      files: [{ name: 'champ.png', data: png }],
+      components: [linkButtonRow(profileLinks(player.platform, player.game_name, player.tag_line))],
+    };
   }
 
   /** Totals for /zeke. */

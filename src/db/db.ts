@@ -158,6 +158,19 @@ export const MIGRATIONS: string[] = [
   -- log_channel_id is now the /log game-log channel; clear values left from the old sink design.
   UPDATE guilds SET log_channel_id = NULL;
   `,
+  /* 9 */ `
+  -- One row per command run, for \`$admin stats\`.
+  CREATE TABLE command_usage (
+    at       INTEGER NOT NULL,
+    name     TEXT NOT NULL,
+    style    TEXT NOT NULL,          -- '/', '$', 'panel'
+    user_id  TEXT NOT NULL,
+    guild_id TEXT,
+    ok       INTEGER NOT NULL,
+    ms       INTEGER NOT NULL
+  );
+  CREATE INDEX command_usage_at ON command_usage(at);
+  `,
 ];
 
 export type DB = DatabaseSync;

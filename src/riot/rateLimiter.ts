@@ -66,6 +66,12 @@ export class SlidingWindowLimiter {
     return wait;
   }
 
+  /** Requests in each window right now, e.g. [{ used: 14, count: 20, windowMs: 1000 }]. */
+  usage(): { used: number; count: number; windowMs: number }[] {
+    const t = this.now();
+    return this.windows.map((w) => ({ used: this.stamps.filter((s) => s > t - w.windowMs).length, count: w.count, windowMs: w.windowMs }));
+  }
+
   acquire(): Promise<void> {
     const run = async () => {
       for (;;) {

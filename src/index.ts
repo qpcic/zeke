@@ -7,6 +7,7 @@ import { createPrefixHandler } from './discord/prefix.ts';
 import { createCommandLogger } from './discord/commandLog.ts';
 import { announceUpdate } from './discord/updates.ts';
 import { startPresence } from './discord/presence.ts';
+import { health } from './core/health.ts';
 import { recapMessage } from './discord/recapComponents.ts';
 import { commands } from './discord/commands.ts';
 import { createHash } from 'node:crypto';
@@ -56,7 +57,8 @@ service.setGuildLogPoster(async (channelId, reply) => {
 });
 
 // Every command is logged to stdout and, if CONSOLE_CHANNEL_ID is set, to that channel.
-const cmdLog = createCommandLogger(client, config.consoleChannelId, log);
+const cmdLog = createCommandLogger(client, config.consoleChannelId, log, (e) =>
+  repo.recordCommand({ at: Date.now(), name: e.name ?? 'unknown', style: e.style ?? '?', userId: e.userId, guildId: e.guildId, ok: e.ok, ms: e.ms }));
 client.on(Events.InteractionCreate, createInteractionHandler(service, log, cmdLog));
 if (prefixOn) client.on(Events.MessageCreate, createPrefixHandler(service, config.prefix, () => client.user?.id, log, cmdLog));
 client.once(Events.ClientReady, async (c) => {
@@ -87,10 +89,12 @@ async function pollLoop() {
   try {
     const players = repo.activePlayers().length;
     const r = await service.tick();
+    health.tick({ at: Date.now(), ms: Date.now() - started, players, games: r.games, requests: r.requests, ok: true });
     if (r.games || r.requests > players) {
       log(`tick: ${players} players, ${r.games} new games, ${r.requests} requests, ${((Date.now() - started) / 1000).toFixed(1)}s`);
     }
   } catch (e) {
+    health.tick({ at: Date.now(), ms: Date.now() - started, players: 0, games: 0, requests: 0, ok: false });
     log(`tick failed: ${(e as Error).stack}`);
   }
   // Fixed delay between ticks (not interval) so slow ticks never overlap.
