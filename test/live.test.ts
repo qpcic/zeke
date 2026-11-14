@@ -72,3 +72,12 @@ test('profile links match the sites\' URL formats', async () => {
     'https://dpm.lol/ferks%20kitten-retro',
   ]);
 });
+
+test('match links: DPM.LOL opens the game, U.GG / OP.GG the profile', async () => {
+  const { matchLinks } = await import('../src/render/statsLinks.ts');
+  assert.deepEqual(matchLinks('EUN1', 'ferks kitten', 'retro', 'EUN1_4028021941').map((l) => l.url), [
+    'https://u.gg/lol/profile/eun1/ferks%20kitten-retro/overview',
+    'https://op.gg/lol/summoners/eune/ferks%20kitten-retro',
+    'https://dpm.lol/ferks%20kitten-retro?match=4028021941',
+  ]);
+});
