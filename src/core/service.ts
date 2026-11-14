@@ -1,5 +1,5 @@
 import { signed } from '../render/format.ts';
-import type { GuildRow, PlayerRow, Repo } from '../db/repo.ts';
+import type { GuildRow, PlayerMatchRow, PlayerRow, Repo } from '../db/repo.ts';
 import { isStalePuuidError, type RiotClient } from '../riot/client.ts';
 import { parsePlatform, PLATFORM_LABEL, type Platform } from '../riot/regions.ts';
 import { formatRiotId, parseRiotId } from '../riot/riotId.ts';
@@ -39,6 +39,12 @@ export class UserError extends Error {}
 
 /** posts.guild_id used to dedupe the global game log channel. */
 export const GAME_LOG_KEY = '#gamelog';
+
+/** Sends and edits game-log messages; send returns the new message's id. */
+export interface LogPoster {
+  send(channelId: string, r: Reply): Promise<string>;
+  edit(channelId: string, messageId: string, r: Reply): Promise<void>;
+}
 
 /** Riot accounts one Discord user can link. */
 export const MAX_LINKS = 10;
@@ -104,10 +110,15 @@ export class Service {
     private readonly defaultRegion = '',
   ) {}
 
-  /** Destination for the global game log (GAME_LOG_CHANNEL_ID); unset = off. */
-  private gameLog: ((r: Reply) => Promise<void>) | null = null;
-  setGameLog(fn: ((r: Reply) => Promise<void>) | null) {
-    this.gameLog = fn;
+  /**
+   * Where game logs go: the global GAME_LOG_CHANNEL_ID (if set) and every /log channel.
+   * send returns the message id, so a post can be edited once LP is in. Unset = off.
+   */
+  private logPoster: LogPoster | null = null;
+  private gameLogChannel: string | null = null;
+  setLogPoster(poster: LogPoster | null, gameLogChannelId?: string) {
+    this.logPoster = poster;
+    this.gameLogChannel = gameLogChannelId || null;
   }
 
   guild(guildId: string): GuildRow {
@@ -1077,7 +1088,7 @@ export class Service {
 
   /** One poll pass + fan-out of results to every guild tracking each player. */
   async tick(): Promise<{ games: number; requests: number }> {
-    const { games, adjustments, requests } = await this.tracker.tick();
+    const { games, adjustments, requests, detected } = await this.tracker.tick();
     for (const g of games) {
       const guilds = this.repo.guildsTracking(g.player.puuid);
       // Linked-only players have no guild; still surface them to the sink under a pseudo-guild.
@@ -1088,8 +1099,8 @@ export class Service {
         await this.sink.send(guild, 'game', [buildGameEmbed(g, others)], { label: `${g.match.metadata.matchId}-${g.player.game_name}` });
       }
     }
-    await this.postGameLog(games);
-    await this.postGuildLogs(games);
+    // New games are posted right away; resolved ones edit their post with the LP.
+    await this.postGameLogs([...detected, ...games.map((g) => g.match.metadata.matchId)]);
     await this.postDueRecaps();
     for (const a of adjustments) {
       for (const guild of this.repo.guildsTracking(a.player.puuid)) {
@@ -1100,55 +1111,78 @@ export class Service {
   }
 
   /**
-   * Global game log: one post per match, however many known accounts played in it.
-   * Deduped in the posts table (pseudo-guild GAME_LOG_KEY), so restarts and accounts whose
-   * LP resolves in a later tick never post the same match twice.
+   * Game logs: a match is posted as soon as it's spotted (LP still pending) and the same
+   * message is edited when LP comes in. One post per match and log, shared by every known
+   * account in it; state lives in `posts`, so restarts never repost.
    */
-  async postGameLog(games: GameResult[]): Promise<void> {
-    if (this.gameLog) await this.postMatches(games, GAME_LOG_KEY, this.gameLog);
-  }
-
-  /** Per-server game log (/log): games of the server's tracked accounts, one post per match. */
-  async postGuildLogs(games: GameResult[]): Promise<void> {
-    if (!this.guildLog || !games.length) return;
+  async postGameLogs(matchIds: string[]): Promise<void> {
+    if (!this.logPoster || !matchIds.length) return;
+    const targets: { key: string; channelId: string; include: (puuid: string) => boolean }[] = [];
+    if (this.gameLogChannel) targets.push({ key: GAME_LOG_KEY, channelId: this.gameLogChannel, include: () => true });
     for (const g of this.repo.listGuilds().filter((x) => x.log_channel_id)) {
       const tracked = new Set(this.repo.trackedInGuild(g.guild_id).map((p) => p.puuid));
-      const mine = games.filter((x) => tracked.has(x.player.puuid));
-      const ch = g.log_channel_id!;
-      if (mine.length) await this.postMatches(mine, `#log:${g.guild_id}`, (r) => this.guildLog!(ch, r));
+      targets.push({ key: `#log:${g.guild_id}`, channelId: g.log_channel_id!, include: (p) => tracked.has(p) });
     }
-  }
-
-  /** One post per match (several known accounts in a game share it), deduped in `posts` under `key`. */
-  private async postMatches(games: GameResult[], key: string, send: (r: Reply) => Promise<void>): Promise<void> {
-    const byMatch = new Map<string, GameResult[]>();
-    for (const g of games) {
-      const id = g.match.metadata.matchId;
-      byMatch.set(id, [...(byMatch.get(id) ?? []), g]);
-    }
-    const ordered = [...byMatch.entries()].sort((a, b) => (a[1][0]!.match.info.gameEndTimestamp ?? 0) - (b[1][0]!.match.info.gameEndTimestamp ?? 0));
-    for (const [matchId, group] of ordered) {
-      if (this.repo.isPosted(key, matchId, '')) continue;
-      try {
-        const [first, ...rest] = group;
-        const reply = await this.gameReply(first!, new Set(rest.map((g) => g.player.puuid)));
-        if (rest.length) {
-          const lines = rest.map((g) => `**${g.player.game_name}#${g.player.tag_line}** · ${g.remake ? 'Remake' : g.win ? 'Victory' : 'Defeat'}${g.lpDelta !== null ? ` · ${signed(g.lpDelta)} LP` : ''}`);
-          reply.embed.description = `${reply.embed.description ?? ''}\nAlso in this game: ${lines.join(' · ')}`.trim();
-        }
-        await send(reply);
-      } catch (e) {
-        // A broken channel/permission is logged, not retried forever; the game is still recorded.
-        this.log(`game log ${key}: could not post ${matchId}: ${(e as Error).message}`);
+    if (!targets.length) return;
+    const matches = [...new Set(matchIds)]
+      .map((id) => ({ id, rows: this.repo.matchRows(id) }))
+      .filter((m) => m.rows.length)
+      .sort((a, b) => a.rows[0]!.game_end - b.rows[0]!.game_end);
+    for (const m of matches) {
+      for (const t of targets) {
+        const rows = m.rows.filter((r) => t.include(r.puuid));
+        if (rows.length) await this.postOrEditLog(t.key, t.channelId, m.id, rows);
       }
-      this.repo.markPosted(key, matchId, '');
     }
   }
 
-  /** Destination for per-server game logs (/log); unset = off. */
-  private guildLog: ((channelId: string, r: Reply) => Promise<void>) | null = null;
-  setGuildLogPoster(fn: ((channelId: string, r: Reply) => Promise<void>) | null) {
-    this.guildLog = fn;
+  private async postOrEditLog(key: string, channelId: string, matchId: string, rows: PlayerMatchRow[]): Promise<void> {
+    const post = this.repo.getLogPost(key, matchId);
+    if (post?.final) return;
+    const done = rows.every((r) => r.status === 'done');
+    try {
+      const reply = await this.matchLogReply(matchId, rows);
+      if (!reply) return;
+      if (post?.message_id && post.channel_id) {
+        await this.logPoster!.edit(post.channel_id, post.message_id, reply);
+        this.repo.saveLogPost(key, matchId, post.channel_id, post.message_id, done);
+      } else {
+        const messageId = await this.logPoster!.send(channelId, reply);
+        this.repo.saveLogPost(key, matchId, channelId, messageId, done);
+      }
+    } catch (e) {
+      // Broken channel / deleted message: log it and stop trying for this match.
+      this.log(`game log ${key}: could not post ${matchId}: ${(e as Error).message}`);
+      this.repo.saveLogPost(key, matchId, post?.channel_id ?? channelId, post?.message_id ?? null, true);
+    }
+  }
+
+  /** The log post for a match, rebuilt from the DB: first account is the focus, others listed. */
+  private async matchLogReply(matchId: string, rows: PlayerMatchRow[]): Promise<Reply | null> {
+    const match = this.repo.getCachedMatch(matchId);
+    if (!match) return null;
+    const results = rows
+      .map((r) => {
+        const player = this.repo.getPlayer(r.puuid);
+        if (!player) return null;
+        const g: GameResult = {
+          player, match, queueId: r.queue_id, win: !!r.win, remake: !!r.remake,
+          lpDelta: r.status === 'done' ? r.lp_delta : null,
+          note: (r.status === 'pending' ? 'pending' : r.note) as GameResult['note'],
+          rankBefore: null,
+          rankAfter: r.tier_after ? { tier: r.tier_after, division: r.div_after ?? 'I', lp: r.lp_after ?? 0 } : null,
+        };
+        return g;
+      })
+      .filter((g): g is GameResult => !!g);
+    if (!results.length) return null;
+    const [first, ...rest] = results;
+    const reply = await this.gameReply(first!, new Set(rest.map((g) => g.player.puuid)));
+    if (rest.length) {
+      const lines = rest.map((g) => `**${g.player.game_name}#${g.player.tag_line}** · ${g.remake ? 'Remake' : g.win ? 'Victory' : 'Defeat'}${g.lpDelta !== null ? ` · ${signed(g.lpDelta)} LP` : g.note === 'pending' ? ' · LP pending' : ''}`);
+      reply.embed.description = `${reply.embed.description ?? ''}\nAlso in this game: ${lines.join(' · ')}`.trim();
+    }
+    return reply;
   }
 
   /** Turn the server's game log on for a channel (or off with null). Only games from now on are posted. */

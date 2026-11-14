@@ -33,27 +33,27 @@ const client = new Client({
   ],
   partials: prefixOn ? [Partials.Channel] : [], // DM channels arrive uncached
 });
-// GAME_LOG_CHANNEL_ID: every newly recorded game of every known account, one post per match.
-if (config.gameLogChannelId) {
-  service.setGameLog(async (reply) => {
-    const ch = await client.channels.fetch(config.gameLogChannelId);
-    if (!ch?.isSendable()) throw new Error(`channel ${config.gameLogChannelId} not found or not sendable`);
-    await ch.send({ ...payload(reply), allowedMentions: { parse: [] } });
-  });
-}
+// Game logs (GAME_LOG_CHANNEL_ID and every /log channel): posted when a game is spotted,
+// edited in place once its LP is in.
+service.setLogPoster({
+  async send(channelId, reply) {
+    const ch = await client.channels.fetch(channelId);
+    if (!ch?.isSendable()) throw new Error(`channel ${channelId} not found or not sendable`);
+    return (await ch.send({ ...payload(reply), allowedMentions: { parse: [] } })).id;
+  },
+  async edit(channelId, messageId, reply) {
+    const ch = await client.channels.fetch(channelId);
+    if (!ch?.isTextBased()) throw new Error(`channel ${channelId} not found`);
+    // attachments: [] replaces the old scoreboard image instead of adding a second one
+    await ch.messages.edit(messageId, { ...payload(reply), attachments: [], allowedMentions: { parse: [] } });
+  },
+}, config.gameLogChannelId);
 
 // Daily recap: per-server channel picked with /recap, posted ~10 min after local midnight.
 service.setRecapPoster(async (channelId, replies) => {
   const ch = await client.channels.fetch(channelId);
   if (!ch?.isSendable()) throw new Error(`channel ${channelId} not found or not sendable`);
   await ch.send({ ...recapMessage(replies), allowedMentions: { parse: [] } });
-});
-
-// /log: per-server game log channels.
-service.setGuildLogPoster(async (channelId, reply) => {
-  const ch = await client.channels.fetch(channelId);
-  if (!ch?.isSendable()) throw new Error(`channel ${channelId} not found or not sendable`);
-  await ch.send({ ...payload(reply), allowedMentions: { parse: [] } });
 });
 
 // Every command is logged to stdout and, if CONSOLE_CHANNEL_ID is set, to that channel.

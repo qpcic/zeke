@@ -30,6 +30,8 @@ export interface TickResult {
   games: GameResult[];
   adjustments: LpAdjustment[];
   requests: number;
+  /** Match ids of tracked games first seen this tick (LP may still be pending). */
+  detected: string[];
 }
 
 /**
@@ -105,6 +107,7 @@ export class Tracker {
     const before = this.riot.requestCount;
     const games: GameResult[] = [];
     const adjustments: LpAdjustment[] = [];
+    const detected = new Set<string>();
     this.ensureFivesBaseline();
     for (const due of this.repo.duePlayers(this.now())) {
       let player = due;
@@ -121,6 +124,7 @@ export class Tracker {
         }
         games.push(...r.games);
         adjustments.push(...r.adjustments);
+        for (const id of r.detected) detected.add(id);
       } catch (err) {
         this.log(`poll failed for ${player.game_name}#${player.tag_line}: ${(err as Error).message}`);
       }
@@ -132,7 +136,7 @@ export class Tracker {
       }
     }
     games.sort((a, b) => (a.match.info.gameEndTimestamp ?? 0) - (b.match.info.gameEndTimestamp ?? 0));
-    return { games, adjustments, requests: this.riot.requestCount - before };
+    return { games, adjustments, requests: this.riot.requestCount - before, detected: [...detected] };
   }
 
   /**
@@ -153,7 +157,8 @@ export class Tracker {
     return this.repo.getPlayer(acc.puuid) ?? null;
   }
 
-  async pollPlayer(player: PlayerRow): Promise<{ games: GameResult[]; adjustments: LpAdjustment[] }> {
+  async pollPlayer(player: PlayerRow): Promise<{ games: GameResult[]; adjustments: LpAdjustment[]; detected: string[] }> {
+    const detected: string[] = [];
     const tickStartSec = Math.floor(this.now() / 1000);
 
     // 1. discover new match IDs
@@ -182,18 +187,21 @@ export class Tracker {
         remake: isRemake(m, player.puuid) ? 1 : 0,
         game_end: gameEnd,
       });
-      if (tracked && p) this.repo.bumpLastGame(player.puuid, gameEnd);
+      if (tracked && p) {
+        this.repo.bumpLastGame(player.puuid, gameEnd);
+        detected.push(id);
+      }
     }
     this.repo.setLastMatchCheck(player.puuid, tickStartSec);
 
     // 2. reconcile LP if there's anything pending, or periodically to catch dodges/decay
     const pending = this.repo.pendingMatches(player.puuid);
     const rankDue = this.now() - player.last_rank_check >= this.opts.rankRefreshSec * 1000;
-    if (!pending.length && !rankDue) return { games: [], adjustments: [] };
+    if (!pending.length && !rankDue) return { games: [], adjustments: [], detected };
 
     const entries = await this.riot.getLeagueEntries(player.platform, player.puuid);
     this.repo.setLastRankCheck(player.puuid, this.now());
-    return this.reconcile(player, pending, entries);
+    return { ...this.reconcile(player, pending, entries), detected };
   }
 
   private async getMatch(player: PlayerRow, matchId: string): Promise<MatchDto | null> {
