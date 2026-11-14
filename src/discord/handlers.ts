@@ -12,6 +12,7 @@ import { info, PRIVATE, runCommand, tag, type CommandName, type CommandRequest }
 import type { CommandLogger } from './commandLog.ts';
 import { LINK_PREFIX, onLinkComponent } from './linkComponents.ts';
 import { onRecapComponent } from './recapComponents.ts';
+import { membersOf } from './members.ts';
 import { GLOG_PREFIX, RECAP_PREFIX } from './recapPanel.ts';
 
 export const payload = (r: Reply) => ({
@@ -36,6 +37,7 @@ function toRequest(i: ChatInputCommandInteraction): CommandRequest {
     guildId: i.guildId,
     guildName: i.guild?.name,
     serverCount: i.client.guilds.cache.size,
+    champion: i.commandName === 'champ' ? o.getString('champion') ?? undefined : undefined,
     // Discord enforces default_member_permissions (Manage Server) on /track itself.
     canManageGuild: true,
     style: '/',
@@ -54,6 +56,11 @@ function toRequest(i: ChatInputCommandInteraction): CommandRequest {
 
 export function createInteractionHandler(service: Service, log: (m: string) => void, cmdLog?: CommandLogger) {
   async function onAutocomplete(i: AutocompleteInteraction) {
+    if (i.commandName === 'champ') {
+      const q = i.options.getFocused().toLowerCase().replace(/[^a-z0-9]/g, '');
+      const names = await service.championNames();
+      return i.respond(names.filter((n) => n.toLowerCase().replace(/[^a-z0-9]/g, '').includes(q)).slice(0, 25).map((n) => ({ name: n, value: n })));
+    }
     if (i.commandName === 'unlink') {
       const q = i.options.getFocused().toLowerCase();
       return i.respond(service.linkedAccounts(i.user.id)
@@ -104,6 +111,7 @@ export function createInteractionHandler(service: Service, log: (m: string) => v
     try {
       // Defer first: Riot calls + rendering can exceed Discord's 3s reply window.
       await i.deferReply(PRIVATE.has(req.name) ? { flags: MessageFlags.Ephemeral } : {});
+      if (req.name === 'ladder' && i.guild) req.members = await membersOf(i.guild, service.linkedUserIds());
       await i.editReply(payload(await runCommand(service, req)));
       audit(true);
     } catch (e) {

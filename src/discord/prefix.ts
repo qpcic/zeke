@@ -3,6 +3,7 @@ import { UserError, type Reply, type Service } from '../core/service.ts';
 import { runCommand, type CommandName, type CommandRequest } from './actions.ts';
 import type { CommandLogger } from './commandLog.ts';
 import { healthEmbed, parseStatsPeriod, statsEmbed } from './admin.ts';
+import { membersOf } from './members.ts';
 import { parsePlatform, PLATFORM_LABEL, type Platform } from '../riot/regions.ts';
 import { errorEmbed, payload } from './handlers.ts';
 import { stageImport } from '../core/dbImport.ts';
@@ -20,6 +21,8 @@ const ALIASES: Record<string, CommandName> = {
   profile: 'profile', p: 'profile', pf: 'profile', me: 'profile',
   recent: 'recent', r: 'recent', rs: 'recent', last: 'recent',
   recap: 'recap', dailyrecap: 'recap',
+  ladder: 'ladder', ranks: 'ladder', rankings: 'ladder',
+  champ: 'champ', c: 'champ', champion: 'champ',
   log: 'log', gamelog: 'log',
   server: 'server', serverinfo: 'server', settings: 'server',
   live: 'live', lg: 'live', ingame: 'live', spectate: 'live', game: 'live',
@@ -47,6 +50,9 @@ const isKeyword = (w: string) => KEYWORDS.has(w.toLowerCase()) || /^\d+$/.test(w
  * Pull "Name With Spaces#TAG" out of free-form args: the token with '#' plus the
  * non-keyword tokens directly before it. Returns the riot id and remaining words.
  */
+/** Champion names written as two words ("lee sin"), normalised; everything else is one word. */
+const MULTI_WORD_CHAMPS = new Set(['leesin', 'missfortune', 'twistedfate', 'jarvaniv', 'masteryi', 'aurelionsol', 'tahmkench', 'xinzhao', 'drmundo', 'nunuwillump', 'renataglasc', 'kogmaw', 'reksai', 'chogath', 'kaisa', 'khazix', 'velkoz', 'belveth', 'ksante']);
+
 export function extractRiotId(words: string[]): { riotId?: string; rest: string[] } {
   const k = words.findIndex((w) => w.includes('#'));
   if (k < 0) return { rest: words };
@@ -79,12 +85,19 @@ export function parsePrefix(
   let words = rest.filter(Boolean);
 
   // Queue is always the LAST argument ("$daily @friend flex", "$lb week flex"); default Solo/Duo.
-  if (name === 'recent' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'leaderboard' || name === 'mode') {
+  if (name === 'recent' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'leaderboard' || name === 'mode' || name === 'ladder' || name === 'champ') {
     const last = words[words.length - 1]?.toLowerCase();
     if (last && last in QUEUE_WORDS) {
       req.queue = QUEUE_WORDS[last];
       words = words.slice(0, -1);
     }
+  }
+
+  // "$champ lee sin ferks kitten#retro eune flex": champion first (1-2 words), then the usual target
+  if (name === 'champ' && words.length && !words[0]!.includes('#')) {
+    const two = words.length > 1 && !words[1]!.includes('#') && MULTI_WORD_CHAMPS.has(`${words[0]}${words[1]}`.toLowerCase().replace(/[^a-z]/g, ''));
+    req.champion = two ? `${words[0]} ${words[1]}` : words[0];
+    words = words.slice(two ? 2 : 1);
   }
 
   // "$scout ferks kitten#retro eune": riot id (spaces allowed) + optional region
@@ -96,7 +109,7 @@ export function parsePrefix(
   }
 
   // Target lookups: "$graph ferks kitten#retro eune flex 30"
-  if (name === 'recent' || name === 'live' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'profile') {
+  if (name === 'recent' || name === 'live' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'profile' || name === 'champ') {
     const ex = extractRiotId(words);
     if (ex.riotId) {
       req.riotId = ex.riotId;
@@ -331,6 +344,7 @@ export function createPrefixHandler(
     void typing();
     const keepTyping = setInterval(typing, 8000);
     try {
+      if (req.name === 'ladder' && msg.guild) req.members = await membersOf(msg.guild, service.linkedUserIds());
       const reply = await runCommand(service, req);
       await msg.reply({ ...payload(reply), allowedMentions: { repliedUser: false } });
       audit(msg, now, true, undefined, req.name);

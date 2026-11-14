@@ -36,6 +36,13 @@ const userOpt = (b: SlashCommandOptionsOnlyBuilder) =>
     .addStringOption((o) => o.setName('region').setDescription('Region, only needed for accounts the bot has never seen').addChoices(...regionChoices));
 
 export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
+  queueOpt(new SlashCommandBuilder().setName('ladder').setDescription('Everyone in this server by current rank: tracked accounts and members\' linked accounts'))
+    .setIntegrationTypes(SERVER_ONLY.integrations).setContexts(SERVER_ONLY.contexts).toJSON(),
+
+  queueOpt(userOpt(new SlashCommandBuilder().setName('champ').setDescription('Your games on a champion, from your last 50 ranked games')
+    .addStringOption((o) => o.setName('champion').setDescription('Champion (default: your most played)').setAutocomplete(true))))
+    .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
+
   new SlashCommandBuilder().setName('zeke').setDescription('What Zeke is, how to get started, and useful links')
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 

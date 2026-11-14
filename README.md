@@ -69,6 +69,7 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 | `/recent [@user \| Name#TAG] [solo\|flex\|5s]` | Scoreboard of the latest ranked game, any queue unless you name one · `$rs` |
 | `/daily [@user \| Name#TAG] [24h] [solo\|flex\|5s]` | Today's games and LP; add `24h` for the past 24 hours instead · `$d` |
 | `/weekly [@user \| Name#TAG] [solo\|flex\|5s]` | Games and LP from the past 7 days · `$w` |
+| `/champ [champion] [@user \| Name#TAG]` | Your games on one champion from your last 50 ranked games: W/L, KDA, CS and damage per minute, kill participation, LP, recent games. Defaults to your most played · `$champ lee sin`, `$c ahri` |
 | `/graph [@user \| Name#TAG] [games] [solo\|flex\|5s]` | LP graph over recorded games · `$g` |
 | `/scout <Name#TAG> [region]` | Scout that player's Ranked 5s / Flex team: roles, best champs, bans · `$scout` |
 
@@ -79,6 +80,7 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 | `/leaderboard <daily\|weekly> [solo\|flex\|5s]` | LP leaderboard of the server's tracked accounts, past 24h or 7 days · `$lb` |
 | `/track add <region> <Name#TAG>` | Add an account to the server leaderboard *(Manage Server)* |
 | `/track remove <account>` | Remove an account from the leaderboard *(Manage Server)* |
+| `/ladder [solo\|flex\|5s]` | Everyone in the server by current rank: tracked accounts plus every linked account (alts too) of server members · `$ladder` |
 | `/track list` | Show tracked accounts |
 | `/recap` | Daily recap: pick a channel, and every night just after midnight the day's LP leaderboard (one per queue played) and a games-played leaderboard are posted there. On Mondays the weekly recap follows *(Manage Server)* · `$recap #channel`, `$recap off` |
 | `/log` | Game log: pick a channel and every new ranked game of the tracked accounts is posted there as a scoreboard, once per game *(Manage Server)* · `$log #channel`, `$log off` |

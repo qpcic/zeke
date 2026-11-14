@@ -9,7 +9,7 @@ const W = 1120;
 const H = 580;
 const PL = 150, PR = 48, PT = 96, PB = 92;
 
-const TIER_COLOR: Record<string, string> = {
+export const TIER_COLOR: Record<string, string> = {
   IRON: '#7a7272', BRONZE: '#a8714f', SILVER: '#a9b4c0', GOLD: '#e0b552', PLATINUM: '#4fb6b2', EMERALD: '#34c27a',
   DIAMOND: '#7898ff', MASTER: '#c06be0', GRANDMASTER: '#ec5a52', CHALLENGER: '#f6d27a',
 };

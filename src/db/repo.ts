@@ -111,6 +111,10 @@ export class Repo {
     return { due: r.n, oldestDueAt: r.oldest };
   }
 
+  linkedUserIds(): string[] {
+    return (this.db.prepare('SELECT DISTINCT discord_user_id AS id FROM links').all() as { id: string }[]).map((r) => r.id);
+  }
+
   /** Discord users with at least one linked account. */
   linkedUserCount(): number {
     return (this.db.prepare('SELECT COUNT(DISTINCT discord_user_id) AS n FROM links').get() as { n: number }).n;
