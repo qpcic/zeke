@@ -17,7 +17,7 @@ export async function onLinkComponent(service: Service, i: LinkInteraction, log:
   const started = Date.now();
   const style = i.message?.interactionMetadata ? '/' : config.prefix || '/';
   const audit = (what: string, ok = true, error?: string) =>
-    cmdLog?.({ text: `[link panel] ${what}`, userId: i.user.id, userName: i.user.username, guildId: i.guildId, guildName: i.guild?.name, channelId: i.channelId, ok, error, ms: Date.now() - started });
+    cmdLog?.({ text: `[link panel] ${what}`, name: 'link-panel', style: 'panel', userId: i.user.id, userName: i.user.username, guildId: i.guildId, guildName: i.guild?.name, channelId: i.channelId, ok, error, ms: Date.now() - started });
 
   try {
     if (i.user.id !== id.owner) {

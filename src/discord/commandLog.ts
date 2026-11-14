@@ -9,6 +9,10 @@ import type { Client } from 'discord.js';
 export interface CommandLogEntry {
   /** What was typed, e.g. "/recent riot_id:Faker#KR1" or "$rs flex". */
   text: string;
+  /** Command name for usage stats, e.g. "recent", "link-panel". */
+  name?: string;
+  /** How it was run: "/" slash, "$" prefix, "panel" button/menu. */
+  style?: string;
   userId: string;
   userName: string;
   guildId: string | null;
@@ -45,7 +49,7 @@ export function formatChannel(e: CommandLogEntry, at = Date.now()): string {
   return `<t:${Math.floor(at / 1000)}:T> ${status} <@${e.userId}> ${code(oneLine(e.text, 120))} · ${where} · ${(e.ms / 1000).toFixed(1)}s${err}`;
 }
 
-export function createCommandLogger(client: Client, consoleChannelId: string, log: (m: string) => void): CommandLogger {
+export function createCommandLogger(client: Client, consoleChannelId: string, log: (m: string) => void, record?: (e: CommandLogEntry) => void): CommandLogger {
   let queue: string[] = [];
   let timer: NodeJS.Timeout | undefined;
 
@@ -74,6 +78,11 @@ export function createCommandLogger(client: Client, consoleChannelId: string, lo
 
   return (e) => {
     log(formatStdout(e));
+    try {
+      record?.(e);
+    } catch (err) {
+      log(`command log: could not record usage: ${(err as Error).message}`);
+    }
     if (!consoleChannelId) return;
     queue.push(formatChannel(e));
     if (queue.length > 200) queue = queue.slice(-200);

@@ -166,6 +166,21 @@ export class Service {
     return { player: r.player, entries: r.entries, ...res };
   }
 
+  /** For `$admin health`: Riot API metrics and rate-limit use. */
+  riotHealth(windowMs = 3_600_000) {
+    return { api: this.riot.metrics.summary(windowMs), limits: this.riot.limiterUsage() };
+  }
+
+  /** For `$admin health`: table sizes and the poll queue. */
+  dbHealth() {
+    return { counts: this.repo.tableCounts(), backlog: this.repo.pollBacklog(this.now()) };
+  }
+
+  /** For `$admin stats`. */
+  usage(since: number) {
+    return this.repo.usageSince(since);
+  }
+
   /** Totals for /zeke. */
   stats(): { players: number; linkedUsers: number } {
     return { players: this.repo.activePlayers().length, linkedUsers: this.repo.linkedUserCount() };

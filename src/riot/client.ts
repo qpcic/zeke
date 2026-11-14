@@ -1,3 +1,4 @@
+import { ApiMetrics } from '../core/health.ts';
 import { parseLimitHeader, SlidingWindowLimiter, type Window } from './rateLimiter.ts';
 import { accountRegion, matchRegion, type Platform } from './regions.ts';
 import type { AccountDto, ChampionMasteryDto, CurrentGameInfo, LeagueEntryDto, LeagueListDto, MatchDto, SummonerDto } from './types.ts';
@@ -47,6 +48,8 @@ export class RiotClient {
   private readonly log: (msg: string) => void;
   /** Total HTTP requests sent; handy for budgeting. */
   requestCount = 0;
+  /** Per-request status/latency for `$admin health`. */
+  readonly metrics = new ApiMetrics();
 
   constructor(private readonly opts: RiotClientOptions) {
     this.baseUrl = opts.baseUrl ?? ((host) => `https://${host}.api.riotgames.com`);
@@ -93,9 +96,12 @@ export class RiotClient {
       this.requestCount++;
 
       let res: Response;
+      const t0 = Date.now();
       try {
         res = await this.fetchFn(url, { headers: { 'X-Riot-Token': this.opts.apiKey, Accept: 'application/json' } });
+        this.metrics.record(method, res.status, Date.now() - t0);
       } catch (err) {
+        this.metrics.record(method, 'network', Date.now() - t0);
         if (attempt >= this.maxRetries) throw err;
         const backoff = 500 * 2 ** attempt;
         this.log(`network error on ${method}, retry in ${backoff}ms: ${(err as Error).message}`);
@@ -134,6 +140,12 @@ export class RiotClient {
 
       throw new RiotApiError(res.status, url, await res.text());
     }
+  }
+
+  /** Application rate-limit use per routing host (busiest window first). */
+  limiterUsage(): { host: string; used: number; count: number; windowMs: number }[] {
+    return [...this.appLimiters].flatMap(([host, l]) => l.usage().map((u) => ({ host, ...u })))
+      .sort((a, b) => b.used / b.count - a.used / a.count);
   }
 
   // ---- endpoints ----

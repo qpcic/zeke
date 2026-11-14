@@ -90,6 +90,8 @@ export function createInteractionHandler(service: Service, log: (m: string) => v
     const audit = (ok: boolean, error?: string) =>
       cmdLog?.({
         text: i.toString(),
+        name: i.commandName,
+        style: '/',
         userId: i.user.id,
         userName: i.user.username,
         guildId: i.guildId,

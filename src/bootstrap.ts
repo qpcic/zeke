@@ -1,3 +1,4 @@
+import { health } from './core/health.ts';
 import { config, requireApiKey } from './config.ts';
 import { Service } from './core/service.ts';
 import { Tracker } from './core/tracker.ts';
@@ -9,7 +10,10 @@ import { TerminalSink } from './sinks/terminalSink.ts';
 import { DDragon, type AssetSource } from './assets/ddragon.ts';
 import { dirname, join } from 'node:path';
 
-export const log = (msg: string) => console.log(`${new Date().toISOString().slice(11, 19)} ${msg}`);
+export const log = (msg: string) => {
+  health.noteLog(msg);
+  console.log(`${new Date().toISOString().slice(11, 19)} ${msg}`);
+};
 
 export function bootstrap(overrides: { riot?: Partial<RiotClientOptions>; sink?: Sink; dbPath?: string; now?: () => number; assets?: AssetSource | null } = {}) {
   const dbPath = overrides.dbPath ?? config.dbPath;

@@ -2,6 +2,7 @@ import { AttachmentBuilder, PermissionFlagsBits, type Message } from 'discord.js
 import { UserError, type Reply, type Service } from '../core/service.ts';
 import { runCommand, type CommandName, type CommandRequest } from './actions.ts';
 import type { CommandLogger } from './commandLog.ts';
+import { healthEmbed, parseStatsPeriod, statsEmbed } from './admin.ts';
 import { parsePlatform, PLATFORM_LABEL, type Platform } from '../riot/regions.ts';
 import { errorEmbed, payload } from './handlers.ts';
 import { stageImport } from '../core/dbImport.ts';
@@ -173,9 +174,11 @@ export function createPrefixHandler(
   log: (m: string) => void,
   cmdLog?: CommandLogger,
 ) {
-  const audit = (msg: Message, started: number, ok: boolean, error?: string) =>
+  const audit = (msg: Message, started: number, ok: boolean, error?: string, name?: string) =>
     cmdLog?.({
       text: msg.content,
+      name: name ?? 'unknown',
+      style: '$',
       userId: msg.author.id,
       userName: msg.author.username,
       guildId: msg.guildId,
@@ -249,6 +252,16 @@ export function createPrefixHandler(
           }
           return;
         }
+        case 'health':
+        case 'status': {
+          await send(healthEmbed(service, msg.client, { dbPath: config.dbPath, pollIntervalSec: config.pollIntervalSec }));
+          return;
+        }
+        case 'stats':
+        case 'usage': {
+          await send(statsEmbed(service, msg.client, parseStatsPeriod(rest)));
+          return;
+        }
         case 'globallb':
         case 'glb': {
           const words = rest.map((w) => w.toLowerCase());
@@ -262,6 +275,8 @@ export function createPrefixHandler(
           await send({
             title: 'Admin console',
             description: [
+              `\`${prefix}admin health\` uptime, polling, Riot API errors / rate limits, database, recent errors`,
+              `\`${prefix}admin stats [24h|7d|30d|all]\` command usage, top servers / users, growth`,
               `\`${prefix}admin list [page]\` all known accounts`,
               `\`${prefix}admin links [page]\` Discord → Riot links (10 per page)`,
               `\`${prefix}admin globallb [daily|weekly] [solo|flex|5s]\` leaderboard of every account`,
@@ -285,13 +300,13 @@ export function createPrefixHandler(
         if (config.ownerId && msg.author.id === config.ownerId && msg.channelId === config.consoleChannelId) {
           const t = Date.now();
           await handleAdmin(msg, args);
-          audit(msg, t, true);
+          audit(msg, t, true, undefined, `admin ${(args[0] ?? '').toLowerCase()}`.trim());
         }
         return;
       }
     }
     if (msg.content.slice(prefix.length).trim().toLowerCase() === 'import') {
-      if (msg.author.id === config.ownerId) audit(msg, Date.now(), true);
+      if (msg.author.id === config.ownerId) audit(msg, Date.now(), true, undefined, 'import');
       return void (await handleImport(msg));
     }
     const mentioned = msg.mentions.users.find((u) => u.id !== botUserId());
@@ -318,9 +333,9 @@ export function createPrefixHandler(
     try {
       const reply = await runCommand(service, req);
       await msg.reply({ ...payload(reply), allowedMentions: { repliedUser: false } });
-      audit(msg, now, true);
+      audit(msg, now, true, undefined, req.name);
     } catch (e) {
-      audit(msg, now, false, (e as Error).message);
+      audit(msg, now, false, (e as Error).message, req.name);
       if (!(e instanceof UserError)) log(`${prefix}${req.name} failed: ${(e as Error).stack}`);
       await msg.reply({ embeds: [errorEmbed(e)], allowedMentions: { repliedUser: false } }).catch(() => {});
     } finally {

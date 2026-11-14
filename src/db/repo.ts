@@ -62,6 +62,55 @@ export class Repo {
     `).get(gameName, tagLine, platform ?? null, platform ?? null) as PlayerRow | undefined;
   }
   /** Every known player. Players are global: once added (any server, link or lookup) they stay tracked. */
+  // ---- usage stats ($admin stats / health) ----
+  recordCommand(c: { at: number; name: string; style: string; userId: string; guildId: string | null; ok: boolean; ms: number }) {
+    this.db.prepare('INSERT INTO command_usage (at, name, style, user_id, guild_id, ok, ms) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(c.at, c.name, c.style, c.userId, c.guildId, c.ok ? 1 : 0, Math.round(c.ms));
+    // keep a year of history
+    if (Math.random() < 0.01) this.db.prepare('DELETE FROM command_usage WHERE at < ?').run(c.at - 365 * 86_400_000);
+  }
+
+  usageSince(since: number) {
+    const one = <T>(sql: string, ...a: (number | string)[]) => this.db.prepare(sql).get(...a) as T;
+    const all = <T>(sql: string, ...a: (number | string)[]) => this.db.prepare(sql).all(...a) as unknown as T[];
+    return {
+      totals: one<{ n: number; users: number; guilds: number; errors: number; avg_ms: number | null }>(
+        'SELECT COUNT(*) AS n, COUNT(DISTINCT user_id) AS users, COUNT(DISTINCT guild_id) AS guilds, SUM(ok = 0) AS errors, AVG(ms) AS avg_ms FROM command_usage WHERE at >= ?', since),
+      byName: all<{ name: string; n: number; errors: number }>('SELECT name, COUNT(*) AS n, SUM(ok = 0) AS errors FROM command_usage WHERE at >= ? GROUP BY name ORDER BY n DESC LIMIT 12', since),
+      byStyle: all<{ style: string; n: number }>('SELECT style, COUNT(*) AS n FROM command_usage WHERE at >= ? GROUP BY style ORDER BY n DESC', since),
+      byGuild: all<{ guild_id: string | null; n: number; users: number }>('SELECT guild_id, COUNT(*) AS n, COUNT(DISTINCT user_id) AS users FROM command_usage WHERE at >= ? GROUP BY guild_id ORDER BY n DESC LIMIT 6', since),
+      byUser: all<{ user_id: string; n: number }>('SELECT user_id, COUNT(*) AS n FROM command_usage WHERE at >= ? GROUP BY user_id ORDER BY n DESC LIMIT 5', since),
+      byDay: all<{ day: string; n: number }>("SELECT date(at / 1000, 'unixepoch') AS day, COUNT(*) AS n FROM command_usage WHERE at >= ? GROUP BY day ORDER BY day", since),
+      newLinks: one<{ n: number }>('SELECT COUNT(*) AS n FROM links WHERE linked_at >= ?', since).n,
+      newPlayers: one<{ n: number }>('SELECT COUNT(*) AS n FROM players WHERE created_at >= ?', since).n,
+      games: one<{ n: number; players: number }>("SELECT COUNT(DISTINCT match_id) AS n, COUNT(DISTINCT puuid) AS players FROM player_matches WHERE status = 'done' AND game_end >= ?", since),
+    };
+  }
+
+  /** Row counts for `$admin health`. */
+  tableCounts() {
+    const n = (t: string) => (this.db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
+    return {
+      players: n('players'),
+      links: n('links'),
+      linkedUsers: this.linkedUserCount(),
+      tracked: n('tracked'),
+      guilds: n('guilds'),
+      matches: n('player_matches'),
+      pending: (this.db.prepare("SELECT COUNT(*) AS n FROM player_matches WHERE status = 'pending'").get() as { n: number }).n,
+      cachedMatches: n('match_cache'),
+      lpEvents: n('lp_events'),
+      recapGuilds: (this.db.prepare('SELECT COUNT(*) AS n FROM guilds WHERE recap_channel_id IS NOT NULL').get() as { n: number }).n,
+      logGuilds: (this.db.prepare('SELECT COUNT(*) AS n FROM guilds WHERE log_channel_id IS NOT NULL').get() as { n: number }).n,
+    };
+  }
+
+  /** Poll queue: players due now and how late the oldest one is. */
+  pollBacklog(now: number): { due: number; oldestDueAt: number | null } {
+    const r = this.db.prepare('SELECT COUNT(*) AS n, MIN(next_poll_at) AS oldest FROM players WHERE next_poll_at <= ?').get(now) as { n: number; oldest: number | null };
+    return { due: r.n, oldestDueAt: r.oldest };
+  }
+
   /** Discord users with at least one linked account. */
   linkedUserCount(): number {
     return (this.db.prepare('SELECT COUNT(DISTINCT discord_user_id) AS n FROM links').get() as { n: number }).n;

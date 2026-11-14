@@ -23,7 +23,7 @@ export async function onRecapComponent(service: Service, i: ButtonInteraction | 
   if (!id) return;
   const started = Date.now();
   const audit = (what: string) =>
-    cmdLog?.({ text: `[recap panel] ${what}`, userId: i.user.id, userName: i.user.username, guildId: i.guildId, guildName: i.guild?.name, channelId: i.channelId, ok: true, ms: Date.now() - started });
+    cmdLog?.({ text: `[recap panel] ${what}`, name: 'recap-panel', style: 'panel', userId: i.user.id, userName: i.user.username, guildId: i.guildId, guildName: i.guild?.name, channelId: i.channelId, ok: true, ms: Date.now() - started });
   try {
     if (i.guildId !== id.guildId || !i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
       await i.reply({ content: 'You need the **Manage Server** permission to change the daily recap.', flags: MessageFlags.Ephemeral });
@@ -71,7 +71,7 @@ async function onLogComponent(service: Service, i: ButtonInteraction | ChannelSe
   if (!id) return;
   const started = Date.now();
   const audit = (what: string) =>
-    cmdLog?.({ text: `[log panel] ${what}`, userId: i.user.id, userName: i.user.username, guildId: i.guildId, guildName: i.guild?.name, channelId: i.channelId, ok: true, ms: Date.now() - started });
+    cmdLog?.({ text: `[log panel] ${what}`, name: 'log-panel', style: 'panel', userId: i.user.id, userName: i.user.username, guildId: i.guildId, guildName: i.guild?.name, channelId: i.channelId, ok: true, ms: Date.now() - started });
   try {
     if (i.guildId !== id.guildId || !i.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
       await i.reply({ content: 'You need the **Manage Server** permission to change the game log.', flags: MessageFlags.Ephemeral });
