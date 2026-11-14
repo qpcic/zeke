@@ -17,7 +17,7 @@ import { discoverFivesQueue, scoutTeam } from './scout.ts';
 import { saveFivesQueue } from './queues.ts';
 import { renderLive, type LivePlayer } from '../render/image/live.ts';
 import { renderGamesBoard, type GamesRow } from '../render/image/gamesBoard.ts';
-import { linkButtonRow, liveGameLinks, profileLinks } from '../render/statsLinks.ts';
+import { linkButtonRow, liveGameLinks, matchLinks, profileLinks } from '../render/statsLinks.ts';
 import type { CurrentGameInfo } from '../riot/types.ts';
 import { formatRank } from './rank.ts';
 import { personalSpan, personalTitle, personalWindow, previousDay, previousWeek, recapTitle, recapWindow, zonedParts, type DailyWindow, type Period } from './time.ts';
@@ -449,6 +449,12 @@ export class Service {
    * scoreboard if rendering fails (missing native module, bad data…).
    */
   async gameReply(r: GameResult, alsoTracked: Set<string> = new Set()): Promise<Reply> {
+    const reply = await this.gameReplyBody(r, alsoTracked);
+    reply.components = [linkButtonRow(matchLinks(r.player.platform, r.player.game_name, r.player.tag_line, r.match.metadata.matchId))];
+    return reply;
+  }
+
+  private async gameReplyBody(r: GameResult, alsoTracked: Set<string>): Promise<Reply> {
     const sd = this.assets ? await this.assets.staticData(r.match.info.gameVersion).catch(() => null) : null;
     const self = r.match.info.participants.find((p) => p.puuid === r.player.puuid)!;
     const display = championName(sd, self.championId, self.championName);

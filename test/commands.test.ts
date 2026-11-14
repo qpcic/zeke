@@ -134,6 +134,11 @@ test('/recent: recorded game shows LP; before tracking says n/a; any ranked queu
   // no queue: newest ranked game of any queue (the later flex game); solo still reachable explicitly
   clock.advance(30 * MIN);
   mock.play({ players: [{ puuid: a.puuid, team: 100, champion: 'Lux' }], winner: 200, queueId: 440 });
+  {
+    const r = await service.recent(player, 420);
+    const urls = (r.components![0] as { components: { url: string }[] }).components.map((b) => b.url);
+    assert.match(urls[2]!, /^https:\/\/dpm\.lol\/.+\?match=\d+$/, 'DPM.LOL opens this game');
+  }
   e = (await service.recent(player, 420)).embed;
   assert.match(e.title!, /Victory · Jinx/);
   e = (await service.recent(player)).embed;
