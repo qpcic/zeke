@@ -1,3 +1,4 @@
+import type { LogPoster, Reply } from '../src/core/service.ts';
 import { bootstrap } from '../src/bootstrap.ts';
 import type { GuildRow } from '../src/db/repo.ts';
 import { MockRiot, mulberry32 } from '../src/dev/mockRiot.ts';
@@ -32,3 +33,24 @@ export function setup(startMs = Date.UTC(2026, 10, 10, 12, 0, 0)) {
   });
   return { clock, mock, sink, ...app };
 }
+
+/** Records sends and edits like Discord would. */
+export function fakePoster() {
+  const msgs = new Map<string, { channelId: string; reply: Reply; edits: number }>();
+  let n = 0;
+  const poster: LogPoster = {
+    async send(channelId, reply) {
+      const id = `m${++n}`;
+      msgs.set(id, { channelId, reply, edits: 0 });
+      return id;
+    },
+    async edit(_channelId, messageId, reply) {
+      const m = msgs.get(messageId);
+      if (!m) throw new Error('Unknown Message');
+      m.reply = reply;
+      m.edits++;
+    },
+  };
+  return { poster, msgs };
+}
+

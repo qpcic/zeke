@@ -4,7 +4,7 @@ import type { Reply } from '../src/core/service.ts';
 import { previousDay } from '../src/core/time.ts';
 import { runCommand } from '../src/discord/actions.ts';
 import { parsePrefix } from '../src/discord/prefix.ts';
-import { setup } from './helpers.ts';
+import { fakePoster, setup } from './helpers.ts';
 
 const MIN = 60_000;
 const ranks = [
@@ -112,8 +112,9 @@ test('/log posts every new game of the server\'s tracked accounts once; /server 
   await service.linkUser('u5', 'EUW', 'Not Here#EUW');
 
   await assert.rejects(runCommand(service, { ...mod, canManageGuild: false, name: 'log' }), /Manage Server/);
-  const posted: { ch: string; r: Reply }[] = [];
-  service.setGuildLogPoster(async (ch, r) => void posted.push({ ch, r }));
+  const { poster, msgs } = fakePoster();
+  service.setLogPoster(poster);
+  const posted = { get length() { return msgs.size; } };
   const panel = await runCommand(service, { ...mod, name: 'log', channelId: '777' });
   assert.match(panel.embed.description!, /Logging to <#777>/);
 
@@ -122,8 +123,9 @@ test('/log posts every new game of the server\'s tracked accounts once; /server 
   mock.play({ players: [{ puuid: stranger.puuid, team: 100, champion: 'Lux' }], winner: 100 });
   for (let i = 0; i < 4; i++) { clock.advance(5 * MIN); await service.tick(); }
   assert.equal(posted.length, 1, 'one post for the shared game; untracked account not logged here');
-  assert.equal(posted[0]!.ch, '777');
-  assert.match(posted[0]!.r.embed.description!, /Also in this game/);
+  const first = [...msgs.values()][0]!;
+  assert.equal(first.channelId, '777');
+  assert.match(first.reply.embed.description!, /Also in this game/);
 
   await runCommand(service, { ...mod, name: 'recap', channelId: '555' });
   const info = await runCommand(service, { ...mod, name: 'server', guildName: 'Zeke HQ' });

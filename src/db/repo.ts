@@ -399,6 +399,22 @@ export class Repo {
   }
 
   // ---- posts / digests ----
+  /** A game-log post (one per log key + match). */
+  getLogPost(key: string, matchId: string): { channel_id: string | null; message_id: string | null; final: number } | undefined {
+    return this.db.prepare("SELECT channel_id, message_id, final FROM posts WHERE guild_id = ? AND match_id = ? AND puuid = ''").get(key, matchId) as
+      { channel_id: string | null; message_id: string | null; final: number } | undefined;
+  }
+  saveLogPost(key: string, matchId: string, channelId: string | null, messageId: string | null, final: boolean) {
+    this.db.prepare(`
+      INSERT INTO posts (guild_id, match_id, puuid, posted_at, channel_id, message_id, final) VALUES (?, ?, '', ?, ?, ?, ?)
+      ON CONFLICT (guild_id, match_id, puuid) DO UPDATE SET channel_id = excluded.channel_id, message_id = excluded.message_id, final = excluded.final
+    `).run(key, matchId, this.now(), channelId, messageId, final ? 1 : 0);
+  }
+  /** Tracked rows of one match (every known account that played it). */
+  matchRows(matchId: string): PlayerMatchRow[] {
+    return this.db.prepare("SELECT * FROM player_matches WHERE match_id = ? AND status != 'ignored' ORDER BY first_seen, puuid").all(matchId) as unknown as PlayerMatchRow[];
+  }
+
   isPosted(guildId: string, matchId: string, puuid: string): boolean {
     return !!this.db.prepare('SELECT 1 FROM posts WHERE guild_id = ? AND match_id = ? AND puuid = ?').get(guildId, matchId, puuid);
   }

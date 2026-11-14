@@ -171,6 +171,12 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX command_usage_at ON command_usage(at);
   `,
+  /* 10 */ `
+  -- Game log posts go out when a game is spotted and are edited once LP is in.
+  ALTER TABLE posts ADD COLUMN channel_id TEXT;
+  ALTER TABLE posts ADD COLUMN message_id TEXT;
+  ALTER TABLE posts ADD COLUMN final INTEGER NOT NULL DEFAULT 1;
+  `,
 ];
 
 export type DB = DatabaseSync;
