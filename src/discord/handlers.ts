@@ -38,6 +38,9 @@ function toRequest(i: ChatInputCommandInteraction): CommandRequest {
     guildName: i.guild?.name,
     serverCount: i.client.guilds.cache.size,
     champion: i.commandName === 'champ' ? o.getString('champion') ?? undefined : undefined,
+    riotIds: i.commandName === 'scout'
+      ? [o.getString('riot_id'), o.getString('player_2'), o.getString('player_3'), o.getString('player_4'), o.getString('player_5')].filter((x): x is string => !!x)
+      : undefined,
     // Discord enforces default_member_permissions (Manage Server) on /track itself.
     canManageGuild: true,
     style: '/',

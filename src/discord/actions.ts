@@ -39,6 +39,8 @@ export interface CommandRequest {
   guildName?: string;
   /** Servers the bot is in, for /zeke. */
   serverCount?: number;
+  /** /scout: several players (first one is also in riotId) */
+  riotIds?: string[];
   /** /champ: champion name as typed */
   champion?: string;
   /** /ladder: server members with linked accounts (resolved by the Discord layer) */
@@ -153,7 +155,7 @@ export function helpEmbed(p: string): Embed {
       },
       {
         name: '🛡️ Scout',
-        value: `${c('scout Name#TAG [region]')} a Ranked 5s / Flex team's roles, best champs and bans${a('ban')}`,
+        value: `${c('scout Name#TAG [region]')} a premade's roles, best champs and bans${a('ban')}\n${c('scout A#1, B#2, C#3 [region]')} up to 5 players, each from their own games`,
       },
       {
         name: '🏆 Server',
@@ -308,8 +310,11 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
       return withNote(await service.personalRecap(pl, req.name, await service.resolveQueue(queue, pl), req.window ?? 'today'));
     }
 
-    case 'scout':
-      return service.banPlan(need(req.riotId, 'scout <Name#TAG> [region]'), req.region);
+    case 'scout': {
+      // One player: their usual team. Several (comma-separated / player_2..5): each one individually.
+      const ids = req.riotIds?.length ? req.riotIds : [need(req.riotId, 'scout <Name#TAG>[, Name#TAG …] [region]')];
+      return service.scoutMany(ids, req.region);
+    }
 
     case 'leaderboard':
       return service.leaderboard(needGuild(), req.period ?? 'daily', await service.resolveQueue(queue));
