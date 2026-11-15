@@ -27,7 +27,7 @@ function lpLine(r: GameResult): string {
     case 'unranked':
       return 'Placement game · not ranked yet';
     case 'pending':
-      return 'LP updating… (ladder hasn\'t caught up yet)';
+      return '**+? LP** (Waiting on Riot API)';
     case 'unrecorded':
       return `LP n/a (before tracking)${r.rankAfter ? ` · ${formatRank(r.rankAfter)}` : ''}`;
     case 'norank':

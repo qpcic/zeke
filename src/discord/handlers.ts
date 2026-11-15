@@ -112,7 +112,10 @@ export function createInteractionHandler(service: Service, log: (m: string) => v
       // Defer first: Riot calls + rendering can exceed Discord's 3s reply window.
       await i.deferReply(PRIVATE.has(req.name) ? { flags: MessageFlags.Ephemeral } : {});
       if (req.name === 'ladder' && i.guild) req.members = await membersOf(i.guild, service.linkedUserIds());
-      await i.editReply(payload(await runCommand(service, req)));
+      const reply = await runCommand(service, req);
+      await i.editReply(payload(reply));
+      // LP not in yet: edit this reply when it is (interaction tokens last 15 min).
+      if (reply.watch) service.watchRecent(reply.watch, (r) => i.editReply({ ...payload(r), attachments: [] }), 14 * 60_000);
       audit(true);
     } catch (e) {
       audit(false, (e as Error).message);
