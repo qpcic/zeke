@@ -84,3 +84,30 @@ test('/recent before LP is in: "+? LP (Waiting on Riot API)", then the message i
   for (let i = 0; i < 2; i++) { clock.advance(2 * MIN); await service.tick(); }
   assert.equal(edits.length, 1, 'not edited again');
 });
+
+test('fast LP check: only accounts waiting for LP, one league call each, updates the log post', async () => {
+  const { mock, service, clock, riot } = setup();
+  const a = mock.addAccount('Fast One', 'EUW', 'EUW1', ranks);
+  mock.addAccount('Idle Two', 'EUW', 'EUW1', ranks);
+  await service.linkUser('u1', 'EUW', 'Fast One#EUW');
+  await service.linkUser('u2', 'EUW', 'Idle Two#EUW');
+  const { poster, msgs } = fakePoster();
+  service.setLogPoster(poster, '999');
+
+  clock.advance(30 * MIN);
+  mock.play({ players: [{ puuid: a.puuid, team: 100, champion: 'Ahri' }], winner: 100, lp: { [a.puuid]: 23 }, lagReads: 2 });
+  await service.tick(); // spotted, LP not in yet
+  assert.match([...msgs.values()][0]!.reply.embed.description!, /Waiting on Riot API/);
+
+  let resolved = 0;
+  for (let i = 0; i < 4 && !resolved; i++) {
+    clock.advance(30_000);
+    const before = riot.requestCount;
+    const r = await service.lpTick();
+    assert.equal(riot.requestCount - before, 1, 'one league call, only for the account waiting');
+    resolved = r.games;
+  }
+  assert.equal(resolved, 1);
+  assert.match([...msgs.values()][0]!.reply.embed.description!, /\+23/);
+  assert.equal((await service.lpTick()).requests, 0, 'nothing waiting: no calls');
+});

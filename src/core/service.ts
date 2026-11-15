@@ -23,7 +23,7 @@ import { linkButtonRow, liveGameLinks, matchLinks, profileLinks } from '../rende
 import type { CurrentGameInfo, MatchDto, ParticipantDto } from '../riot/types.ts';
 import { formatRank } from './rank.ts';
 import { personalSpan, personalTitle, personalWindow, previousDay, previousWeek, recapTitle, recapWindow, zonedParts, type DailyWindow, type Period } from './time.ts';
-import type { GameResult } from './events.ts';
+import type { GameResult, LpAdjustment } from './events.ts';
 import { isFivesQueue, QUEUE_TYPE_BY_ID } from '../riot/types.ts';
 import { buildLeaderboardEmbed, buildPersonalRecapEmbed } from '../render/statsEmbeds.ts';
 import type { Embed } from '../render/embed.ts';
@@ -1122,8 +1122,34 @@ export class Service {
   }
 
   /** One poll pass + fan-out of results to every guild tracking each player. */
+  /** Ticks run one at a time (regular poll and the fast LP check share state). */
+  private busy: Promise<unknown> = Promise.resolve();
+  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.busy.then(fn, fn);
+    this.busy = run.catch(() => undefined);
+    return run;
+  }
+
+  /** Regular poll: new games for every due account, then LP for pending ones. */
   async tick(): Promise<{ games: number; requests: number }> {
-    const { games, adjustments, requests, detected } = await this.tracker.tick();
+    return this.exclusive(async () => {
+      const { games, adjustments, requests, detected } = await this.tracker.tick();
+      await this.afterTick(games, adjustments, detected);
+      await this.postDueRecaps();
+      return { games: games.length, requests };
+    });
+  }
+
+  /** Fast LP check (every LP_CHECK_SEC): only accounts with a game waiting for LP. */
+  async lpTick(): Promise<{ games: number; requests: number }> {
+    return this.exclusive(async () => {
+      const { games, adjustments, requests } = await this.tracker.checkPending();
+      if (games.length || adjustments.length) await this.afterTick(games, adjustments, []);
+      return { games: games.length, requests };
+    });
+  }
+
+  private async afterTick(games: GameResult[], adjustments: LpAdjustment[], detected: string[]): Promise<void> {
     for (const g of games) {
       const guilds = this.repo.guildsTracking(g.player.puuid);
       // Linked-only players have no guild; still surface them to the sink under a pseudo-guild.
@@ -1137,13 +1163,11 @@ export class Service {
     // New games are posted right away; resolved ones edit their post with the LP.
     await this.postGameLogs([...detected, ...games.map((g) => g.match.metadata.matchId)]);
     await this.updateRecentWatchers(games);
-    await this.postDueRecaps();
     for (const a of adjustments) {
       for (const guild of this.repo.guildsTracking(a.player.puuid)) {
         await this.sink.send(guild, 'notice', [buildAdjustmentEmbed(a.player.game_name, a.queueType, a.delta, formatRank(a.rankBefore), formatRank(a.rankAfter))], { label: `adj-${a.player.game_name}` });
       }
     }
-    return { games: games.length, requests };
   }
 
   /**

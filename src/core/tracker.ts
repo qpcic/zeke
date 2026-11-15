@@ -140,6 +140,32 @@ export class Tracker {
   }
 
   /**
+   * Fast LP check: only accounts with a game waiting for LP, one league call each.
+   * Runs between regular ticks so LP shows up within seconds of Riot updating the ladder.
+   */
+  async checkPending(): Promise<{ games: GameResult[]; adjustments: LpAdjustment[]; requests: number }> {
+    const before = this.riot.requestCount;
+    const games: GameResult[] = [];
+    const adjustments: LpAdjustment[] = [];
+    for (const player of this.repo.playersWithPending()) {
+      try {
+        const pending = this.repo.pendingMatches(player.puuid);
+        if (!pending.length) continue;
+        const entries = await this.riot.getLeagueEntries(player.platform, player.puuid);
+        this.repo.setLastRankCheck(player.puuid, this.now());
+        const r = this.reconcile(player, pending, entries);
+        games.push(...r.games);
+        adjustments.push(...r.adjustments);
+      } catch (err) {
+        // stale PUUIDs etc. are handled by the regular tick
+        this.log(`lp check failed for ${player.game_name}#${player.tag_line}: ${(err as Error).message}`);
+      }
+    }
+    games.sort((a, b) => (a.match.info.gameEndTimestamp ?? 0) - (b.match.info.gameEndTimestamp ?? 0));
+    return { games, adjustments, requests: this.riot.requestCount - before };
+  }
+
+  /**
    * Re-resolve a player whose stored PUUID was encrypted by a previous API key.
    * Looks them up by Riot ID with the current key and moves all their data over.
    */
