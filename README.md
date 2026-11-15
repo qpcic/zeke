@@ -71,7 +71,7 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 | `/weekly [@user \| Name#TAG] [solo\|flex\|5s]` | Games and LP from the past 7 days · `$w` |
 | `/champ [champion] [@user \| Name#TAG]` | Your games on one champion from your last 50 ranked games: W/L, KDA, CS and damage per minute, kill participation, LP, recent games. Defaults to your most played · `$champ lee sin`, `$c ahri` |
 | `/graph [@user \| Name#TAG] [games] [solo\|flex\|5s]` | LP graph over recorded games · `$g` |
-| `/scout <Name#TAG> [region] [player_2…5]` | One player: scout their usual Ranked 5s / Flex team. Up to 5 players: scout each one from their own last 20 ranked games, with roles fitted across them and how often they queue together. Roles, best champs, bans · `$scout A#1, B#2, C#3 eune` |
+| `/scout <Name#TAG> [region] [player_2…5]` | One player: scout their usual Ranked 5s / Flex team. Up to 5 players: scout each one from their own last 20 ranked games, with roles fitted across them and how often they queue together. Roles, best champs, bans · `$scout fram#polar Mapet#MR10 eune` |
 
 ### Server
 

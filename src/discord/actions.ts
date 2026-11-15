@@ -155,7 +155,7 @@ export function helpEmbed(p: string): Embed {
       },
       {
         name: '🛡️ Scout',
-        value: `${c('scout Name#TAG [region]')} a premade's roles, best champs and bans${a('ban')}\n${c('scout A#1, B#2, C#3 [region]')} up to 5 players, each from their own games`,
+        value: `${c('scout Name#TAG [region]')} a premade's roles, best champs and bans${a('ban')}\n${c('scout A#1 B#2 C#3 [region]')} up to 5 players, each from their own games`,
       },
       {
         name: '🏆 Server',

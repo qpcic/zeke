@@ -78,8 +78,11 @@ test('extractRiotId handles spaces, keywords and regions around the ID', async (
   assert.deepEqual(extractRiotId(['flex', '30', 'ferks', 'kitten#retro']), { riotId: 'ferks kitten#retro', rest: ['flex', '30'] });
   assert.deepEqual(extractRiotId(['tilted', 'luka#420']), { riotId: 'tilted luka#420', rest: [] });
   assert.deepEqual(extractRiotId(['flex']), { rest: ['flex'] });
-  const g = parsePrefix('$g EUNE ferks kitten#retro 20 flex', '$', ctx)!;
+  const g = parsePrefix('$g ferks kitten#retro EUNE 20 flex', '$', ctx)!;
   assert.deepEqual([g.riotId, g.region, g.queue, g.games], ['ferks kitten#retro', 'EUNE', 440, 20]);
+  // a region word before the "#" is part of the name (region always comes after)
+  const n = parsePrefix('$g EUNE ferks kitten#retro', '$', ctx)!;
+  assert.deepEqual([n.riotId, n.region], ['EUNE ferks kitten#retro', undefined]);
 });
 
 test('global tracking: look up anyone by Riot ID from any server; region only needed the first time', async () => {

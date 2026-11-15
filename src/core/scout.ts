@@ -66,6 +66,8 @@ export interface ScoutReport {
   together?: number;
   /** individual mode: games per player looked at */
   perPlayer?: number;
+  /** individual mode: teammates found to fill the roles not given */
+  filled?: number;
 }
 
 const MIN_SHARED = 3; // an ally must appear at least this often to count as a teammate
@@ -283,21 +285,58 @@ export async function scoutPlayers(
   };
 
   const all = new Map<string, MatchDto>();
-  const perPlayer = new Map<string, MatchDto[]>();
+  const given = new Set(players.map((p) => p.puuid));
   for (const pl of players) {
-    const ids = await riot.getMatchIds(pl.platform, pl.puuid, { type: 'ranked', count: N }).catch(() => [] as string[]);
-    const ms = (await Promise.all(ids.map((id) => load(pl.platform, id))))
-      .filter((m): m is MatchDto => !!m && m.info.participants.some((p) => p.puuid === pl.puuid) && !m.info.participants[0]?.gameEndedInEarlySurrender);
-    perPlayer.set(pl.puuid, ms);
-    for (const m of ms) all.set(m.metadata.matchId, m);
+    // their own recent ranked games, plus (if roles are left to fill) their recent team-queue games
+    const lists = await Promise.all([
+      riot.getMatchIds(pl.platform, pl.puuid, { type: 'ranked', count: N }).catch(() => [] as string[]),
+      ...(players.length < 5
+        ? [
+          riot.getMatchIds(pl.platform, pl.puuid, { queue: 440, count: N }).catch(() => [] as string[]),
+          fivesQ ? riot.getMatchIds(pl.platform, pl.puuid, { queue: fivesQ, count: N }).catch(() => [] as string[]) : Promise.resolve([] as string[]),
+        ]
+        : []),
+    ]);
+    const ids = [...new Set(lists.flat())].filter((id) => !all.has(id));
+    const ms = await Promise.all(ids.map((id) => load(pl.platform, id)));
+    for (const m of ms) if (m && !m.info.participants[0]?.gameEndedInEarlySurrender) all.set(m.metadata.matchId, m);
   }
   const isFives = (m: MatchDto) => fivesQ !== null && m.info.queueId === fivesQ;
+  const isTeamQueue = (m: MatchDto) => m.info.queueId === 440 || isFives(m);
+
+  // Fewer than 5 given: fill the team with whoever queues Flex / 5s with them most.
+  const filled: { puuid: string; name: string; tag: string }[] = [];
+  if (players.length < 5) {
+    const allies = new Map<string, { n: number; w: number; name: string; tag: string }>();
+    for (const m of all.values()) {
+      if (!isTeamQueue(m)) continue;
+      const teams = new Set(m.info.participants.filter((p) => given.has(p.puuid)).map((p) => p.teamId));
+      for (const p of m.info.participants) {
+        if (given.has(p.puuid) || !teams.has(p.teamId)) continue;
+        const a = allies.get(p.puuid) ?? { n: 0, w: 0, name: p.riotIdGameName ?? '?', tag: p.riotIdTagline ?? '' };
+        a.n++;
+        a.w += isFives(m) ? 2 : 1;
+        allies.set(p.puuid, a);
+      }
+    }
+    for (const [puuid, a] of [...allies].filter(([, a]) => a.n >= MIN_SHARED).sort((x, y) => y[1].w - x[1].w).slice(0, 5 - players.length)) {
+      filled.push({ puuid, name: a.name, tag: a.tag });
+    }
+  }
+  const team = [...players.map((p) => ({ puuid: p.puuid, name: p.name, tag: p.tag, given: true })), ...filled.map((f) => ({ ...f, given: false }))];
+
+  // games per member: given players from all their games; found teammates from games with a given player
+  const gamesOf = (puuid: string, isGiven: boolean) => [...all.values()].filter((m) => {
+    const me = m.info.participants.find((p) => p.puuid === puuid);
+    if (!me) return false;
+    return isGiven || m.info.participants.some((p) => given.has(p.puuid) && p.teamId === me.teamId);
+  });
 
   const pos = new Map<string, Record<string, number>>();
   const members: MemberReport[] = [];
   let nFives = 0, nFlex = 0, nSolo = 0;
-  for (const pl of players) {
-    const ms = perPlayer.get(pl.puuid) ?? [];
+  for (const pl of team) {
+    const ms = gamesOf(pl.puuid, pl.given);
     // per player: Ranked 5s holds FIVES_WEIGHT of the weight when both kinds are present
     const f = ms.filter(isFives).length;
     const o = ms.length - f;
@@ -324,7 +363,7 @@ export async function scoutPlayers(
       games: ms.length, wins,
       mostPlayed: [...list].sort((a, b) => b.games - a.games || b.wGames - a.wGames).slice(0, 10),
       bans: topBans(list),
-      isTarget: false,
+      isTarget: pl.given && players.length < 5, // badge who was entered when others were filled in
     });
   }
   for (const m of all.values()) {
@@ -342,8 +381,7 @@ export async function scoutPlayers(
   }
   members.sort((a, b) => (a.role ? ROLES.indexOf(a.role) : 9) - (b.role ? ROLES.indexOf(b.role) : 9));
 
-  // how often they actually queue together: 2+ of them on one team / all of them
-  const given = new Set(players.map((p) => p.puuid));
+  // how often the given players actually queue together: 2+ of them on one team / all of them
   let together = 0, full = 0;
   for (const m of all.values()) {
     const byTeam = new Map<number, number>();
@@ -366,6 +404,7 @@ export async function scoutPlayers(
     members,
     priorityBans,
     sample: all.size,
+    filled: filled.length,
     queues: { flex: nFlex, fives: nFives, solo: nSolo },
     weights: { fives: 1, flex: 1 },
     fivesQueueId: fivesQ,
