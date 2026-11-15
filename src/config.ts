@@ -10,6 +10,8 @@ export const config = {
   riotApiKey: process.env.RIOT_API_KEY ?? '',
   dbPath: process.env.DB_PATH ?? './data/leaguebot.db',
   pollIntervalSec: num('POLL_INTERVAL_SEC', 120),
+  /** Games waiting for LP are re-checked this often (1 league call per waiting account). */
+  lpCheckSec: num('LP_CHECK_SEC', 30),
   rankRefreshSec: num('RANK_REFRESH_SEC', 900),
   lpSettleTimeoutSec: num('LP_SETTLE_TIMEOUT_SEC', 600),
   trackedQueues: (process.env.TRACKED_QUEUES ?? '420,440')

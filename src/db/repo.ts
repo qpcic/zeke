@@ -296,6 +296,11 @@ export class Repo {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(r.match_id, r.puuid, r.queue_id, r.status, r.win, r.remake, r.game_end, this.now());
   }
+  /** Accounts with at least one game waiting for LP. */
+  playersWithPending(): PlayerRow[] {
+    return this.db.prepare("SELECT * FROM players WHERE puuid IN (SELECT DISTINCT puuid FROM player_matches WHERE status = 'pending')").all() as unknown as PlayerRow[];
+  }
+
   pendingMatches(puuid: string) {
     return this.db.prepare("SELECT * FROM player_matches WHERE puuid = ? AND status = 'pending' ORDER BY game_end")
       .all(puuid) as unknown as PlayerMatchRow[];

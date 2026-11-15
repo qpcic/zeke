@@ -101,6 +101,19 @@ async function pollLoop() {
   pollTimer = setTimeout(pollLoop, config.pollIntervalSec * 1000);
 }
 
+// Fast LP check: games waiting for LP are re-checked every LP_CHECK_SEC (default 30s).
+let lpTimer: NodeJS.Timeout | undefined;
+async function lpLoop() {
+  if (stopping) return;
+  try {
+    const r = await service.lpTick();
+    if (r.games) log(`lp check: ${r.games} game${r.games === 1 ? '' : 's'} resolved, ${r.requests} requests`);
+  } catch (e) {
+    log(`lp check failed: ${(e as Error).stack}`);
+  }
+  lpTimer = setTimeout(lpLoop, config.lpCheckSec * 1000);
+}
+
 let lastNameRefresh = Date.now();
 const renamer = setInterval(() => {
   if (Date.now() - lastNameRefresh < 24 * 3600_000) return;
@@ -113,6 +126,7 @@ async function shutdown() {
   stopping = true;
   log('shutting down');
   clearTimeout(pollTimer);
+  clearTimeout(lpTimer);
   clearInterval(renamer);
   await client.destroy();
   db.close();
@@ -137,3 +151,4 @@ try {
   throw e;
 }
 void pollLoop();
+lpTimer = setTimeout(lpLoop, config.lpCheckSec * 1000);
