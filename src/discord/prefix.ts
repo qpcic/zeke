@@ -1,3 +1,4 @@
+import { cleanRiotText } from '../riot/riotId.ts';
 import { AttachmentBuilder, PermissionFlagsBits, type Message } from 'discord.js';
 import { UserError, type Reply, type Service } from '../core/service.ts';
 import { runCommand, type CommandName, type CommandRequest } from './actions.ts';
@@ -44,7 +45,8 @@ const QUEUE_WORDS: Record<string, number> = {
 };
 const WINDOW_24H = new Set(['24h', '24', 'last24', 'last24h', 'rolling', 'past24h']);
 const KEYWORDS = new Set([...Object.keys(QUEUE_WORDS), ...WINDOW_24H, 'daily', 'weekly', 'week', 'w', 'today']);
-const isKeyword = (w: string) => KEYWORDS.has(w.toLowerCase()) || /^\d+$/.test(w) || !!parsePlatform(w);
+// Region words don't end a name: the region is always the last word, so "eune čokl#woof" is one name.
+const isKeyword = (w: string) => KEYWORDS.has(w.toLowerCase()) || /^\d+$/.test(w);
 
 /**
  * Pull "Name With Spaces#TAG" out of free-form args: the token with '#' plus the
@@ -52,6 +54,31 @@ const isKeyword = (w: string) => KEYWORDS.has(w.toLowerCase()) || /^\d+$/.test(w
  */
 /** Champion names written as two words ("lee sin"), normalised; everything else is one word. */
 const MULTI_WORD_CHAMPS = new Set(['leesin', 'missfortune', 'twistedfate', 'jarvaniv', 'masteryi', 'aurelionsol', 'tahmkench', 'xinzhao', 'drmundo', 'nunuwillump', 'renataglasc', 'kogmaw', 'reksai', 'chogath', 'kaisa', 'khazix', 'velkoz', 'belveth', 'ksante']);
+
+/**
+ * Several Riot IDs in one line: each token containing "#" ends an ID, the words before it
+ * (since the previous ID) are the rest of its name, so names may start with "eune" etc.
+ * The region is only ever the last word. Commas are optional separators.
+ */
+export function parseRiotIdList(words: string[]): { riotIds: string[]; region?: string; rest: string[] } {
+  const tokens = words.join(' ').replace(/,/g, ' ').split(/\s+/).filter(Boolean);
+  let region: string | undefined;
+  const riotIds: string[] = [];
+  let buf: string[] = [];
+  for (const t of tokens) {
+    if (t.includes('#')) {
+      riotIds.push([...buf, t].join(' '));
+      buf = [];
+    } else buf.push(t);
+  }
+  // leftovers after the last ID: a region (if one), anything else is unparsed
+  const rest: string[] = [];
+  for (const t of buf) {
+    if (!region && parsePlatform(t)) region = t;
+    else rest.push(t);
+  }
+  return { riotIds, region, rest };
+}
 
 export function extractRiotId(words: string[]): { riotId?: string; rest: string[] } {
   const k = words.findIndex((w) => w.includes('#'));
@@ -69,7 +96,8 @@ export function parsePrefix(
 ): CommandRequest | null {
   if (!prefix || !content.startsWith(prefix)) return null;
   // drop user mentions from the argument text; they arrive via ctx.mentionedUserId
-  const body = content.slice(prefix.length).replace(/<@!?\d+>/g, ' ').trim();
+  // and clean pasted Riot IDs (invisible marks, "Name #TAG")
+  const body = cleanRiotText(content.slice(prefix.length).replace(/<@!?\d+>/g, ' ')).trim();
   const [head = '', ...rest] = body.split(/\s+/);
   const name = ALIASES[head.toLowerCase()];
   if (!name) return null;
@@ -100,21 +128,13 @@ export function parsePrefix(
     words = words.slice(two ? 2 : 1);
   }
 
-  // "$scout ferks kitten#retro eune": riot id (spaces allowed) + optional region.
-  // Several players: comma-separated, region once (anywhere): "$scout a#1, b b#2, c#3 eune"
+  // "$scout fram#polar Mapet#MR10 ferks kitten#retro eune": every "<name>#<tag>" counts, names may
+  // have spaces (a tag never does), commas optional, region always the last word.
   if (name === 'scout') {
-    const ids: string[] = [];
-    for (const seg of words.join(' ').split(',')) {
-      const ws = seg.trim().split(/\s+/).filter(Boolean);
-      if (!ws.length) continue;
-      const ex = extractRiotId(ws);
-      if (ex.riotId) ids.push(ex.riotId);
-      const region = (ex.riotId ? ex.rest : ws).find((w) => parsePlatform(w));
-      if (region) req.region = region;
-      else if (!ex.riotId) ids.push(ws.join(' '));
-    }
-    req.riotId = ids[0];
-    if (ids.length > 1) req.riotIds = ids;
+    const ids = parseRiotIdList(words);
+    req.riotId = ids.riotIds[0] ?? (ids.rest.length ? ids.rest.join(' ') : undefined);
+    if (ids.riotIds.length > 1) req.riotIds = ids.riotIds;
+    if (ids.region) req.region = ids.region;
   }
 
   // Target lookups: "$graph ferks kitten#retro eune flex 30"

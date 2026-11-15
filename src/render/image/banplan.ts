@@ -50,13 +50,15 @@ export async function renderBanPlan(r: ScoutReport, assets: AssetSource | null):
   ctx.fillStyle = C.sub;
   ctx.font = font(600, 20);
   const individual = r.mode === 'individual';
-  const names = r.members.map((m) => m.name);
-  ctx.fillText(fit(ctx, individual ? `vs ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` +${names.length - 3}` : ''}` : `vs ${r.target.name}#${r.target.tag}'s team`, 820), PAD + 20 + tw, 44);
+  const givenNames = r.members.filter((m) => m.isTarget || !r.filled).map((m) => m.name);
+  const names = givenNames.length ? givenNames : r.members.map((m) => m.name);
+  const vs = `vs ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` +${names.length - 3}` : ''}${r.filled ? ` + ${r.filled} teammate${r.filled === 1 ? '' : 's'}` : ''}`;
+  ctx.fillText(fit(ctx, individual ? vs : `vs ${r.target.name}#${r.target.tag}'s team`, 820), PAD + 20 + tw, 44);
   ctx.font = font(400, 15);
   const qs = [r.queues.solo ? `${r.queues.solo} Solo/Duo` : '', r.queues.flex ? `${r.queues.flex} Flex` : '', r.queues.fives ? `${r.queues.fives} Ranked 5s` : ''].filter(Boolean).join(' + ') || 'no';
   const weighting = r.queues.fives && (r.queues.flex || r.queues.solo) ? ` · Ranked 5s weighted ${Math.round(FIVES_WEIGHT * 100)}%` : '';
   ctx.fillText(fit(ctx, individual
-    ? `Each player's last ${r.perPlayer} ranked games (${qs})${weighting} · ${r.together ? `${r.together} played together${r.premadeShare ? `, ${Math.round(r.premadeShare * 100)}% as all ${names.length}` : ''}` : 'never seen queuing together'}`
+    ? `${r.filled ? 'Entered players from their own games, teammates from games with them' : `Each player's last ${r.perPlayer} ranked games`} (${qs})${weighting} · ${r.together ? `${r.together} played together${r.premadeShare ? `, ${Math.round(r.premadeShare * 100)}% as all ${names.length}` : ''}` : 'never seen queuing together'}`
     : `Based on their last ${r.sample} team games (${qs})${weighting} · full five-stack in ${Math.round(r.premadeShare * 100)}% of them`, W - 2 * PAD - 16), PAD + 8, 72);
 
   // ---- role columns ----

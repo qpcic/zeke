@@ -161,7 +161,47 @@ test('$scout with several comma-separated players and one region', () => {
   const p = parsePrefix('$scout ferks kitten#retro, Mapet#MR10, LOCKEd in#LLJAH eune', '$', ctx)!;
   assert.deepEqual(p.riotIds, ['ferks kitten#retro', 'Mapet#MR10', 'LOCKEd in#LLJAH']);
   assert.equal(p.region, 'eune');
+  const noCommas = parsePrefix('$SCOUT fram#polar Mapet#MR10 FULLMUTEYALL#Edyis EUNE', '$', ctx)!;
+  assert.deepEqual(noCommas.riotIds, ['fram#polar', 'Mapet#MR10', 'FULLMUTEYALL#Edyis']);
+  assert.equal(noCommas.region, 'EUNE');
+  const spaces = parsePrefix('$scout ferks kitten#retro LOCKEd in#LLJAH Alexandru I#0706 eune', '$', ctx)!;
+  assert.deepEqual(spaces.riotIds, ['ferks kitten#retro', 'LOCKEd in#LLJAH', 'Alexandru I#0706']);
+  assert.equal(spaces.region, 'eune');
   const one = parsePrefix('$scout Alexandru I#0706 eune', '$', ctx)!;
   assert.equal(one.riotId, 'Alexandru I#0706');
   assert.equal(one.riotIds, undefined);
+});
+
+test('scout 2 of a five-stack: the given two are kept, the other three roles filled with their teammates', async () => {
+  const { service, team, randy, riot } = premade();
+  const given = [team[0]!, team[1]!]; // top + jungle
+  const r = await runCommand(service, { callerId: 'u1', guildId: null, canManageGuild: false, style: '/', name: 'scout', riotIds: given.map((m) => `${m.a.gameName}#${m.a.tagLine}`), region: 'EUNE' });
+  assert.equal(r.files[0]!.name, 'scout.png');
+  if (process.env.WRITE_PREVIEWS) (await import('node:fs')).writeFileSync('/tmp/scout-fill.png', r.files[0]!.data);
+
+  const { scoutPlayers } = await import('../src/core/scout.ts');
+  const rep = await scoutPlayers((service as unknown as { repo: never }).repo, riot, given.map((m) => ({ puuid: m.a.puuid, name: m.a.gameName, tag: m.a.tagLine, platform: 'EUN1' as const })));
+  assert.equal(rep.filled, 3);
+  assert.deepEqual(rep.members.map((m) => [m.name, m.role, m.isTarget]), [
+    ['Enemy Top', 'TOP', true], ['Enemy Jg', 'JUNGLE', true], ['Enemy Mid', 'MIDDLE', false], ['Enemy Adc', 'BOTTOM', false], ['Enemy Sup', 'UTILITY', false],
+  ]);
+  assert.ok(!rep.members.some((m) => m.puuid === randy.puuid), 'occasional filler not picked over the regular support');
+});
+
+test('pasted Riot IDs: invisible marks and "Name #TAG" spacing are cleaned, unicode names work', () => {
+  const ctx = { callerId: '1', guildId: 'g', canManageGuild: false };
+  const p = parsePrefix('$scout \u2066\u2066Bc Petanek\u2069 #\u2066EUNE1\u2069\u2069, \u2066\u2066hrac lolka 2\u2069 #\u2066EUNE\u2069\u2069, \u2066\u2066BrokenHeartNami\u2069 #\u2066Nami\u2069\u2069, \u2066\u2066smazak nitram\u2069 #\u2066eunak\u2069\u2069 EUNE', '$', ctx)!;
+  assert.deepEqual(p.riotIds, ['Bc Petanek#EUNE1', 'hrac lolka 2#EUNE', 'BrokenHeartNami#Nami', 'smazak nitram#eunak']);
+  assert.equal(p.region, 'EUNE');
+  // "eune" at the start is part of the name; the region is only ever the last word
+  const c = parsePrefix('$scout eune čokl#woof eune', '$', ctx)!;
+  assert.equal(c.riotId, 'eune čokl#woof');
+  assert.equal(c.region, 'eune');
+  const two = parsePrefix('$scout eune čokl#woof, euw guy#123 EUNE', '$', ctx)!;
+  assert.deepEqual(two.riotIds, ['eune čokl#woof', 'euw guy#123']);
+  assert.equal(two.region, 'EUNE');
+  const r = parsePrefix('$recent čokl #woof eune', '$', ctx)!;
+  assert.equal(r.riotId, 'čokl#woof');
+  const r2 = parsePrefix('$recent eune čokl#woof eune flex', '$', ctx)!;
+  assert.deepEqual([r2.riotId, r2.region, r2.queue], ['eune čokl#woof', 'eune', 440]);
 });
