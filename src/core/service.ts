@@ -87,6 +87,8 @@ export interface Reply {
   files: { name: string; data: Buffer }[];
   /** Discord message components (raw API JSON: action rows with buttons / selects). */
   components?: object[];
+  /** Set when LP isn't in yet: the Discord layer can register the message for an update. */
+  watch?: { matchId: string; puuid: string };
 }
 
 /** If the bot was down at midnight, still post the digest if we come back within this window. */
@@ -625,9 +627,42 @@ export class Service {
     } else if (pm?.status === 'pending') {
       r.note = 'pending';
     } else {
-      r.note = qt ? 'unrecorded' : 'norank';
+      // Not polled yet: if it's a tracked queue after tracking began, LP is on its way.
+      const gameEnd = match.info.gameEndTimestamp ?? match.info.gameStartTimestamp + match.info.gameDuration * 1000;
+      r.note = !qt ? 'norank' : !pm && gameEnd >= player.created_at && !remake ? 'pending' : 'unrecorded';
     }
-    return this.gameReply(r);
+    const reply = await this.gameReply(r);
+    if (r.note === 'pending') reply.watch = { matchId: id, puuid: player.puuid };
+    return reply;
+  }
+
+  // ---- /recent replies waiting for LP ----
+  private recentWatchers = new Map<string, { edit: (r: Reply) => Promise<unknown>; expires: number }[]>();
+
+  /** Edit a /recent message once its game's LP is in (ttl: how long the message can still be edited). */
+  watchRecent(watch: { matchId: string; puuid: string }, edit: (r: Reply) => Promise<unknown>, ttlMs: number): void {
+    const key = `${watch.matchId}:${watch.puuid}`;
+    this.recentWatchers.set(key, [...(this.recentWatchers.get(key) ?? []), { edit, expires: this.now() + ttlMs }]);
+  }
+
+  private async updateRecentWatchers(games: GameResult[]): Promise<void> {
+    const now = this.now();
+    for (const [key, list] of this.recentWatchers) {
+      const live = list.filter((w) => w.expires > now);
+      if (live.length) this.recentWatchers.set(key, live);
+      else this.recentWatchers.delete(key);
+    }
+    for (const g of games) {
+      const key = `${g.match.metadata.matchId}:${g.player.puuid}`;
+      const list = this.recentWatchers.get(key);
+      if (!list) continue;
+      this.recentWatchers.delete(key);
+      const reply = await this.recentImpl(g.player, undefined, g.match.metadata.matchId).catch(() => null);
+      if (!reply) continue;
+      for (const w of list) {
+        await w.edit(reply).catch((e) => this.log(`recent: could not update message for ${key}: ${(e as Error).message}`));
+      }
+    }
   }
 
   /**
@@ -1101,6 +1136,7 @@ export class Service {
     }
     // New games are posted right away; resolved ones edit their post with the LP.
     await this.postGameLogs([...detected, ...games.map((g) => g.match.metadata.matchId)]);
+    await this.updateRecentWatchers(games);
     await this.postDueRecaps();
     for (const a of adjustments) {
       for (const guild of this.repo.guildsTracking(a.player.puuid)) {

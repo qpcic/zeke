@@ -346,7 +346,9 @@ export function createPrefixHandler(
     try {
       if (req.name === 'ladder' && msg.guild) req.members = await membersOf(msg.guild, service.linkedUserIds());
       const reply = await runCommand(service, req);
-      await msg.reply({ ...payload(reply), allowedMentions: { repliedUser: false } });
+      const sent = await msg.reply({ ...payload(reply), allowedMentions: { repliedUser: false } });
+      // LP not in yet: edit this reply when it is.
+      if (reply.watch) service.watchRecent(reply.watch, (r) => sent.edit({ ...payload(r), attachments: [] }), 30 * 60_000);
       audit(msg, now, true, undefined, req.name);
     } catch (e) {
       audit(msg, now, false, (e as Error).message, req.name);

@@ -62,3 +62,25 @@ test('game log: LP already in on first sight = one final post; a deleted message
   for (let i = 0; i < 4; i++) { clock.advance(2 * MIN); await service.tick(); }
   assert.equal(msgs.size, 1, 'not reposted after a failed edit');
 });
+
+test('/recent before LP is in: "+? LP (Waiting on Riot API)", then the message is updated', async () => {
+  const { mock, service, clock } = setup();
+  const a = mock.addAccount('Waiter', 'EUW', 'EUW1', ranks);
+  const { player } = await service.linkUser('u1', 'EUW', 'Waiter#EUW');
+
+  clock.advance(30 * MIN);
+  mock.play({ players: [{ puuid: a.puuid, team: 100, champion: 'Ahri' }], winner: 100, lp: { [a.puuid]: 24 }, lagReads: 1 });
+  // run /recent before the poller has even seen the game
+  const first = await service.recent(player);
+  assert.match(first.embed.description!, /\*\*\+\? LP\*\* \(Waiting on Riot API\)/);
+  assert.doesNotMatch(first.embed.description!, /before tracking/);
+  assert.ok(first.watch);
+
+  const edits: string[] = [];
+  service.watchRecent(first.watch!, async (r) => void edits.push(r.embed.description!), 14 * MIN);
+  for (let i = 0; i < 3 && !edits.length; i++) { await service.tick(); clock.advance(2 * MIN); }
+  assert.equal(edits.length, 1, 'edited once when LP arrived');
+  assert.match(edits[0]!, /\+24/);
+  for (let i = 0; i < 2; i++) { clock.advance(2 * MIN); await service.tick(); }
+  assert.equal(edits.length, 1, 'not edited again');
+});
