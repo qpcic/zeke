@@ -13,7 +13,7 @@ import { renderRecap, type RecapGame, type RecapHeader } from '../render/image/r
 import { renderBanPlan } from '../render/image/banplan.ts';
 import { renderProfile, type ProfileData, type QueueCard } from '../render/image/profile.ts';
 import { compareDivision, isApex } from './rank.ts';
-import { discoverFivesQueue, scoutTeam } from './scout.ts';
+import { discoverFivesQueue, scoutPlayers, scoutTeam } from './scout.ts';
 import { saveFivesQueue } from './queues.ts';
 import { renderLive, type LivePlayer } from '../render/image/live.ts';
 import { renderGamesBoard, type GamesRow } from '../render/image/gamesBoard.ts';
@@ -425,6 +425,48 @@ export class Service {
    * Scout a premade team for bans. The scouted player is resolved via account-v1 but NOT
    * added to tracking: they're usually an opponent, not someone to poll forever.
    */
+  /**
+   * /scout with several players (2–5, one region): each scouted from their own recent
+   * ranked games, for teams that aren't a fixed five-stack.
+   */
+  async scoutMany(riotIdInputs: string[], regionInput?: string): Promise<Reply> {
+    const inputs = [...new Map(riotIdInputs.map((x) => [x.trim().toLowerCase(), x.trim()])).values()].filter(Boolean);
+    if (inputs.length <= 1) return this.banPlan(inputs[0] ?? '', regionInput);
+    if (inputs.length > 5) throw new UserError('Scout up to 5 players at once.');
+    const platform = regionInput ? parsePlatform(regionInput) : null;
+    if (regionInput && !platform) throw new UserError(`Unknown region "${regionInput}". Use one of: ${Object.values(PLATFORM_LABEL).join(', ')}`);
+    const players: { puuid: string; name: string; tag: string; platform: Platform }[] = [];
+    const missing: string[] = [];
+    for (const input of inputs) {
+      let id;
+      try {
+        id = parseRiotId(input);
+      } catch (e) {
+        throw new UserError(`${(e as Error).message} (${input})`);
+      }
+      const known = this.repo.findPlayerByRiotId(id.gameName, id.tagLine, platform ?? undefined);
+      const plat = platform ?? known?.platform ?? (this.defaultRegion ? parsePlatform(this.defaultRegion) : null);
+      if (!plat) throw new UserError('Add the region, e.g. `EUNE`.');
+      const re = known ? await this.tracker.rekey(known).catch(() => null) : null;
+      if (re) {
+        players.push({ puuid: re.puuid, name: re.game_name, tag: re.tag_line, platform: plat });
+        continue;
+      }
+      const acc = await this.riot.getAccountByRiotId(plat, id.gameName, id.tagLine);
+      if (!acc) missing.push(formatRiotId(id));
+      else players.push({ puuid: acc.puuid, name: acc.gameName ?? id.gameName, tag: acc.tagLine ?? id.tagLine, platform: plat });
+    }
+    if (missing.length) throw new UserError(`Riot ID${missing.length > 1 ? 's' : ''} not found: **${missing.join('**, **')}**. Check the spelling and region.`);
+    const report = await scoutPlayers(this.repo, this.riot, players, { log: this.log });
+    if (report.sample < 3) throw new UserError(`Only ${report.sample} ranked games found for these players. Wrong region?`);
+    const png = await renderBanPlan(report, this.assets);
+    const bans = report.priorityBans.map((b) => b.championName).join(', ');
+    return {
+      embed: { color: 0xe74c3c, image: { url: 'attachment://scout.png' }, footer: { text: bans ? `Priority bans: ${bans}` : 'No ban suggestions' } },
+      files: [{ name: 'scout.png', data: png }],
+    };
+  }
+
   async banPlan(riotIdInput: string, regionInput?: string): Promise<Reply> {
     let id;
     try {

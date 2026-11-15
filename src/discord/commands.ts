@@ -82,9 +82,13 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
   queueOpt(userOpt(new SlashCommandBuilder().setName('weekly').setDescription('Games and LP from the past 7 days')))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
-  new SlashCommandBuilder().setName('scout').setDescription("Scout a player's Ranked 5s / Flex team: roles, best champs, bans")
-    .addStringOption((o) => o.setName('riot_id').setDescription('Any player on the enemy team, e.g. Faker#KR1').setRequired(true).setMinLength(5).setMaxLength(22))
-    .addStringOption((o) => o.setName('region').setDescription('Region (needed if the bot has never seen them)').addChoices(...regionChoices))
+  new SlashCommandBuilder().setName('scout').setDescription('Scout the enemy team: roles, best champs, bans. One player = their premade, more = each one')
+    .addStringOption((o) => o.setName('riot_id').setDescription('Enemy player, e.g. Faker#KR1 (alone: scouts their usual team)').setRequired(true).setMinLength(5).setMaxLength(22))
+    .addStringOption((o) => o.setName('region').setDescription('Region for everyone (needed if the bot has never seen them)').addChoices(...regionChoices))
+    .addStringOption((o) => o.setName('player_2').setDescription('Another enemy player (optional)').setMinLength(5).setMaxLength(22))
+    .addStringOption((o) => o.setName('player_3').setDescription('Another enemy player (optional)').setMinLength(5).setMaxLength(22))
+    .addStringOption((o) => o.setName('player_4').setDescription('Another enemy player (optional)').setMinLength(5).setMaxLength(22))
+    .addStringOption((o) => o.setName('player_5').setDescription('Another enemy player (optional)').setMinLength(5).setMaxLength(22))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
   new SlashCommandBuilder().setName('recap').setDescription('Daily recap: leaderboards every midnight, weekly on Mondays')

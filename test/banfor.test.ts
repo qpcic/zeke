@@ -84,7 +84,7 @@ test('$scout (and $banfor/$ban aliases): renders a PNG, does not add the enemy t
   await assert.rejects(run('$scout Enemy Mid#EUNE'), /Add the region/);
   await assert.rejects(run('$banfor Enemy Mid#EUNE'), /Add the region/);
   const r = await run('$ban Enemy Mid#EUNE eune');
-  assert.equal(r.files[0]!.name, 'banplan.png');
+  assert.equal(r.files[0]!.name, 'scout.png');
   assert.equal(r.files[0]!.data.subarray(1, 4).toString(), 'PNG');
   assert.match(r.embed.footer!.text, /Priority bans: .*Syndra/);
   assert.equal(repo.activePlayers().length, 0, 'scouted players are not tracked');
@@ -120,4 +120,48 @@ test('Ranked 5s carries 90% weight: 5s picks beat flex-only stomps, 5s teammates
   assert.equal(sup.name, 'Five S', '5s support outranks the more frequent flex support');
   const mid = r.members.find((m) => m.role === 'MIDDLE')!;
   assert.equal(mid.bans[0]!.championName, 'Ahri', '5s champ is the top ban even though Zed is 30-0 in flex');
+});
+
+test('scout several players: each from their own games, roles fitted, "together" counted', async () => {
+  const ctx = setup(Date.UTC(2026, 9, 1, 12));
+  const { mock, clock, service } = ctx;
+  const solo = [
+    { a: mock.addAccount('Solo Top', 'EUNE', 'EUN1'), role: 'TOP', pool: ['Darius', 'Garen'] },
+    { a: mock.addAccount('Solo Jg', 'EUNE', 'EUN1'), role: 'JUNGLE', pool: ['Viego', 'Vi'] },
+    { a: mock.addAccount('Solo Mid', 'EUNE', 'EUN1'), role: 'MIDDLE', pool: ['Ahri', 'Syndra'] },
+    { a: mock.addAccount('Duo Adc', 'EUNE', 'EUN1'), role: 'BOTTOM', pool: ['Jinx', 'Kaisa'] },
+    { a: mock.addAccount('Duo Sup', 'EUNE', 'EUN1'), role: 'UTILITY', pool: ['Thresh', 'Lulu'] },
+  ];
+  // each plays their own solo queue games; the bot lane duos 6 times
+  for (let g = 0; g < 12; g++) {
+    for (const m of solo.slice(0, 3)) {
+      clock.advance(40 * MIN);
+      mock.play({ players: [{ puuid: m.a.puuid, team: 100, role: m.role, champion: m.pool[g % 2]! }], winner: g % 3 ? 100 : 200, queueId: 420 });
+    }
+    clock.advance(40 * MIN);
+    const duo = solo.slice(3).map((m) => ({ puuid: m.a.puuid, team: 100 as const, role: m.role, champion: m.pool[g % 2]! }));
+    mock.play({ players: g < 6 ? duo : [duo[g % 2]!], winner: 100, queueId: g % 4 ? 420 : 440 });
+  }
+  const r = await runCommand(service, { callerId: 'u1', guildId: null, canManageGuild: false, style: '/', name: 'scout', riotIds: solo.map((m) => `${m.a.gameName}#${m.a.tagLine}`), region: 'EUNE' });
+  assert.equal(r.files[0]!.name, 'scout.png');
+  if (process.env.WRITE_PREVIEWS) (await import('node:fs')).writeFileSync('/tmp/scout-multi.png', r.files[0]!.data);
+
+  const { scoutPlayers } = await import('../src/core/scout.ts');
+  const rep = await scoutPlayers((service as unknown as { repo: never }).repo, ctx.riot, solo.map((m) => ({ puuid: m.a.puuid, name: m.a.gameName, tag: m.a.tagLine, platform: 'EUN1' as const })));
+  assert.equal(rep.mode, 'individual');
+  assert.deepEqual(rep.members.map((m) => [m.name, m.role]), [['Solo Top', 'TOP'], ['Solo Jg', 'JUNGLE'], ['Solo Mid', 'MIDDLE'], ['Duo Adc', 'BOTTOM'], ['Duo Sup', 'UTILITY']]);
+  assert.equal(rep.together, 6, 'only the bot lane duo games');
+  assert.deepEqual(rep.members.map((m) => m.games), [12, 12, 12, 9, 9], 'each from their own games');
+
+  await assert.rejects(runCommand(service, { callerId: 'u1', guildId: null, canManageGuild: false, style: '/', name: 'scout', riotIds: ['Solo Top#EUNE', 'Nobody#XYZ'], region: 'EUNE' }), /not found: \*\*Nobody#XYZ/);
+});
+
+test('$scout with several comma-separated players and one region', () => {
+  const ctx = { callerId: '1', guildId: 'g', canManageGuild: false };
+  const p = parsePrefix('$scout ferks kitten#retro, Mapet#MR10, LOCKEd in#LLJAH eune', '$', ctx)!;
+  assert.deepEqual(p.riotIds, ['ferks kitten#retro', 'Mapet#MR10', 'LOCKEd in#LLJAH']);
+  assert.equal(p.region, 'eune');
+  const one = parsePrefix('$scout Alexandru I#0706 eune', '$', ctx)!;
+  assert.equal(one.riotId, 'Alexandru I#0706');
+  assert.equal(one.riotIds, undefined);
 });

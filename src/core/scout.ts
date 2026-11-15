@@ -55,11 +55,17 @@ export interface ScoutReport {
   members: MemberReport[]; // ordered by role TOP..UTILITY, unassigned last
   priorityBans: (ChampStat & { owner: string })[];
   sample: number;
-  queues: { flex: number; fives: number };
+  queues: { flex: number; fives: number; solo?: number };
   /** per-game weight actually applied ({ fives: 1, flex: 1 } when only one queue is present) */
   weights: { fives: number; flex: number };
   fivesQueueId: number | null;
   premadeShare: number; // fraction of games where the 4 detected teammates were all present
+  /** 'team': one player + their detected teammates; 'individual': players given by hand, each from their own games. */
+  mode?: 'team' | 'individual';
+  /** individual mode: games where 2+ of the given players were on the same team */
+  together?: number;
+  /** individual mode: games per player looked at */
+  perPlayer?: number;
 }
 
 const MIN_SHARED = 3; // an ally must appear at least this often to count as a teammate
@@ -246,5 +252,126 @@ export async function scoutTeam(
     weights,
     fivesQueueId: fivesQ,
     premadeShare: matches.length ? fullStack / matches.length : 0,
+  };
+}
+
+/** Games per player when several players are scouted individually. */
+export const INDIVIDUAL_GAMES = 20;
+
+/**
+ * Scout 2–5 players given by hand (e.g. the five you're facing, premade or not): each one
+ * from their own last ranked games (Solo/Duo, Flex, 5s; Ranked 5s weighted FIVES_WEIGHT),
+ * roles fitted across them, plus how often they actually queue together.
+ */
+export async function scoutPlayers(
+  repo: Repo,
+  riot: RiotClient,
+  players: { puuid: string; name: string; tag: string; platform: Platform }[],
+  opts: { games?: number; log?: (m: string) => void } = {},
+): Promise<ScoutReport> {
+  const N = opts.games ?? INDIVIDUAL_GAMES;
+  const first = players[0]!;
+  const fivesQ = await discoverFivesQueue(repo, riot, first.platform, first.puuid).catch(() => null);
+  const epoch = Number(repo.getKv('puuid_epoch') ?? 0);
+  const load = async (platform: Platform, id: string) => {
+    let m = repo.getCachedMatchSince(id, epoch);
+    if (!m) {
+      m = await riot.getMatch(platform, id).catch(() => null);
+      if (m) repo.cacheMatch(m);
+    }
+    return m;
+  };
+
+  const all = new Map<string, MatchDto>();
+  const perPlayer = new Map<string, MatchDto[]>();
+  for (const pl of players) {
+    const ids = await riot.getMatchIds(pl.platform, pl.puuid, { type: 'ranked', count: N }).catch(() => [] as string[]);
+    const ms = (await Promise.all(ids.map((id) => load(pl.platform, id))))
+      .filter((m): m is MatchDto => !!m && m.info.participants.some((p) => p.puuid === pl.puuid) && !m.info.participants[0]?.gameEndedInEarlySurrender);
+    perPlayer.set(pl.puuid, ms);
+    for (const m of ms) all.set(m.metadata.matchId, m);
+  }
+  const isFives = (m: MatchDto) => fivesQ !== null && m.info.queueId === fivesQ;
+
+  const pos = new Map<string, Record<string, number>>();
+  const members: MemberReport[] = [];
+  let nFives = 0, nFlex = 0, nSolo = 0;
+  for (const pl of players) {
+    const ms = perPlayer.get(pl.puuid) ?? [];
+    // per player: Ranked 5s holds FIVES_WEIGHT of the weight when both kinds are present
+    const f = ms.filter(isFives).length;
+    const o = ms.length - f;
+    const wF = f && o ? (FIVES_WEIGHT * ms.length) / f : 1;
+    const wO = f && o ? ((1 - FIVES_WEIGHT) * ms.length) / o : 1;
+    const pc: Record<string, number> = {};
+    const cm = new Map<string, ChampStat>();
+    let wins = 0;
+    for (const m of ms) {
+      const p = m.info.participants.find((x) => x.puuid === pl.puuid)!;
+      const w = isFives(m) ? wF : wO;
+      if (p.win) wins++;
+      if (p.teamPosition) pc[p.teamPosition] = (pc[p.teamPosition] ?? 0) + w;
+      const c = cm.get(p.championName) ?? { championId: p.championId, championName: p.championName, games: 0, wins: 0, wGames: 0, wWins: 0, version: m.info.gameVersion };
+      c.games++;
+      c.wGames += w;
+      if (p.win) { c.wins++; c.wWins += w; }
+      cm.set(p.championName, c);
+    }
+    pos.set(pl.puuid, pc);
+    const list = [...cm.values()];
+    members.push({
+      puuid: pl.puuid, name: pl.name, tag: pl.tag, role: null, roleShare: 0,
+      games: ms.length, wins,
+      mostPlayed: [...list].sort((a, b) => b.games - a.games || b.wGames - a.wGames).slice(0, 10),
+      bans: topBans(list),
+      isTarget: false,
+    });
+  }
+  for (const m of all.values()) {
+    if (isFives(m)) nFives++;
+    else if (m.info.queueId === 440) nFlex++;
+    else nSolo++;
+  }
+
+  const roles = assignRoles(pos);
+  for (const m of members) {
+    m.role = roles.get(m.puuid) ?? null;
+    const pc = pos.get(m.puuid) ?? {};
+    const total = Object.values(pc).reduce((a, b) => a + b, 0) || 1;
+    m.roleShare = m.role ? (pc[m.role] ?? 0) / total : 0;
+  }
+  members.sort((a, b) => (a.role ? ROLES.indexOf(a.role) : 9) - (b.role ? ROLES.indexOf(b.role) : 9));
+
+  // how often they actually queue together: 2+ of them on one team / all of them
+  const given = new Set(players.map((p) => p.puuid));
+  let together = 0, full = 0;
+  for (const m of all.values()) {
+    const byTeam = new Map<number, number>();
+    for (const p of m.info.participants) if (given.has(p.puuid)) byTeam.set(p.teamId, (byTeam.get(p.teamId) ?? 0) + 1);
+    const most = Math.max(0, ...byTeam.values());
+    if (most >= 2) together++;
+    if (most === players.length) full++;
+  }
+
+  const seen = new Set<string>();
+  const priorityBans = members
+    .flatMap((m) => m.bans.map((b) => ({ ...b, owner: m.name })))
+    .sort((a, b) => threat(b) - threat(a))
+    .filter((b) => (seen.has(b.championName) ? false : (seen.add(b.championName), true)))
+    .slice(0, 5);
+
+  opts.log?.(`scout ${players.map((p) => `${p.name}#${p.tag}`).join(', ')}: ${all.size} games, ${together} together`);
+  return {
+    target: first,
+    members,
+    priorityBans,
+    sample: all.size,
+    queues: { flex: nFlex, fives: nFives, solo: nSolo },
+    weights: { fives: 1, flex: 1 },
+    fivesQueueId: fivesQ,
+    premadeShare: all.size ? full / all.size : 0,
+    mode: 'individual',
+    together,
+    perPlayer: N,
   };
 }

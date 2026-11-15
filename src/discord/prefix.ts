@@ -100,12 +100,21 @@ export function parsePrefix(
     words = words.slice(two ? 2 : 1);
   }
 
-  // "$scout ferks kitten#retro eune": riot id (spaces allowed) + optional region
+  // "$scout ferks kitten#retro eune": riot id (spaces allowed) + optional region.
+  // Several players: comma-separated, region once (anywhere): "$scout a#1, b b#2, c#3 eune"
   if (name === 'scout') {
-    const ex = extractRiotId(words);
-    req.riotId = ex.riotId ?? (words.length ? words.join(' ') : undefined);
-    const region = ex.rest.find((w) => parsePlatform(w));
-    if (region) req.region = region;
+    const ids: string[] = [];
+    for (const seg of words.join(' ').split(',')) {
+      const ws = seg.trim().split(/\s+/).filter(Boolean);
+      if (!ws.length) continue;
+      const ex = extractRiotId(ws);
+      if (ex.riotId) ids.push(ex.riotId);
+      const region = (ex.riotId ? ex.rest : ws).find((w) => parsePlatform(w));
+      if (region) req.region = region;
+      else if (!ex.riotId) ids.push(ws.join(' '));
+    }
+    req.riotId = ids[0];
+    if (ids.length > 1) req.riotIds = ids;
   }
 
   // Target lookups: "$graph ferks kitten#retro eune flex 30"
