@@ -36,6 +36,9 @@ const userOpt = (b: SlashCommandOptionsOnlyBuilder) =>
     .addStringOption((o) => o.setName('region').setDescription('Region, only needed for accounts the bot has never seen').addChoices(...regionChoices));
 
 export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
+  userOpt(new SlashCommandBuilder().setName('peak').setDescription('Highest rank in each queue since tracking started'))
+    .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
+
   queueOpt(new SlashCommandBuilder().setName('ladder').setDescription('Everyone in this server by current rank: tracked accounts and members\' linked accounts'))
     .setIntegrationTypes(SERVER_ONLY.integrations).setContexts(SERVER_ONLY.contexts).toJSON(),
 

@@ -415,6 +415,25 @@ export class Repo {
       ON CONFLICT (guild_id, match_id, puuid) DO UPDATE SET channel_id = excluded.channel_id, message_id = excluded.message_id, final = excluded.final
     `).run(key, matchId, this.now(), channelId, messageId, final ? 1 : 0);
   }
+  /** Rank after the last recorded game before `t` in one of these queues (for recap rank changes). */
+  rankBefore(puuid: string, queueIds: number[], t: number): { tier: string; division: string; lp: number } | null {
+    if (!queueIds.length) return null;
+    const r = this.db.prepare(`
+      SELECT tier_after AS tier, div_after AS division, lp_after AS lp FROM player_matches
+      WHERE puuid = ? AND status = 'done' AND tier_after IS NOT NULL AND game_end < ? AND queue_id IN (${queueIds.map(() => '?').join(',')})
+      ORDER BY game_end DESC LIMIT 1
+    `).get(puuid, t, ...queueIds) as { tier: string; division: string | null; lp: number | null } | undefined;
+    return r ? { tier: r.tier, division: r.division ?? 'I', lp: r.lp ?? 0 } : null;
+  }
+
+  /** Every recorded post-game rank (for /peak). */
+  rankHistory(puuid: string): { queue_id: number; tier: string; division: string; lp: number; at: number }[] {
+    return this.db.prepare(`
+      SELECT queue_id, tier_after AS tier, COALESCE(div_after, 'I') AS division, COALESCE(lp_after, 0) AS lp, game_end AS at
+      FROM player_matches WHERE puuid = ? AND status = 'done' AND tier_after IS NOT NULL ORDER BY game_end
+    `).all(puuid) as unknown as { queue_id: number; tier: string; division: string; lp: number; at: number }[];
+  }
+
   /** Tracked rows of one match (every known account that played it). */
   matchRows(matchId: string): PlayerMatchRow[] {
     return this.db.prepare("SELECT * FROM player_matches WHERE match_id = ? AND status != 'ignored' ORDER BY first_seen, puuid").all(matchId) as unknown as PlayerMatchRow[];

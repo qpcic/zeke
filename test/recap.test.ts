@@ -48,7 +48,11 @@ test('daily recap: Manage Server only, posted once ~10 min after local midnight,
   await service.tick();
   assert.equal(posts.length, 1);
   assert.equal(posts[0]!.channelId, '555');
-  assert.deepEqual(posts[0]!.replies.map((r) => r.files[0]?.name), ['leaderboard.png', 'leaderboard.png', 'games.png'], 'Solo, Flex, then games played');
+  assert.deepEqual(posts[0]!.replies.map((r) => r.files[0]?.name ?? r.embed.title), ['leaderboard.png', 'leaderboard.png', 'games.png', "🏅 Today's awards"], 'Solo, Flex, games played, awards');
+  const awards = posts[0]!.replies[3]!.embed.description!;
+  assert.match(awards, /Most kills/);
+  assert.match(awards, /Biggest LP gain\*\* \*\*Recap One\*\*/);
+  assert.match(awards, /Biggest LP loss\*\* \*\*Recap Two\*\*/);
 
   // never twice for the same day
   clock.advance(30 * MIN);
@@ -93,8 +97,8 @@ test('Monday: the daily recap is followed by the weekly recap', async () => {
   clock.advance(mondayMidnight + 11 * MIN - clock.now());
   await service.tick();
   assert.equal(posts.length, 2, 'daily, then weekly');
-  assert.deepEqual(posts[0]!.map((r) => r.files[0]?.name), ['leaderboard.png', 'games.png']);
-  assert.deepEqual(posts[1]!.map((r) => r.files[0]?.name), ['leaderboard.png', 'games.png']);
+  assert.deepEqual(posts[0]!.map((r) => r.files[0]?.name ?? r.embed.title), ['leaderboard.png', 'games.png', "🏅 Today's awards"]);
+  assert.deepEqual(posts[1]!.map((r) => r.files[0]?.name ?? r.embed.title), ['leaderboard.png', 'games.png', "🏅 This week's awards"]);
 
   // Tuesday: daily only
   clock.advance(24 * 3_600_000);
@@ -155,4 +159,39 @@ test('recap message: every board gets its own attachment name (no two embeds sho
   const msg = recapMessage([board('Solo'), board('Flex')]);
   const names = msg.files.map((f) => (f as { name: string }).name);
   assert.equal(new Set(names).size, names.length);
+});
+
+test('promotion / demotion: posted to log channels, listed in the recap; /peak keeps the best rank', async () => {
+  const { mock, service, clock } = setup();
+  const near = [{ queueType: 'RANKED_SOLO_5x5', tier: 'EMERALD', rank: 'I', lp: 90, wins: 10, losses: 10 }];
+  const a = mock.addAccount('Climber', 'EUW', 'EUW1', near);
+  const { player } = await service.addPlayer('g1', 'EUW', 'Climber#EUW');
+  const { fakePoster } = await import('./helpers.ts');
+  const { poster, msgs } = fakePoster();
+  service.setLogPoster(poster);
+  await runCommand(service, { ...mod, name: 'log', channelId: '777' });
+
+  clock.advance(30 * MIN);
+  mock.play({ players: [{ puuid: a.puuid, team: 100, champion: 'Ahri' }], winner: 100, lp: { [a.puuid]: 22 } }); // Emerald I 90 -> Diamond IV 12
+  await service.tick();
+  const promo = [...msgs.values()].map((m) => m.reply.embed.title ?? '').find((t) => /promoted/.test(t));
+  assert.equal(promo, '🎉 Climber#EUW promoted to Diamond IV');
+
+  clock.advance(30 * MIN);
+  mock.play({ players: [{ puuid: a.puuid, team: 100, champion: 'Ahri' }], winner: 200, lp: { [a.puuid]: -20 } }); // back to Emerald I
+  await service.tick();
+  assert.ok([...msgs.values()].some((m) => /demoted to Emerald I/.test(m.reply.embed.title ?? '')));
+
+  const peak = await runCommand(service, { ...mod, name: 'peak', riotId: 'Climber#EUW' });
+  const solo = peak.embed.fields!.find((f) => f.name === 'Solo/Duo')!.value;
+  assert.match(solo, /\*\*Diamond IV · 12 LP\*\*/);
+  assert.match(solo, /now Emerald I · 92 LP/);
+
+  const tz = service.guild('g1').timezone;
+  const day = (await import('../src/core/time.ts')).previousDay(clock.now() + 86_400_000, tz);
+  const awards = await service.recapAwards([player], day, 'x');
+  assert.ok(awards!.embed.description!.includes("\n") && !awards!.embed.description!.includes("\\n"), "real line breaks");
+  assert.match(awards!.embed.description!, /Most kills/);
+  // promoted then demoted the same day: net no change, so no "Rank changes" line
+  assert.equal(awards!.embed.fields, undefined);
 });

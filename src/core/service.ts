@@ -12,7 +12,7 @@ import { renderLeaderboard, type LeaderboardRow } from '../render/image/leaderbo
 import { renderRecap, type RecapGame, type RecapHeader } from '../render/image/recap.ts';
 import { renderBanPlan } from '../render/image/banplan.ts';
 import { renderProfile, type ProfileData, type QueueCard } from '../render/image/profile.ts';
-import { compareDivision, isApex } from './rank.ts';
+import { compareDivision, formatTierDiv, isApex, type Rank } from './rank.ts';
 import { discoverFivesQueue, scoutPlayers, scoutTeam } from './scout.ts';
 import { saveFivesQueue } from './queues.ts';
 import { renderLive, type LivePlayer } from '../render/image/live.ts';
@@ -45,6 +45,10 @@ export interface LogPoster {
   send(channelId: string, r: Reply): Promise<string>;
   edit(channelId: string, messageId: string, r: Reply): Promise<void>;
 }
+
+export interface RankChange { player: PlayerRow; queueType: string; from: Rank; to: Rank; up: boolean }
+
+const QUEUE_TYPE_LABEL: Record<string, string> = { RANKED_SOLO_5x5: 'Solo/Duo', RANKED_FLEX_SR: 'Flex', RANKED_PREMADE_5x5: 'Ranked 5s' };
 
 /** Riot accounts one Discord user can link. */
 export const MAX_LINKS = 10;
@@ -351,6 +355,157 @@ export class Service {
       embed: { color: 0x5865f2, image: { url: 'attachment://champ.png' }, ...(fetched >= 10 ? { footer: { text: `Fetched ${fetched} games from Riot for this; next time it's instant.` } } : {}) },
       files: [{ name: 'champ.png', data: png }],
       components: [linkButtonRow(profileLinks(player.platform, player.game_name, player.tag_line))],
+    };
+  }
+
+  // ---- rank changes, /peak, recap awards ----
+
+  /** Promotions / demotions out of resolved games and LP adjustments (decay, dodges). */
+  rankChanges(games: GameResult[], adjustments: LpAdjustment[]): RankChange[] {
+    const out: RankChange[] = [];
+    const add = (player: PlayerRow, queueType: string | undefined, from: Rank | null | undefined, to: Rank | null | undefined) => {
+      if (!queueType || !from || !to) return;
+      const c = compareDivision(to, from);
+      if (c !== 0) out.push({ player, queueType, from, to, up: c > 0 });
+    };
+    for (const g of games) add(g.player, QUEUE_TYPE_BY_ID[g.queueId], g.rankBefore, g.rankAfter);
+    for (const a of adjustments) add(a.player, a.queueType, a.rankBefore, a.rankAfter);
+    return out;
+  }
+
+  /** Post promotions / demotions to the game log channels that show this player. */
+  async postRankChanges(changes: RankChange[]): Promise<void> {
+    if (!this.logPoster || !changes.length) return;
+    for (const ch of changes) {
+      const channels = new Set<string>();
+      if (this.gameLogChannel) channels.add(this.gameLogChannel);
+      for (const g of this.repo.listGuilds()) {
+        if (g.log_channel_id && this.repo.trackedInGuild(g.guild_id).some((p) => p.puuid === ch.player.puuid)) channels.add(g.log_channel_id);
+      }
+      if (!channels.size) continue;
+      const reply = await this.rankChangeReply(ch);
+      for (const c of channels) {
+        await this.logPoster.send(c, reply).catch((e) => this.log(`rank change post to ${c} failed: ${(e as Error).message}`));
+      }
+    }
+  }
+
+  private async rankChangeReply(ch: RankChange): Promise<Reply> {
+    const emblem = this.assets ? await this.assets.emblemUrl(ch.to.tier).catch(() => null) : null;
+    const who = `${ch.player.game_name}#${ch.player.tag_line}`;
+    return {
+      embed: {
+        title: `${ch.up ? '🎉' : '📉'} ${who} ${ch.up ? 'promoted' : 'demoted'} to ${formatTierDiv(ch.to)}`,
+        description: `${formatTierDiv(ch.from)} → **${formatTierDiv(ch.to)}** · ${QUEUE_TYPE_LABEL[ch.queueType] ?? ch.queueType}`,
+        color: ch.up ? 0x3fb950 : 0xf85149,
+        ...(emblem && /^https?:/.test(emblem) ? { thumbnail: { url: emblem } } : {}),
+      },
+      files: [],
+    };
+  }
+
+  /** /peak: highest rank per queue since tracking started (recorded games + current rank). */
+  async peak(player: PlayerRow): Promise<Reply> {
+    const best = new Map<string, { r: Rank; at: number }>();
+    const consider = (qt: string | undefined, r: Rank, at: number) => {
+      if (!qt) return;
+      const cur = best.get(qt);
+      if (!cur || compareDivision(r, cur.r) > 0 || (compareDivision(r, cur.r) === 0 && r.lp > cur.r.lp)) best.set(qt, { r, at });
+    };
+    for (const h of this.repo.rankHistory(player.puuid)) consider(QUEUE_TYPE_BY_ID[h.queue_id], h, h.at);
+    const now: Record<string, Rank> = {};
+    for (const s of this.repo.getSnapshots(player.puuid)) {
+      if (!s.tier || s.tier === 'UNRANKED' || !QUEUE_TYPE_LABEL[s.queue_type]) continue;
+      now[s.queue_type] = { tier: s.tier, division: s.division, lp: s.lp };
+      consider(s.queue_type, now[s.queue_type]!, s.taken_at);
+    }
+    const order = ['RANKED_SOLO_5x5', 'RANKED_FLEX_SR', 'RANKED_PREMADE_5x5'].filter((q) => best.has(q));
+    if (!order.length) throw new UserError(`No ranked games recorded for **${player.game_name}#${player.tag_line}** yet.`);
+    const top = order.map((q) => best.get(q)!.r).sort((a, b) => compareDivision(b, a) || b.lp - a.lp)[0]!;
+    const emblem = this.assets ? await this.assets.emblemUrl(top.tier).catch(() => null) : null;
+    const ts = (ms: number) => `<t:${Math.floor(ms / 1000)}:D>`;
+    return {
+      embed: {
+        title: `Peak ranks · ${player.game_name}#${player.tag_line}`,
+        color: 0x5865f2,
+        ...(emblem && /^https?:/.test(emblem) ? { thumbnail: { url: emblem } } : {}),
+        fields: order.map((q) => {
+          const b = best.get(q)!;
+          const n = now[q];
+          const atPeak = n && compareDivision(n, b.r) === 0 && n.lp >= b.r.lp;
+          return {
+            name: QUEUE_TYPE_LABEL[q]!,
+            value: `**${formatTierDiv(b.r)} · ${b.r.lp} LP** · ${ts(b.at)}\n${atPeak ? '🔥 at peak right now' : n ? `now ${formatTierDiv(n)} · ${n.lp} LP` : ''}`,
+            inline: true,
+          };
+        }),
+        footer: { text: `Since tracking started · ${new Date(player.created_at).toISOString().slice(0, 10)}` },
+      },
+      files: [],
+      components: [linkButtonRow(profileLinks(player.platform, player.game_name, player.tag_line))],
+    };
+  }
+
+  /**
+   * Recap awards: single-game highlights among the tracked accounts in a period, plus
+   * promotions / demotions over it. Null when nobody played.
+   */
+  async recapAwards(list: PlayerRow[], period: Period, title: string): Promise<Reply | null> {
+    const queues = await this.recapQueues();
+    const qset = new Set(queues);
+    type G = { p: PlayerRow; me: ParticipantDto; m: MatchDto; lp: number | null };
+    const gs: G[] = [];
+    for (const p of list) {
+      for (const row of this.repo.doneMatchesBetween(p.puuid, period.from, period.to)) {
+        if (row.remake || !qset.has(row.queue_id)) continue;
+        const m = this.repo.getCachedMatch(row.match_id);
+        const me = m?.info.participants.find((x) => x.puuid === p.puuid);
+        if (m && me) gs.push({ p, me, m, lp: row.lp_delta });
+      }
+    }
+    const changes: string[] = [];
+    for (const p of list) {
+      for (const q of queues) {
+        const qt = QUEUE_TYPE_BY_ID[q];
+        const from = this.repo.rankBefore(p.puuid, [q], period.from);
+        const to = this.repo.rankBefore(p.puuid, [q], period.to);
+        if (!qt || !from || !to) continue;
+        const c = compareDivision(to, from);
+        if (c) changes.push(`${c > 0 ? '📈' : '📉'} **${p.game_name}** ${formatTierDiv(from)} → **${formatTierDiv(to)}** (${queueName(q)})`);
+      }
+    }
+    if (!gs.length && !changes.length) return null;
+
+    const mins = (g: G) => Math.max(1, g.m.info.gameDuration / 60);
+    const kda = (g: G) => (g.me.kills + g.me.assists) / Math.max(1, g.me.deaths);
+    const cs = (g: G) => g.me.totalMinionsKilled + g.me.neutralMinionsKilled;
+    const who = (g: G) => `**${g.p.game_name}** (${g.me.championName})`;
+    const pick = (score: (g: G) => number, ok: (g: G) => boolean = () => true) => {
+      const c = gs.filter(ok);
+      return c.length ? c.reduce((a, b) => (score(b) > score(a) ? b : a)) : null;
+    };
+    const lines: string[] = [];
+    const award = (label: string, g: G | null, text: (g: G) => string) => { if (g) lines.push(`${label} ${who(g)} · ${text(g)}`); };
+    award('🗡️ **Most kills**', pick((g) => g.me.kills, (g) => g.me.kills > 0), (g) => `${g.me.kills} kills`);
+    award('🎯 **Best KDA**', pick(kda), (g) => `${g.me.kills}/${g.me.deaths}/${g.me.assists}`);
+    award('💀 **Most deaths**', pick((g) => g.me.deaths, (g) => g.me.deaths > 0), (g) => `${g.me.deaths} deaths`);
+    award('💥 **Most damage**', pick((g) => g.me.totalDamageDealtToChampions), (g) => `${g.me.totalDamageDealtToChampions.toLocaleString('en-US')} to champions`);
+    award('🌾 **Best farmer**', pick((g) => cs(g) / mins(g), (g) => g.me.teamPosition !== 'UTILITY'), (g) => `${(cs(g) / mins(g)).toFixed(1)} CS/min`);
+    award('👁️ **Most vision**', pick((g) => g.me.visionScore), (g) => `${g.me.visionScore} vision score`);
+    award('⏱️ **Longest game**', pick((g) => g.m.info.gameDuration), (g) => `${Math.floor(g.m.info.gameDuration / 60)}:${String(g.m.info.gameDuration % 60).padStart(2, '0')}`);
+    award('📈 **Biggest LP gain**', pick((g) => g.lp ?? -999, (g) => (g.lp ?? 0) > 0), (g) => `+${g.lp} LP`);
+    award('🧂 **Biggest LP loss**', pick((g) => -(g.lp ?? 999), (g) => (g.lp ?? 0) < 0), (g) => `${g.lp} LP`);
+    const pentas = gs.filter((g) => g.me.pentaKills > 0);
+    if (pentas.length) lines.push(`🏆 **PENTAKILL** ${pentas.map(who).join(', ')}`);
+
+    return {
+      embed: {
+        title,
+        color: 0xf5c542,
+        description: lines.join('\n') || undefined,
+        ...(changes.length ? { fields: [{ name: 'Rank changes', value: changes.slice(0, 15).join('\n') }] } : {}),
+      },
+      files: [],
     };
   }
 
@@ -932,6 +1087,8 @@ export class Service {
       out.push(await this.leaderboardFor(list, g.timezone, 'daily', q, { title: `Daily recap · ${queueName(q)}`, none: '', who: 'tracked account' }, period));
     }
     if (out.length) out.push(await this.gamesLeaderboard(list, period, 'Games played today'));
+    const awards = await this.recapAwards(list, period, '🏅 Today\'s awards');
+    if (awards) out.push(awards);
     if (!out.length) {
       out.push({
         embed: {
@@ -955,6 +1112,8 @@ export class Service {
       out.push(await this.leaderboardFor(list, g.timezone, 'weekly', q, { title: `Weekly recap · ${queueName(q)}`, none: '', who: 'tracked account' }, period));
     }
     if (out.length) out.push(await this.gamesLeaderboard(list, period, 'Games played this week'));
+    const awards = await this.recapAwards(list, period, '🏅 This week\'s awards');
+    if (awards) out.push(awards);
     return out;
   }
 
@@ -1192,6 +1351,7 @@ export class Service {
   }
 
   private async afterTick(games: GameResult[], adjustments: LpAdjustment[], detected: string[]): Promise<void> {
+    await this.postRankChanges(this.rankChanges(games, adjustments));
     for (const g of games) {
       const guilds = this.repo.guildsTracking(g.player.puuid);
       // Linked-only players have no guild; still surface them to the sink under a pseudo-guild.
