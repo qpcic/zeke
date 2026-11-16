@@ -120,11 +120,12 @@ export async function renderLadder(rows: LadderRow[], o: LadderOptions, assets: 
     ctx.fillStyle = TIER_COLOR[r.tier] ?? C.text;
     ctx.font = font(700, 19);
     const label = isApex(r.tier) ? r.tier.charAt(0) + r.tier.slice(1).toLowerCase() : formatTierDiv(r);
-    ctx.fillText(label, COL.rank, mid - 2);
+    // single line: baseline ~1/3 of the cap height below the row's middle = visually centred
+    ctx.fillText(label, COL.rank, mid + 7);
     const lw = ctx.measureText(label).width;
     ctx.fillStyle = C.text;
     ctx.font = font(600, 16);
-    ctx.fillText(`${r.lp} LP`, COL.rank + lw + 10, mid - 2);
+    ctx.fillText(`${r.lp} LP`, COL.rank + lw + 10, mid + 7);
 
     const games = r.wins + r.losses;
     ctx.textAlign = 'right';
