@@ -11,7 +11,7 @@ import type { LeagueEntryDto } from '../riot/types.ts';
  * Transport-agnostic command logic. Slash commands and $prefix messages both
  * parse into a CommandRequest and render the returned Reply.
  */
-export type CommandName = 'zeke' | 'ladder' | 'champ' | 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'recap' | 'log' | 'server' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
+export type CommandName = 'zeke' | 'ladder' | 'champ' | 'peak' | 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'recap' | 'log' | 'server' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
 
 export interface CommandRequest {
   name: CommandName;
@@ -151,6 +151,7 @@ export function helpEmbed(p: string): Embed {
           `${c('weekly')} the past 7 days${a('w')}`,
           `${c('graph [games]')} LP graph${a('g')}`,
           `${c('champ [champion]')} your games on a champion (last 50 ranked)${a('c')}`,
+          `${c('peak')} highest rank in each queue since tracking started`,
         ].join('\n'),
       },
       {
@@ -237,6 +238,9 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
 
     case 'profile':
       return withNote(await service.profile(await target()));
+
+    case 'peak':
+      return service.peak(await target());
 
     case 'ladder':
       return service.ladder(needGuild(), req.members ?? [], queue);

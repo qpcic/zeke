@@ -70,6 +70,7 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 | `/daily [@user \| Name#TAG] [24h] [solo\|flex\|5s]` | Today's games and LP; add `24h` for the past 24 hours instead · `$d` |
 | `/weekly [@user \| Name#TAG] [solo\|flex\|5s]` | Games and LP from the past 7 days · `$w` |
 | `/champ [champion] [@user \| Name#TAG]` | Your games on one champion from your last 50 ranked games: W/L, KDA, CS and damage per minute, kill participation, LP, recent games. Defaults to your most played · `$champ lee sin`, `$c ahri` |
+| `/peak [@user \| Name#TAG]` | Highest rank in each queue since tracking started, with the date and whether they're there right now · `$peak` |
 | `/graph [@user \| Name#TAG] [games] [solo\|flex\|5s]` | LP graph over recorded games · `$g` |
 | `/scout <Name#TAG> [region] [player_2…5]` | One player: scout their usual Ranked 5s / Flex team. Up to 5 players: scout each one from their own last 20 ranked games, with roles fitted across them and how often they queue together. Roles, best champs, bans · `$scout fram#polar Mapet#MR10 eune` |
 
@@ -82,8 +83,8 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 | `/track remove <account>` | Remove an account from the leaderboard *(Manage Server)* |
 | `/ladder [solo\|flex\|5s]` | Everyone in the server by current rank: tracked accounts plus every linked account (alts too) of server members · `$ladder` |
 | `/track list` | Show tracked accounts |
-| `/recap` | Daily recap: pick a channel, and every night just after midnight the day's LP leaderboard (one per queue played) and a games-played leaderboard are posted there. On Mondays the weekly recap follows *(Manage Server)* · `$recap #channel`, `$recap off` |
-| `/log` | Game log: pick a channel and every new ranked game of the tracked accounts is posted there as a scoreboard, once per game *(Manage Server)* · `$log #channel`, `$log off` |
+| `/recap` | Daily recap: pick a channel, and every night just after midnight the day's LP leaderboard (one per queue played), a games-played leaderboard and the day's awards and rank changes are posted there. On Mondays the weekly recap follows *(Manage Server)* · `$recap #channel`, `$recap off` |
+| `/log` | Game log: pick a channel and every new ranked game of the tracked accounts is posted there as a scoreboard, once per game, plus promotions and demotions *(Manage Server)* · `$log #channel`, `$log off` |
 | `/server` | Tracked accounts, timezone, and the recap and game log channels |
 
 **Good to know**
