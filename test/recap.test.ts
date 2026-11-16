@@ -141,3 +141,18 @@ test('/log posts every new game of the server\'s tracked accounts once; /server 
   for (let i = 0; i < 4; i++) { clock.advance(5 * MIN); await service.tick(); }
   assert.equal(posted.length, 1);
 });
+
+test('recap message: every board gets its own attachment name (no two embeds showing the same image)', async () => {
+  const { recapMessage, uniqueAttachmentNames } = await import('../src/discord/recapComponents.ts');
+  const board = (t: string) => ({ embed: { title: t, image: { url: 'attachment://leaderboard.png' } }, files: [{ name: 'leaderboard.png', data: Buffer.from(t) }] });
+  const r = uniqueAttachmentNames([board('Solo'), board('Flex'), board('5s'), { embed: { image: { url: 'attachment://games.png' } }, files: [{ name: 'games.png', data: Buffer.from('g') }] }]);
+  assert.deepEqual(r.map((x) => [x.embed.image!.url, x.files[0]!.name]), [
+    ['attachment://1-leaderboard.png', '1-leaderboard.png'],
+    ['attachment://2-leaderboard.png', '2-leaderboard.png'],
+    ['attachment://3-leaderboard.png', '3-leaderboard.png'],
+    ['attachment://4-games.png', '4-games.png'],
+  ]);
+  const msg = recapMessage([board('Solo'), board('Flex')]);
+  const names = msg.files.map((f) => (f as { name: string }).name);
+  assert.equal(new Set(names).size, names.length);
+});

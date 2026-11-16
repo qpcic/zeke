@@ -61,8 +61,24 @@ export async function onRecapComponent(service: Service, i: ButtonInteraction | 
 
 /** Several leaderboard replies (one per queue) as one Discord message. */
 export function recapMessage(replies: import('../core/service.ts').Reply[]) {
-  const parts = replies.slice(0, 10).map(payload);
+  // Every board is "leaderboard.png": with several in one message Discord can't tell which
+  // attachment each embed means (two embeds showed the same image), so make names unique.
+  const parts = uniqueAttachmentNames(replies.slice(0, 10)).map(payload);
   return { embeds: parts.flatMap((p) => p.embeds), files: parts.flatMap((p) => p.files) };
+}
+
+/** Prefix each reply's files with its index and point its embed image at the renamed file. */
+export function uniqueAttachmentNames(replies: import('../core/service.ts').Reply[]): import('../core/service.ts').Reply[] {
+  return replies.map((r, i) => {
+    const rename = (name: string) => `${i + 1}-${name}`;
+    const url = r.embed.image?.url;
+    const m = url?.match(/^attachment:\/\/(.+)$/);
+    return {
+      ...r,
+      embed: { ...r.embed, ...(m ? { image: { ...r.embed.image, url: `attachment://${rename(m[1]!)}` } } : {}) },
+      files: r.files.map((f) => ({ ...f, name: rename(f.name) })),
+    };
+  });
 }
 
 /** /log panel: channel picker and Turn off for the server's game log. */
