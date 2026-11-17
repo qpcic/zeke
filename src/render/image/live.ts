@@ -56,7 +56,7 @@ const GAP = 12;
 /** Premade group colours (max 4 parties per lobby); none of them the team red/blue. */
 export const PARTY_COLORS = ['#f5c542', '#ff6bcb', '#39d0d8', '#a3e635'];
 
-const COL = { champ: 28, spells: 82, keystone: 112, runes: 150, shards: 226, name: 262, rank: 640 };
+const COL = { champ: 28, spells: 82, keystone: 112, runes: 150, shards: 226, name: 274, rank: 640 };
 
 interface Icons {
   champ: Map<number, Image | null>;
@@ -117,9 +117,9 @@ export async function renderLive(d: LiveData, assets: AssetSource): Promise<Buff
   ctx.fillText('RUNES', COL.keystone, HEADER_H + 14);
   ctx.fillText(d.rankLabel, COL.rank, HEADER_H + 14);
   if (d.players.some((p) => p.party !== null && p.party !== undefined)) {
-    drawPerson(ctx, COL.name, HEADER_H + 4, PARTY_COLORS[0]!, 12);
+    drawPerson(ctx, COL.name - 18, HEADER_H + 4, PARTY_COLORS[0]!, 12);
     ctx.fillStyle = C.faint;
-    ctx.fillText('SAME COLOUR = PREMADE', COL.name + 16, HEADER_H + 14);
+    ctx.fillText('SAME COLOUR = PREMADE', COL.name, HEADER_H + 14);
   }
 
   let y = HEADER_H + LABELS_H;
@@ -211,25 +211,24 @@ function drawRow(ctx: SKRSContext2D, y: number, p: LivePlayer, icons: Icons, sd:
   const name = p.bot ? `${cname} Bot` : hidden ? 'Hidden player' : p.gameName!;
   ctx.font = font(p.focus ? 700 : 600, 17);
   ctx.fillStyle = hidden ? C.sub : p.focus ? '#ffffff' : C.text;
-  // premade: coloured person icon before the name
+  // premade: coloured person icon in the gap left of the name (name stays put)
   const party = p.party ?? null;
-  const nx = COL.name + (party !== null ? 24 : 0);
   if (party !== null) {
-    drawPerson(ctx, COL.name, mid - 19, PARTY_COLORS[party] ?? PARTY_COLORS[0]!, 18);
+    drawPerson(ctx, COL.name - 24, mid - 9, PARTY_COLORS[party] ?? PARTY_COLORS[0]!, 18);
     ctx.font = font(p.focus ? 700 : 600, 17);
     ctx.fillStyle = hidden ? C.sub : p.focus ? '#ffffff' : C.text;
   }
-  const shown = fit(ctx, name, 330 - (nx - COL.name));
-  ctx.fillText(shown, nx, mid - 3);
+  const shown = fit(ctx, name, 330);
+  ctx.fillText(shown, COL.name, mid - 3);
   if (p.tagLine && !p.bot) {
     const nw = ctx.measureText(shown).width;
     ctx.font = font(400, 14);
     ctx.fillStyle = C.faint;
-    ctx.fillText(fit(ctx, `#${p.tagLine}`, Math.max(0, 350 - nw - (nx - COL.name))), nx + nw + 4, mid - 3);
+    ctx.fillText(fit(ctx, `#${p.tagLine}`, Math.max(0, 350 - nw)), COL.name + nw + 4, mid - 3);
   }
   ctx.font = font(400, 14);
   ctx.fillStyle = C.sub;
-  ctx.fillText(cname, nx, mid + 17);
+  ctx.fillText(cname, COL.name, mid + 17);
 
   drawRank(ctx, COL.rank, mid, p.rank, icons, p.bot || hidden);
 }
