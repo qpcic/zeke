@@ -81,3 +81,30 @@ test('match links: DPM.LOL opens the game, U.GG / OP.GG the profile', async () =
     'https://dpm.lol/ferks%20kitten-retro?match=4028021941',
   ]);
 });
+
+test('/live marks premades: teammates on the same side in 2+ recent games share a party colour', async () => {
+  const { mock, service, clock } = setup();
+  const duoA = mock.addAccount('Duo A', 'EUW', 'EUW1', ranks);
+  const duoB = mock.addAccount('Duo B', 'EUW', 'EUW1', ranks);
+  const soloC = mock.addAccount('Solo C', 'EUW', 'EUW1', ranks);
+  await service.linkUser('u1', 'EUW', 'Duo A#EUW');
+  for (let i = 0; i < 3; i++) {
+    clock.advance(40 * 60_000);
+    mock.play({ players: [{ puuid: duoA.puuid, team: 100, champion: 'Ahri' }, { puuid: duoB.puuid, team: 100, champion: 'Lee Sin' }], winner: 100 });
+  }
+  // Solo C was in one of their games, once, as a teammate: not enough
+  clock.advance(40 * 60_000);
+  mock.play({ players: [{ puuid: duoA.puuid, team: 100, champion: 'Ahri' }, { puuid: soloC.puuid, team: 100, champion: 'Jinx' }], winner: 200 });
+
+  mock.startLive({ players: [{ puuid: duoA.puuid, team: 100, championId: 103 }, { puuid: duoB.puuid, team: 100, championId: 64 }, { puuid: soloC.puuid, team: 100, championId: 222 }], startedAt: clock.now() - 60_000 });
+  const parties = await (service as unknown as { liveParties: (p: string, g: unknown) => Promise<(number | null)[]> })
+    .liveParties('EUW1', mock.live.get(duoA.puuid));
+  const byPuuid = new Map(mock.live.get(duoA.puuid)!.participants.map((p, i) => [p.puuid, parties[i]]));
+  assert.equal(byPuuid.get(duoA.puuid), 0);
+  assert.equal(byPuuid.get(duoB.puuid), 0, 'same party as their duo');
+  assert.equal(byPuuid.get(soloC.puuid), null, 'one shared game is not a premade');
+
+  const r = await runCommand(service, { ...base, name: 'live' });
+  if (process.env.WRITE_PREVIEWS) writeFileSync('/tmp/live-premade.png', r.files[0]!.data);
+  assert.equal(r.files[0]!.name, 'live.png');
+});

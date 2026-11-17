@@ -493,8 +493,6 @@ export class Service {
     award('🌾 **Best farmer**', pick((g) => cs(g) / mins(g), (g) => g.me.teamPosition !== 'UTILITY'), (g) => `${(cs(g) / mins(g)).toFixed(1)} CS/min`);
     award('👁️ **Most vision**', pick((g) => g.me.visionScore), (g) => `${g.me.visionScore} vision score`);
     award('⏱️ **Longest game**', pick((g) => g.m.info.gameDuration), (g) => `${Math.floor(g.m.info.gameDuration / 60)}:${String(g.m.info.gameDuration % 60).padStart(2, '0')}`);
-    award('📈 **Biggest LP gain**', pick((g) => g.lp ?? -999, (g) => (g.lp ?? 0) > 0), (g) => `+${g.lp} LP`);
-    award('🧂 **Biggest LP loss**', pick((g) => -(g.lp ?? 999), (g) => (g.lp ?? 0) < 0), (g) => `${g.lp} LP`);
     const pentas = gs.filter((g) => g.me.pentaKills > 0);
     if (pentas.length) lines.push(`🏆 **PENTAKILL** ${pentas.map(who).join(', ')}`);
 
@@ -936,6 +934,7 @@ export class Service {
     const q = g.gameQueueConfigId ?? 0;
     const rankQueue = q === FLEX ? 'RANKED_FLEX_SR' : isFivesQueue(q) ? 'RANKED_PREMADE_5x5' : 'RANKED_SOLO_5x5';
     const rankLabel = q === FLEX ? 'FLEX' : isFivesQueue(q) ? 'RANKED 5S' : 'SOLO/DUO';
+    const parties = await this.liveParties(player.platform, g);
     const players: LivePlayer[] = g.participants.map((p, i) => {
       const [gameName, tagLine] = p.riotId?.includes('#') ? [p.riotId.slice(0, p.riotId.lastIndexOf('#')), p.riotId.slice(p.riotId.lastIndexOf('#') + 1)] : [p.riotId || null, null];
       const known = p.puuid ? this.repo.getPlayer(p.puuid) : undefined;
@@ -951,6 +950,7 @@ export class Service {
         perkSubStyle: p.perks?.perkSubStyle ?? 0,
         rank: rank(entries[i]!, rankQueue),
         focus: p.puuid === player.puuid,
+        party: parties[i] ?? null,
         known: !!known && p.puuid !== player.puuid,
       };
     });
@@ -968,6 +968,51 @@ export class Service {
       files: [{ name: 'live.png', data: png }],
       components: [linkButtonRow(liveGameLinks(player.platform, player.game_name, player.tag_line))],
     };
+  }
+
+  /**
+   * Premades in a live game: Riot doesn't expose parties, so teammates who were on the same
+   * side in 2+ of each other's last 10 games count as queued together. Returns a party
+   * number (0–3) per participant, or null for solo players.
+   */
+  private async liveParties(platform: Platform, g: CurrentGameInfo): Promise<(number | null)[]> {
+    const ps = g.participants;
+    const lists = await Promise.all(ps.map((p) =>
+      p.puuid && !p.bot ? this.riot.getMatchIds(platform, p.puuid, { count: 10 }).catch(() => [] as string[]) : Promise.resolve([] as string[])));
+    const parent = ps.map((_, i) => i);
+    const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)));
+    const loadMatch = async (id: string) => {
+      const c = this.repo.getCachedMatch(id);
+      if (c) return c;
+      const m = await this.riot.getMatch(platform, id).catch(() => null);
+      if (m) this.repo.cacheMatch(m);
+      return m;
+    };
+    for (let i = 0; i < ps.length; i++) {
+      for (let j = i + 1; j < ps.length; j++) {
+        if (ps[i]!.teamId !== ps[j]!.teamId || !lists[i]!.length || !lists[j]!.length || find(i) === find(j)) continue;
+        const shared = lists[i]!.filter((id) => lists[j]!.includes(id));
+        if (shared.length < 2) continue;
+        let together = 0;
+        for (const id of shared) {
+          const m = await loadMatch(id);
+          const a = m?.info.participants.find((x) => x.puuid === ps[i]!.puuid);
+          const b = m?.info.participants.find((x) => x.puuid === ps[j]!.puuid);
+          if (a && b && a.teamId === b.teamId && ++together >= 2) break;
+        }
+        if (together >= 2) parent[find(i)] = find(j);
+      }
+    }
+    // groups of 2+, numbered in lobby order (blue team first)
+    const size = new Map<number, number>();
+    ps.forEach((_, i) => size.set(find(i), (size.get(find(i)) ?? 0) + 1));
+    const num = new Map<number, number>();
+    return ps.map((_, i) => {
+      const root = find(i);
+      if ((size.get(root) ?? 0) < 2) return null;
+      if (!num.has(root)) num.set(root, num.size);
+      return num.get(root)! < 4 ? num.get(root)! : null;
+    });
   }
 
   /** LP graph for the last `games` recorded games in a queue. */

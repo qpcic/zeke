@@ -51,8 +51,7 @@ test('daily recap: Manage Server only, posted once ~10 min after local midnight,
   assert.deepEqual(posts[0]!.replies.map((r) => r.files[0]?.name ?? r.embed.title), ['leaderboard.png', 'leaderboard.png', 'games.png', "🏅 Today's awards"], 'Solo, Flex, games played, awards');
   const awards = posts[0]!.replies[3]!.embed.description!;
   assert.match(awards, /Most kills/);
-  assert.match(awards, /Biggest LP gain\*\* \*\*Recap One\*\*/);
-  assert.match(awards, /Biggest LP loss\*\* \*\*Recap Two\*\*/);
+  assert.doesNotMatch(awards, /LP gain|LP loss/);
 
   // never twice for the same day
   clock.advance(30 * MIN);
