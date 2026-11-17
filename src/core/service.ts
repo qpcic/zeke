@@ -493,8 +493,6 @@ export class Service {
     award('🌾 **Best farmer**', pick((g) => cs(g) / mins(g), (g) => g.me.teamPosition !== 'UTILITY'), (g) => `${(cs(g) / mins(g)).toFixed(1)} CS/min`);
     award('👁️ **Most vision**', pick((g) => g.me.visionScore), (g) => `${g.me.visionScore} vision score`);
     award('⏱️ **Longest game**', pick((g) => g.m.info.gameDuration), (g) => `${Math.floor(g.m.info.gameDuration / 60)}:${String(g.m.info.gameDuration % 60).padStart(2, '0')}`);
-    award('📈 **Biggest LP gain**', pick((g) => g.lp ?? -999, (g) => (g.lp ?? 0) > 0), (g) => `+${g.lp} LP`);
-    award('🧂 **Biggest LP loss**', pick((g) => -(g.lp ?? 999), (g) => (g.lp ?? 0) < 0), (g) => `${g.lp} LP`);
     const pentas = gs.filter((g) => g.me.pentaKills > 0);
     if (pentas.length) lines.push(`🏆 **PENTAKILL** ${pentas.map(who).join(', ')}`);
 
