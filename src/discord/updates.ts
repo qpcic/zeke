@@ -28,7 +28,16 @@ export function stripTrailers(message: string): string {
 export function changeText(message: string): string {
   const lines = stripTrailers(message).split('\n');
   if (/^Merge (pull request|branch|remote-tracking branch) /.test(lines[0] ?? '') && lines.slice(1).some((l) => l.trim())) lines.shift();
-  return lines.join('\n').trim();
+  while (lines.length && !lines[0]!.trim()) lines.shift();
+  // ship.cmd: "<note>" + "- <commit>" bullets. Drop bullets that just repeat the note,
+  // and the generic "Zeke update" title when there are bullets to show instead.
+  const norm = (x: string) => x.replace(/^[-*]\s+/, '').trim().toLowerCase();
+  const subject = lines[0] ?? '';
+  let rest = lines.slice(1).filter((l) => !/^[-*]\s+/.test(l) || norm(l) !== norm(subject));
+  const hasBullets = rest.some((l) => /^[-*]\s+/.test(l));
+  if (hasBullets && /^zeke update$/i.test(subject.trim())) return rest.join('\n').trim();
+  rest = rest.join('\n').trim() ? rest : [];
+  return [subject, ...rest].join('\n').trim();
 }
 
 export function updateEmbed(c: CommitInfo) {

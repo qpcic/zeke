@@ -28,7 +28,10 @@ export const config = {
   /** Register/update global slash commands on startup when their definitions changed (AUTO_REGISTER=0 to disable). */
   autoRegister: process.env.AUTO_REGISTER !== '0',
   /** Channel where owner-only $admin commands are accepted. */
+  /** Every command is logged here. */
   consoleChannelId: process.env.CONSOLE_CHANNEL_ID ?? '',
+  /** Where the owner's `$admin` commands work (falls back to the console channel if unset). */
+  adminChannelId: process.env.ADMIN_CHANNEL_ID || process.env.CONSOLE_CHANNEL_ID || '',
   /** Every newly recorded game of every known account is posted here, once per match. */
   gameLogChannelId: process.env.GAME_LOG_CHANNEL_ID ?? '',
   /** On startup, the deploying commit's message is posted here (once per commit). */

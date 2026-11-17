@@ -19,3 +19,12 @@ test('update post: subject as title, body without trailers, link to the commit',
   assert.equal(merge.description, 'Multi-account linking with a /link button panel');
   assert.equal(stripTrailers('Fix typo'), 'Fix typo');
 });
+
+test('update post: no repeated note, no generic title when there are bullets', async () => {
+  const { changeText } = await import('../src/discord/updates.ts');
+  assert.equal(changeText('Premade icons on /live\n\n- Premade icons on /live'), 'Premade icons on /live');
+  assert.equal(changeText('Merge pull request #40 from qpcic/dev\n\nPremade icons on /live\n\n- Premade icons on /live'), 'Premade icons on /live');
+  assert.equal(changeText('Live tweaks\n\n- Premade icons\n- Centre icon'), 'Live tweaks\n\n- Premade icons\n- Centre icon');
+  assert.equal(changeText('Zeke update\n\n- Premade icons\n- Centre icon'), '- Premade icons\n- Centre icon');
+  assert.equal(changeText('Fix typo'), 'Fix typo');
+});
