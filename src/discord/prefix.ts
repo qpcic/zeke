@@ -254,12 +254,12 @@ export function createPrefixHandler(
   }
 
   /**
-   * Owner console: `$admin ...` only in CONSOLE_CHANNEL_ID and only from OWNER_ID.
+   * Owner console: `$admin ...` only in ADMIN_CHANNEL_ID and only from OWNER_ID.
    * Anyone/anywhere else gets no reply at all.
    */
   async function handleAdmin(msg: Message, args: string[]): Promise<void> {
-    if (!config.ownerId || !config.consoleChannelId) return;
-    if (msg.author.id !== config.ownerId || msg.channelId !== config.consoleChannelId) return;
+    if (!config.ownerId || !config.adminChannelId) return;
+    if (msg.author.id !== config.ownerId || msg.channelId !== config.adminChannelId) return;
     const send = (embed: Embed, files: Reply['files'] = []) =>
       msg.reply({ embeds: [embed], files: files.map((f) => new AttachmentBuilder(f.data, { name: f.name })), allowedMentions: { parse: [], repliedUser: false } });
     const sub = (args[0] ?? '').toLowerCase();
@@ -339,8 +339,8 @@ export function createPrefixHandler(
     {
       const [head, ...args] = msg.content.slice(prefix.length).trim().split(/\s+/);
       if (head?.toLowerCase() === 'admin') {
-        // Only the owner in the console channel gets a reply; log just those (others are ignored silently).
-        if (config.ownerId && msg.author.id === config.ownerId && msg.channelId === config.consoleChannelId) {
+        // Only the owner in the admin channel gets a reply; log just those (others are ignored silently).
+        if (config.ownerId && msg.author.id === config.ownerId && msg.channelId === config.adminChannelId) {
           const t = Date.now();
           await handleAdmin(msg, args);
           audit(msg, t, true, undefined, `admin ${(args[0] ?? '').toLowerCase()}`.trim());

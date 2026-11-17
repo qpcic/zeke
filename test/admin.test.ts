@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 // config reads env at import time; node --test runs each file in its own process
 process.env.OWNER_ID = 'owner';
-process.env.CONSOLE_CHANNEL_ID = 'console';
+process.env.ADMIN_CHANNEL_ID = 'console';
 
 const { setup } = await import('./helpers.ts');
 const { createPrefixHandler } = await import('../src/discord/prefix.ts');

@@ -39,7 +39,8 @@ cp .env.example .env
 | `DEFAULT_REGION` | | Region assumed by `/scout` for unknown players, e.g. `EUNE` |
 | `PREFIX` | | Text command prefix (default `$`; empty turns `$` commands off) |
 | `OWNER_ID` | | Your Discord user ID; enables `$import` and `$admin` |
-| `CONSOLE_CHANNEL_ID` | | Channel where `$admin` commands work |
+| `CONSOLE_CHANNEL_ID` | | Channel where every command is logged |
+| `ADMIN_CHANNEL_ID` | | Channel where `$admin` commands work (defaults to `CONSOLE_CHANNEL_ID`) |
 | `DEFAULT_TZ` | | Timezone used for dates shown on the cards (default `Europe/Ljubljana`) |
 | `DB_PATH` | | SQLite file (default `./data/leaguebot.db`) |
 | `POLL_INTERVAL_SEC` | | Seconds between polls (default `120`) |
@@ -101,7 +102,7 @@ Install Node 22.13+ and `fonts-noto-cjk` (so Korean, Japanese and Chinese names 
 
 ## Admin console
 
-With `OWNER_ID` and `CONSOLE_CHANNEL_ID` set, the owner can run these in that channel (anyone else, or anywhere else, gets no reply):
+With `OWNER_ID` and `ADMIN_CHANNEL_ID` set, the owner can run these in that channel (anyone else, or anywhere else, gets no reply):
 
 | Command | What it does |
 |---|---|
