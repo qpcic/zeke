@@ -87,3 +87,16 @@ test('$admin globallb: leaderboard over every known account', async () => {
   const weeklyFlex = (await run('$admin glb week flex'))[0]!.embeds[0]!;
   assert.match(weeklyFlex.description!, /No Flex games in the past 7 days by the 2 known accounts/);
 });
+
+test('$admin globalladder: every known account by current rank, paged, owner/admin channel only', async () => {
+  const { run, service, mock } = await world();
+  mock.addAccount('Looked Up', 'EUNE', 'EUN1', [{ queueType: 'RANKED_SOLO_5x5', tier: 'DIAMOND', rank: 'IV', lp: 3, wins: 5, losses: 5 }]);
+  await service.lookup('Looked Up#EUNE', 'EUNE').catch(() => service.addPlayer('g9', 'EUNE', 'Looked Up#EUNE'));
+  const r = (await run('$admin globalladder'))[0]!;
+  assert.equal((r.files ?? []).length, 1, 'ladder image attached');
+  assert.equal((await run('$admin gl flex 2'))[0]!.files?.length, 1, 'flex + page arg accepted');
+  assert.equal((await run('$admin globalladder', 'someone')).length, 0, 'not for other users');
+  const g = await service.globalLadder(420);
+  assert.equal(g.files[0]!.name, 'ladder.png');
+  if (process.env.WRITE_PREVIEWS) (await import('node:fs')).writeFileSync('/tmp/gladder.png', g.files[0]!.data);
+});
