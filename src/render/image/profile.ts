@@ -13,6 +13,8 @@ export interface QueueCard {
   /** "#152 on EUNE" for Master+, else null */
   ladderPos: string | null;
   hotStreak: boolean;
+  /** e.g. "~3 wins to Diamond IV" (non-apex, from recorded LP gains) */
+  toNext?: string | null;
 }
 export interface ProfileData {
   name: string;
@@ -264,6 +266,10 @@ function drawQueue(ctx: SKRSContext2D, x: number, y: number, w: number, h: numbe
     ctx.fillStyle = C.sub;
     ctx.font = font(600, 13);
     ctx.fillText(fit(ctx, q.ladderPos, w - 20), cx, y + 194);
+  } else if (q.toNext) {
+    ctx.fillStyle = C.sub;
+    ctx.font = font(600, 13);
+    ctx.fillText(fit(ctx, q.toNext, w - 20), cx, y + 194);
   }
   ctx.textAlign = 'left';
 
