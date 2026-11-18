@@ -18,7 +18,7 @@ export interface LadderRow {
   losses: number;
 }
 
-export interface LadderOptions { title: string; subtitle: string; footer: string }
+export interface LadderOptions { title: string; subtitle: string; footer: string; /** rank of the first row minus 1 (paging) */ startRank?: number }
 
 const W = 1040;
 const PAD = 20;
@@ -44,7 +44,8 @@ export async function renderLadder(rows: LadderRow[], o: LadderOptions, assets: 
   ctx.fillStyle = C.bg;
   ctx.fillRect(0, 0, W, H);
 
-  const top = rows[0];
+  // header shows the #1 only on the first page
+  const top = (o.startRank ?? 0) === 0 ? rows[0] : undefined;
   const accent = top ? TIER_COLOR[top.tier] ?? '#5865f2' : '#5865f2';
   const grad = ctx.createLinearGradient(0, 0, W, 0);
   grad.addColorStop(0, `${accent}40`);
@@ -81,19 +82,20 @@ export async function renderLadder(rows: LadderRow[], o: LadderOptions, assets: 
     rounded(ctx, PAD, y + 4, W - 2 * PAD, ROW_H - 8, 10);
     ctx.fill();
 
+    const pos = (o.startRank ?? 0) + i;
     ctx.textAlign = 'center';
-    if (i < 3) {
-      ctx.fillStyle = MEDAL[i]!;
+    if (pos < 3) {
+      ctx.fillStyle = MEDAL[pos]!;
       ctx.beginPath();
       ctx.arc(COL.pos, mid, 14, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#16171a';
       ctx.font = font(700, 15);
-      ctx.fillText(String(i + 1), COL.pos, mid + 5);
+      ctx.fillText(String(pos + 1), COL.pos, mid + 5);
     } else {
       ctx.fillStyle = C.sub;
-      ctx.font = font(700, 17);
-      ctx.fillText(String(i + 1), COL.pos, mid + 6);
+      ctx.font = font(700, pos >= 99 ? 14 : 17);
+      ctx.fillText(String(pos + 1), COL.pos, mid + 6);
     }
     ctx.textAlign = 'left';
 

@@ -305,6 +305,16 @@ export function createPrefixHandler(
           await send(statsEmbed(service, msg.client, parseStatsPeriod(rest)));
           return;
         }
+        case 'globalladder':
+        case 'gladder':
+        case 'gl': {
+          const words = rest.map((w) => w.toLowerCase());
+          const q = words.includes('flex') ? 440 : words.some((w) => QUEUE_WORDS[w] === 5) ? 5 : 420;
+          const page = Number(words.find((w) => /^\d+$/.test(w)) ?? 1);
+          const r = await service.globalLadder(q, page);
+          await send(r.embed, r.files);
+          return;
+        }
         case 'globallb':
         case 'glb': {
           const words = rest.map((w) => w.toLowerCase());
@@ -320,6 +330,7 @@ export function createPrefixHandler(
             description: [
               `\`${prefix}admin health\` uptime, polling, Riot API errors / rate limits, database, recent errors`,
               `\`${prefix}admin stats [24h|7d|30d|all]\` command usage, top servers / users, growth`,
+              `\`${prefix}admin globalladder [solo|flex|5s] [page]\` every known account by current rank`,
               `\`${prefix}admin list [page]\` all known accounts`,
               `\`${prefix}admin links [page]\` Discord → Riot links (10 per page)`,
               `\`${prefix}admin globallb [daily|weekly] [solo|flex|5s]\` leaderboard of every account`,

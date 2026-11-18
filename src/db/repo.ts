@@ -111,6 +111,10 @@ export class Repo {
     return { due: r.n, oldestDueAt: r.oldest };
   }
 
+  linkedPuuids(): Set<string> {
+    return new Set((this.db.prepare('SELECT DISTINCT puuid FROM links').all() as { puuid: string }[]).map((r) => r.puuid));
+  }
+
   linkedUserIds(): string[] {
     return (this.db.prepare('SELECT DISTINCT discord_user_id AS id FROM links').all() as { id: string }[]).map((r) => r.id);
   }

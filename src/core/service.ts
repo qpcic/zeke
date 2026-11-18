@@ -241,22 +241,50 @@ export class Service {
     for (const m of members) {
       for (const p of this.repo.linkedPlayers(m.id)) add(p, `@${m.name}${p.is_main ? '' : ' · alt'}`);
     }
+    return this.ladderReply([...entries.values()].map((e) => ({ player: e.player, owner: e.owners.join(', ') || 'tracked' })), queueType, {
+      title: `Server ladder · ${queueName(queueId)}`,
+      note: 'Tracked accounts + linked accounts of server members',
+    });
+  }
+
+  /**
+   * `$admin globalladder`: every account the bot knows, by current rank, 25 per page.
+   * Second line shows region and whether it's linked / tracked in servers.
+   */
+  async globalLadder(queueId: number, page = 1): Promise<Reply> {
+    const q = await this.resolveQueue(queueId);
+    const queueType = QUEUE_TYPE_BY_ID[q] ?? (queueId === FIVES ? 'RANKED_PREMADE_5x5' : 'RANKED_SOLO_5x5');
+    const linked = this.repo.linkedPuuids();
+    const entries = this.repo.activePlayers().map((p) => {
+      const servers = this.repo.guildsTracking(p.puuid).length;
+      const isLinked = linked.has(p.puuid);
+      const how = [isLinked ? 'linked' : '', servers ? `${servers} server${servers === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ') || 'looked up';
+      return { player: p, owner: `${PLATFORM_LABEL[p.platform]} · ${how}` };
+    });
+    return this.ladderReply(entries, queueType, { title: `Global ladder · ${queueName(queueId)}`, note: 'Every account Zeke knows', page });
+  }
+
+  private async ladderReply(entries: { player: PlayerRow; owner: string }[], queueType: string, o: { title: string; note: string; page?: number }): Promise<Reply> {
     const rows: LadderRow[] = [];
     let unranked = 0;
-    for (const { player, owners } of entries.values()) {
+    for (const { player, owner } of entries) {
       const s = this.repo.getSnapshot(player.puuid, queueType);
       if (!s || !s.tier || s.tier === 'UNRANKED') {
         unranked++;
         continue;
       }
-      rows.push({ name: player.game_name, tag: player.tag_line, owner: owners.join(', ') || 'tracked', tier: s.tier, division: s.division, lp: s.lp, wins: s.wins, losses: s.losses });
+      rows.push({ name: player.game_name, tag: player.tag_line, owner, tier: s.tier, division: s.division, lp: s.lp, wins: s.wins, losses: s.losses });
     }
     rows.sort((a, b) => compareDivision(b, a) || b.lp - a.lp);
-    const shown = rows.slice(0, 25);
+    const per = 25;
+    const pages = Math.max(1, Math.ceil(rows.length / per));
+    const page = Math.min(Math.max(1, o.page ?? 1), pages);
+    const shown = rows.slice((page - 1) * per, page * per);
     const png = await renderLadder(shown, {
-      title: `Server ladder · ${queueName(queueId)}`,
-      subtitle: `${rows.length} ranked account${rows.length === 1 ? '' : 's'}${rows.length > 25 ? ' · top 25' : ''}`,
-      footer: [unranked ? `${unranked} unranked hidden` : '', 'Tracked accounts + linked accounts of server members · ranks as of their last check'].filter(Boolean).join('  ·  '),
+      title: o.title,
+      subtitle: `${rows.length} ranked account${rows.length === 1 ? '' : 's'}${pages > 1 ? ` · page ${page}/${pages}` : ''}`,
+      footer: [unranked ? `${unranked} unranked hidden` : '', `${o.note} · ranks as of their last check`].filter(Boolean).join('  ·  '),
+      startRank: (page - 1) * per,
     }, this.assets);
     return { embed: { color: 0x5865f2, image: { url: 'attachment://ladder.png' } }, files: [{ name: 'ladder.png', data: png }] };
   }
