@@ -12,7 +12,7 @@ import { renderLeaderboard, type LeaderboardRow } from '../render/image/leaderbo
 import { renderRecap, type RecapGame, type RecapHeader } from '../render/image/recap.ts';
 import { renderBanPlan } from '../render/image/banplan.ts';
 import { renderProfile, type ProfileData, type QueueCard } from '../render/image/profile.ts';
-import { compareDivision, formatTierDiv, isApex, type Rank } from './rank.ts';
+import { compareDivision, formatTierDiv, isApex, winsToNext, type Rank } from './rank.ts';
 import { discoverFivesQueue, scoutPlayers, scoutTeam } from './scout.ts';
 import { saveFivesQueue } from './queues.ts';
 import { renderLive, type LivePlayer } from '../render/image/live.ts';
@@ -691,7 +691,14 @@ export class Service {
         const ap = await this.apexPosition(player.platform, queueType, player.puuid).catch(() => null);
         if (ap) ladderPos = `#${ap.pos.toLocaleString('en-US')} on ${PLATFORM_LABEL[player.platform]}`;
       }
-      return { label, rank, wins: e.wins, losses: e.losses, ladderPos, hotStreak: e.hotStreak };
+      // "~3 wins to Diamond IV": average LP per win over the last recorded wins in this queue
+      const qid = queueType === 'RANKED_FLEX_SR' ? FLEX : queueType === 'RANKED_SOLO_5x5' ? SOLO : await this.resolveQueue(FIVES);
+      const gains = this.repo.lpHistory(player.puuid, qid, 30)
+        .filter((r) => r.win && !r.remake && typeof r.lp_delta === 'number' && r.lp_delta > 0 && (r.note === null || r.note === 'exact'))
+        .slice(-15).map((r) => r.lp_delta!);
+      const tn = winsToNext(rank, gains);
+      const toNext = tn ? `~${tn.wins} win${tn.wins === 1 ? "" : "s"} to ${formatTierDiv({ ...tn.next, lp: 0 })}` : null;
+      return { label, rank, wins: e.wins, losses: e.losses, ladderPos, hotStreak: e.hotStreak, toNext };
     };
     const queues = await Promise.all([card('RANKED_SOLO_5x5', 'Solo/Duo'), card('RANKED_FLEX_SR', 'Flex'), card('RANKED_PREMADE_5x5', 'Ranked 5s')]);
     const recent = this.repo.lpHistory(player.puuid, SOLO, 10).map((r) => !!r.win);
@@ -934,7 +941,7 @@ export class Service {
     const q = g.gameQueueConfigId ?? 0;
     const rankQueue = q === FLEX ? 'RANKED_FLEX_SR' : isFivesQueue(q) ? 'RANKED_PREMADE_5x5' : 'RANKED_SOLO_5x5';
     const rankLabel = q === FLEX ? 'FLEX' : isFivesQueue(q) ? 'RANKED 5S' : 'SOLO/DUO';
-    const parties = await this.liveParties(player.platform, g);
+    const parties = await this.liveParties(player.platform, g, player.puuid);
     const players: LivePlayer[] = g.participants.map((p, i) => {
       const [gameName, tagLine] = p.riotId?.includes('#') ? [p.riotId.slice(0, p.riotId.lastIndexOf('#')), p.riotId.slice(p.riotId.lastIndexOf('#') + 1)] : [p.riotId || null, null];
       const known = p.puuid ? this.repo.getPlayer(p.puuid) : undefined;
@@ -957,11 +964,13 @@ export class Service {
     const queueLabel = (q && QUEUE_LABEL[q]) || (g.gameMode === 'CLASSIC' ? 'Summoner\'s Rift' : g.gameMode.charAt(0) + g.gameMode.slice(1).toLowerCase());
     // gameLength is only refreshed now and then; time since gameStartTime is more current.
     const seconds = g.gameStartTime > 0 ? Math.max(0, Math.round((this.now() - g.gameStartTime) / 1000)) : null;
+    const history = this.lobbyHistory(player, g);
     if (!this.assets) throw new UserError('Live games need images, which are turned off on this bot.');
     const png = await renderLive({ queueLabel, rankLabel, seconds, bans: g.bannedChampions, players }, this.assets);
     return {
       embed: {
         color: 0xf85149,
+        ...(history ? { description: history } : {}),
         image: { url: 'attachment://live.png' },
         footer: { text: `${player.game_name}#${player.tag_line} · ${PLATFORM_LABEL[player.platform]}` },
       },
@@ -971,14 +980,64 @@ export class Service {
   }
 
   /**
+   * /live lobby history: who in this game the player has met before (cached games), as
+   * teammate or opponent, with the player's W/L in those games.
+   */
+  private lobbyHistory(player: PlayerRow, g: CurrentGameInfo): string | null {
+    const others = g.participants.filter((p) => p.puuid && p.puuid !== player.puuid);
+    if (!others.length) return null;
+    const stats = new Map<string, { withW: number; withL: number; vsW: number; vsL: number }>();
+    for (const m of this.repo.cachedMatchesWith(player.puuid)) {
+      if (m.metadata.matchId.endsWith(`_${g.gameId}`)) continue;
+      const me = m.info.participants.find((x) => x.puuid === player.puuid);
+      if (!me || me.gameEndedInEarlySurrender) continue;
+      for (const o of others) {
+        const them = m.info.participants.find((x) => x.puuid === o.puuid);
+        if (!them) continue;
+        const s = stats.get(o.puuid!) ?? { withW: 0, withL: 0, vsW: 0, vsL: 0 };
+        if (them.teamId === me.teamId) me.win ? s.withW++ : s.withL++;
+        else me.win ? s.vsW++ : s.vsL++;
+        stats.set(o.puuid!, s);
+      }
+    }
+    if (!stats.size) return null;
+    const nameOf = (puuid: string) => {
+      const p = g.participants.find((x) => x.puuid === puuid);
+      const rid = p?.riotId ?? '';
+      return rid.includes('#') ? rid.slice(0, rid.lastIndexOf('#')) : rid || this.repo.getPlayer(puuid)?.game_name || 'someone';
+    };
+    const fmt = (n: number, w: number, l: number) => `${n}× (${w}W ${l}L)`;
+    const withs: string[] = [];
+    const vs: string[] = [];
+    // most games first
+    for (const [puuid, s] of [...stats].sort((a, b) => (b[1].withW + b[1].withL + b[1].vsW + b[1].vsL) - (a[1].withW + a[1].withL + a[1].vsW + a[1].vsL))) {
+      const w = s.withW + s.withL, v = s.vsW + s.vsL;
+      if (w) withs.push(`**${nameOf(puuid)}** ${fmt(w, s.withW, s.withL)}`);
+      if (v) vs.push(`**${nameOf(puuid)}** ${fmt(v, s.vsW, s.vsL)}`);
+    }
+    return [
+      withs.length ? `🤝 Played with ${withs.slice(0, 5).join(' · ')}` : '',
+      vs.length ? `⚔️ Played against ${vs.slice(0, 5).join(' · ')}` : '',
+    ].filter(Boolean).join('\n') || null;
+  }
+
+  /**
    * Premades in a live game: Riot doesn't expose parties, so teammates who were on the same
    * side in 2+ of each other's last 10 games count as queued together. Returns a party
    * number (0–3) per participant, or null for solo players.
    */
-  private async liveParties(platform: Platform, g: CurrentGameInfo): Promise<(number | null)[]> {
+  private async liveParties(platform: Platform, g: CurrentGameInfo, focusPuuid?: string): Promise<(number | null)[]> {
     const ps = g.participants;
     const lists = await Promise.all(ps.map((p) =>
       p.puuid && !p.bot ? this.riot.getMatchIds(platform, p.puuid, { count: 10 }).catch(() => [] as string[]) : Promise.resolve([] as string[])));
+    // the focus player's last 10 games feed the lobby history: make sure they're cached
+    const fi = ps.findIndex((p) => p.puuid === focusPuuid);
+    if (fi >= 0) {
+      await Promise.all(lists[fi]!.filter((id) => !this.repo.getCachedMatch(id)).map(async (id) => {
+        const m = await this.riot.getMatch(platform, id).catch(() => null);
+        if (m) this.repo.cacheMatch(m);
+      }));
+    }
     const parent = ps.map((_, i) => i);
     const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)));
     const loadMatch = async (id: string) => {

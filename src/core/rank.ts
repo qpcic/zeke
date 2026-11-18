@@ -43,3 +43,23 @@ export function formatTierDiv(r: Rank): string {
 
 export const formatLpDelta = (d: number | null | undefined): string =>
   d === null || d === undefined ? '? LP' : d > 0 ? `+${d} LP` : d < 0 ? `−${Math.abs(d)} LP` : '±0 LP';
+
+const DIVS = ['IV', 'III', 'II', 'I'];
+const TIER_ORDER = ['IRON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'EMERALD', 'DIAMOND', 'MASTER', 'GRANDMASTER', 'CHALLENGER'];
+/** The division a promotion leads to: Gold II -> Gold I, Gold I -> Platinum IV, Diamond I -> Master. Null for apex. */
+export function nextDivision(r: { tier: string; division: string }): { tier: string; division: string } | null {
+  if (isApex(r.tier)) return null;
+  const d = DIVS.indexOf(r.division);
+  if (d >= 0 && d < 3) return { tier: r.tier, division: DIVS[d + 1]! };
+  const t = TIER_ORDER[TIER_ORDER.indexOf(r.tier) + 1];
+  return t ? { tier: t, division: isApex(t) ? 'I' : 'IV' } : null;
+}
+
+/** "~3 wins to Diamond IV" from average LP per win; null without enough recorded wins. */
+export function winsToNext(r: { tier: string; division: string; lp: number }, lpPerWin: number[]): { wins: number; next: { tier: string; division: string } } | null {
+  const next = nextDivision(r);
+  if (!next || lpPerWin.length < 2) return null;
+  const avg = lpPerWin.reduce((a, b) => a + b, 0) / lpPerWin.length;
+  if (avg <= 0) return null;
+  return { wins: Math.max(1, Math.ceil((100 - r.lp) / avg)), next };
+}

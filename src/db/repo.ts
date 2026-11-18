@@ -434,6 +434,12 @@ export class Repo {
     `).all(puuid) as unknown as { queue_id: number; tier: string; division: string; lp: number; at: number }[];
   }
 
+  /** Every cached match a player is in (for /live lobby history). */
+  cachedMatchesWith(puuid: string): MatchDto[] {
+    return (this.db.prepare('SELECT json FROM match_cache WHERE json LIKE ?').all(`%${puuid}%`) as { json: string }[])
+      .map((r) => JSON.parse(r.json) as MatchDto);
+  }
+
   /** Tracked rows of one match (every known account that played it). */
   matchRows(matchId: string): PlayerMatchRow[] {
     return this.db.prepare("SELECT * FROM player_matches WHERE match_id = ? AND status != 'ignored' ORDER BY first_seen, puuid").all(matchId) as unknown as PlayerMatchRow[];

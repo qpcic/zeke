@@ -106,5 +106,18 @@ test('/live marks premades: teammates on the same side in 2+ recent games share 
 
   const r = await runCommand(service, { ...base, name: 'live' });
   if (process.env.WRITE_PREVIEWS) writeFileSync('/tmp/live-premade.png', r.files[0]!.data);
+  // lobby history from cached games, from Duo A's side
+  assert.match(r.embed.description!, /🤝 Played with \*\*Duo B\*\* 3× \(3W 0L\) · \*\*Solo C\*\* 1× \(0W 1L\)/);
+  assert.doesNotMatch(r.embed.description!, /Played against/);
   assert.equal(r.files[0]!.name, 'live.png');
+});
+
+test('next division and wins needed', async () => {
+  const { nextDivision, winsToNext } = await import('../src/core/rank.ts');
+  assert.deepEqual(nextDivision({ tier: 'GOLD', division: 'II' }), { tier: 'GOLD', division: 'I' });
+  assert.deepEqual(nextDivision({ tier: 'EMERALD', division: 'I' }), { tier: 'DIAMOND', division: 'IV' });
+  assert.deepEqual(nextDivision({ tier: 'DIAMOND', division: 'I' }), { tier: 'MASTER', division: 'I' });
+  assert.equal(nextDivision({ tier: 'MASTER', division: 'I' }), null);
+  assert.deepEqual(winsToNext({ tier: 'EMERALD', division: 'I', lp: 40 }, [20, 22, 18]), { wins: 3, next: { tier: 'DIAMOND', division: 'IV' } });
+  assert.equal(winsToNext({ tier: 'EMERALD', division: 'I', lp: 40 }, [20]), null, 'needs 2+ recorded wins');
 });
