@@ -36,6 +36,12 @@ const userOpt = (b: SlashCommandOptionsOnlyBuilder) =>
     .addStringOption((o) => o.setName('region').setDescription('Region, only needed for accounts the bot has never seen').addChoices(...regionChoices));
 
 export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
+  userOpt(new SlashCommandBuilder().setName('duo').setDescription('Your record playing together with someone, and your best champion pairs'))
+    .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
+
+  userOpt(new SlashCommandBuilder().setName('rivals').setDescription('Your head-to-head record against someone'))
+    .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
+
   userOpt(new SlashCommandBuilder().setName('peak').setDescription('Highest rank in each queue since tracking started'))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 

@@ -66,7 +66,7 @@ test('scoutTeam: finds the five-stack, roles, picks and bans from one name', asy
   assert.equal(r.fivesQueueId, MOCK_FIVES_QUEUE, '5s queue discovered');
   assert.equal(repo.getKv('ranked5s_queue_id'), String(MOCK_FIVES_QUEUE), 'and cached');
   assert.equal(r.sample, 42);
-  assert.deepEqual(r.queues, { flex: 30, fives: 12 });
+  assert.deepEqual(r.queues, { flex: 30, fives: 12, solo: 0 });
   assert.deepEqual(r.members.map((m) => [m.role, m.name]), [
     ['TOP', 'Enemy Top'], ['JUNGLE', 'Enemy Jg'], ['MIDDLE', 'Enemy Mid'], ['BOTTOM', 'Enemy Adc'], ['UTILITY', 'Enemy Sup'],
   ]);
@@ -115,7 +115,7 @@ test('Ranked 5s carries 90% weight: 5s picks beat flex-only stomps, 5s teammates
     mock.play({ players, winner: win ? 100 : 200, queueId: fives ? MOCK_FIVES_QUEUE : 440 });
   }
   const r = await scoutTeam(repo, riot, { puuid: ids[2]!.puuid, name: 'Five M', tag: 'EUNE', platform: 'EUN1' });
-  assert.deepEqual(r.queues, { flex: 30, fives: 10 });
+  assert.deepEqual(r.queues, { flex: 20, fives: 10, solo: 0 });
   const sup = r.members.find((m) => m.role === 'UTILITY')!;
   assert.equal(sup.name, 'Five S', '5s support outranks the more frequent flex support');
   const mid = r.members.find((m) => m.role === 'MIDDLE')!;
@@ -204,4 +204,27 @@ test('pasted Riot IDs: invisible marks and "Name #TAG" spacing are cleaned, unic
   assert.equal(r.riotId, 'čokl#woof');
   const r2 = parsePrefix('$recent eune čokl#woof eune flex', '$', ctx)!;
   assert.deepEqual([r2.riotId, r2.region, r2.queue], ['eune čokl#woof', 'eune', 440]);
+});
+
+test('scout sample: 30 games, Ranked 5s first, then the newest Flex / Solo games', async () => {
+  const { team, repo, riot } = premade();
+  const mid = team[2]!.a;
+  const r = await scoutTeam(repo, riot, { puuid: mid.puuid, name: mid.gameName, tag: mid.tagLine, platform: 'EUN1' });
+  assert.equal(r.sample, 30);
+  assert.deepEqual(r.queues, { flex: 18, fives: 12, solo: 0 }, 'all 12 Ranked 5s, 18 newest Flex fill the rest');
+});
+
+test('OTP badge: one champion in 60%+ of 8+ games, and it goes to the front of the bans', async () => {
+  const { markOtps } = await import('../src/core/scout.ts');
+  const champ = (name: string, games: number) => ({ championId: 1, championName: name, games, wins: games, wGames: games, wWins: games, version: '1' });
+  const member = (name: string, games: number, pool: ReturnType<typeof champ>[]) => ({ puuid: name, name, tag: 'X', role: null, roleShare: 0, games, wins: 0, mostPlayed: pool, bans: [], isTarget: false });
+  const r = markOtps({
+    target: { puuid: 'a', name: 'A', tag: 'X', platform: 'EUN1' },
+    members: [member('Otp', 20, [champ('Yasuo', 15), champ('Yone', 5)]), member('Flexible', 20, [champ('Ahri', 6), champ('Lux', 6)]), member('Few', 5, [champ('Zed', 5)])],
+    priorityBans: [{ ...champ('Ahri', 6), owner: 'Flexible' }],
+    sample: 20, queues: { flex: 20, fives: 0 }, weights: { fives: 1, flex: 1 }, fivesQueueId: null, premadeShare: 0,
+  });
+  assert.deepEqual(r.members.map((m) => m.otp?.championName ?? null), ['Yasuo', null, null]);
+  assert.equal(r.members[0]!.otp!.share, 0.75);
+  assert.deepEqual(r.priorityBans.map((b) => [b.championName, !!b.otp]), [['Yasuo', true], ['Ahri', false]]);
 });

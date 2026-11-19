@@ -58,8 +58,8 @@ export async function renderBanPlan(r: ScoutReport, assets: AssetSource | null):
   const qs = [r.queues.solo ? `${r.queues.solo} Solo/Duo` : '', r.queues.flex ? `${r.queues.flex} Flex` : '', r.queues.fives ? `${r.queues.fives} Ranked 5s` : ''].filter(Boolean).join(' + ') || 'no';
   const weighting = r.queues.fives && (r.queues.flex || r.queues.solo) ? ` · Ranked 5s weighted ${Math.round(FIVES_WEIGHT * 100)}%` : '';
   ctx.fillText(fit(ctx, individual
-    ? `${r.filled ? 'Entered players from their own games, teammates from games with them' : `Each player's last ${r.perPlayer} ranked games`} (${qs})${weighting} · ${r.together ? `${r.together} played together${r.premadeShare ? `, ${Math.round(r.premadeShare * 100)}% as all ${names.length}` : ''}` : 'never seen queuing together'}`
-    : `Based on their last ${r.sample} team games (${qs})${weighting} · full five-stack in ${Math.round(r.premadeShare * 100)}% of them`, W - 2 * PAD - 16), PAD + 8, 72);
+    ? `${r.filled ? 'Entered players from their own games, teammates from games with them' : `Each player's last ${r.perPlayer} games, Ranked 5s first`} (${qs})${weighting} · ${r.together ? `${r.together} played together${r.premadeShare ? `, ${Math.round(r.premadeShare * 100)}% as all ${names.length}` : ''}` : 'never seen queuing together'}`
+    : `Based on their last ${r.sample} games, Ranked 5s first (${qs})${weighting} · full five-stack in ${Math.round(r.premadeShare * 100)}% of them`, W - 2 * PAD - 16), PAD + 8, 72);
 
   // ---- role columns ----
   const byRole = new Map(r.members.filter((m) => m.role).map((m) => [m.role!, m]));
@@ -142,6 +142,18 @@ function drawColumn(ctx: SKRSContext2D, x: number, y: number, role: Role, m: Mem
   ctx.fillStyle = C.faint;
   ctx.font = font(400, 13);
   ctx.fillText(fit(ctx, `#${m.tag}`, COL_W - 28), x + 14, y + 72);
+  if (m.otp) {
+    // gold pill, right side of the tag line: "OTP · Ahri 72%"
+    ctx.font = font(700, 11);
+    const label = `OTP · ${m.otp.championName} ${Math.round(m.otp.share * 100)}%`;
+    const tw = Math.min(ctx.measureText(label).width, COL_W - 90);
+    const px = x + COL_W - 14 - tw - 12;
+    ctx.fillStyle = 'rgba(245,197,66,0.18)';
+    rounded(ctx, px, y + 60, tw + 12, 18, 9);
+    ctx.fill();
+    ctx.fillStyle = '#f5c542';
+    ctx.fillText(fit(ctx, label, tw), px + 6, y + 73);
+  }
   ctx.fillStyle = wrColor(m.games ? m.wins / m.games : 0);
   ctx.font = font(600, 13);
   ctx.fillText(`${m.wins}W ${m.games - m.wins}L · ${pct(m)}%`, x + 14, y + 94);

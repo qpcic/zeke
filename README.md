@@ -24,7 +24,7 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
 - **Personal recaps:** `/daily` and `/weekly` list every game from today (or the past 24 hours) or the past 7 days with champion, KDA, result and LP, plus the net total.
 - **LP graphs:** your climb over the last games, drawn on the tier and division ladder with your peak marked.
 - **Server leaderboards:** who climbed the most in the past 24 hours or 7 days, with win/loss, LP trend and current rank.
-- **Scout:** type one name from the enemy Ranked 5s or Flex team. Zeke finds their five-stack, works out each player's role and best champions, and suggests what to ban.
+- **Scout:** type one name from the enemy Ranked 5s or Flex team. Zeke finds their five-stack, works out each player's role and best champions, and suggests what to ban. One-tricks get an OTP badge and go to the top of the ban list.
 - **Solo/Duo and Flex kept separate**, and every command also works with a `$` prefix (`$p`, `$rs`, `$lb`…).
 
 <table>
@@ -71,8 +71,10 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 | `/weekly [@user \| Name#TAG] [solo\|flex\|5s]` | Games and LP from the past 7 days · `$w` |
 | `/champ [champion] [@user \| Name#TAG]` | Your games on one champion from your last 50 ranked games: W/L, KDA, CS and damage per minute, kill participation, LP, recent games. Defaults to your most played · `$champ lee sin`, `$c ahri` |
 | `/peak [@user \| Name#TAG]` | Highest rank in each queue since tracking started, with the date and whether they're there right now · `$peak` |
+| `/duo @user \| Name#TAG` | Your record playing on the same team: W/L, queues, recent streak and best champion pairs · `$duo`, `$together` |
+| `/rivals @user \| Name#TAG` | Head-to-head when you were on opposite teams: score, same-lane games, KDA and most-played picks · `$rivals`, `$vs`, `$h2h` |
 | `/graph [@user \| Name#TAG] [games] [solo\|flex\|5s]` | LP graph over recorded games · `$g` |
-| `/scout <Name#TAG> [region] [player_2…5]` | One player: scout their usual Ranked 5s / Flex team. Up to 5 players: scout each one from their own last 20 ranked games, with roles fitted across them and how often they queue together. Roles, best champs, bans · `$scout fram#polar Mapet#MR10 eune` |
+| `/scout <Name#TAG> [region] [player_2…5]` | One player: scout their usual Ranked 5s / Flex team from the last 30 games (Ranked 5s first). Up to 5 players: scout each one from their own last 30 ranked games (Ranked 5s first, then the most recent Flex or Solo/Duo), with roles fitted across them and how often they queue together. Roles, best champs, bans · `$scout fram#polar Mapet#MR10 eune` |
 
 ### Server
 

@@ -289,6 +289,95 @@ export class Service {
     return { embed: { color: 0x5865f2, image: { url: 'attachment://ladder.png' } }, files: [{ name: 'ladder.png', data: png }] };
   }
 
+  /**
+   * /duo and /rivals: every cached game where one of `mine` and one of `theirs` played,
+   * split into same team (duo) and opposite teams (rivals). Uses every linked account.
+   */
+  private sharedGames(mine: PlayerRow[], theirs: PlayerRow[]) {
+    const mySet = new Set(mine.map((p) => p.puuid));
+    const theirSet = new Set(theirs.map((p) => p.puuid));
+    const seen = new Set<string>();
+    const out: { m: MatchDto; me: ParticipantDto; them: ParticipantDto; together: boolean }[] = [];
+    for (const p of mine) {
+      for (const m of this.repo.cachedMatchesWith(p.puuid)) {
+        if (seen.has(m.metadata.matchId)) continue;
+        seen.add(m.metadata.matchId);
+        const me = m.info.participants.find((x) => mySet.has(x.puuid));
+        const them = m.info.participants.find((x) => theirSet.has(x.puuid));
+        if (!me || !them || me.puuid === them.puuid || me.gameEndedInEarlySurrender) continue;
+        out.push({ m, me, them, together: me.teamId === them.teamId });
+      }
+    }
+    return out.sort((a, b) => (b.m.info.gameEndTimestamp ?? 0) - (a.m.info.gameEndTimestamp ?? 0));
+  }
+
+  async duo(mine: PlayerRow[], theirs: PlayerRow[], myName: string, theirName: string): Promise<Reply> {
+    const games = this.sharedGames(mine, theirs).filter((g) => g.together);
+    if (!games.length) throw new UserError(`No games of **${myName}** and **${theirName}** on the same team found yet.`);
+    const wins = games.filter((g) => g.me.win).length;
+    const byQueue = new Map<string, number>();
+    for (const g of games) byQueue.set(queueName(g.m.info.queueId), (byQueue.get(queueName(g.m.info.queueId)) ?? 0) + 1);
+    const pairs = new Map<string, { w: number; l: number }>();
+    for (const g of games) {
+      const k = `${g.me.championName} + ${g.them.championName}`;
+      const s = pairs.get(k) ?? { w: 0, l: 0 };
+      g.me.win ? s.w++ : s.l++;
+      pairs.set(k, s);
+    }
+    const best = [...pairs].filter(([, s]) => s.w + s.l >= 2)
+      .sort((a, b) => b[1].w / (b[1].w + b[1].l) - a[1].w / (a[1].w + a[1].l) || b[1].w + b[1].l - (a[1].w + a[1].l)).slice(0, 5);
+    const recent = games.slice(0, 10).reverse().map((g) => (g.me.win ? '🟩' : '🟥')).join('');
+    const last = games[0]!.m.info.gameEndTimestamp ?? games[0]!.m.info.gameStartTimestamp;
+    return {
+      embed: {
+        title: `🤝 ${myName} & ${theirName}`,
+        color: wins / games.length >= 0.5 ? 0x3fb950 : 0xf85149,
+        description: `**${wins}W ${games.length - wins}L** together · ${Math.round((wins / games.length) * 100)}% in ${games.length} game${games.length === 1 ? '' : 's'}\n` +
+          `${[...byQueue].map(([q, n]) => `${q} ${n}`).join(' · ')} · last <t:${Math.floor(last / 1000)}:R>`,
+        fields: [
+          { name: 'Recent', value: recent, inline: false },
+          ...(best.length ? [{ name: 'Best champion pairs', value: best.map(([k, s]) => `**${k}** · ${s.w}W ${s.l}L`).join('\n'), inline: false }] : []),
+        ],
+        footer: { text: 'From games Zeke has seen (tracked accounts, /recent, /scout …) · all linked accounts count' },
+      },
+      files: [],
+    };
+  }
+
+  async rivals(mine: PlayerRow[], theirs: PlayerRow[], myName: string, theirName: string): Promise<Reply> {
+    const games = this.sharedGames(mine, theirs).filter((g) => !g.together);
+    if (!games.length) throw new UserError(`No games of **${myName}** against **${theirName}** found yet.`);
+    const wins = games.filter((g) => g.me.win).length;
+    const lane = games.filter((g) => g.me.teamPosition && g.me.teamPosition === g.them.teamPosition);
+    const laneW = lane.filter((g) => g.me.win).length;
+    const avg = (f: (g: (typeof games)[number]) => number) => games.reduce((s, g) => s + f(g), 0) / games.length;
+    const kda = (k: number, d: number, a: number) => `${k.toFixed(1)} / ${d.toFixed(1)} / ${a.toFixed(1)}`;
+    const recent = games.slice(0, 10).reverse().map((g) => (g.me.win ? '🟩' : '🟥')).join('');
+    const top = (pick: (g: (typeof games)[number]) => string) => {
+      const c = new Map<string, number>();
+      for (const g of games) c.set(pick(g), (c.get(pick(g)) ?? 0) + 1);
+      return [...c].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n, k]) => `${n} ${k}×`).join(', ');
+    };
+    const lead = wins > games.length - wins ? myName : wins < games.length - wins ? theirName : null;
+    return {
+      embed: {
+        title: `⚔️ ${myName} vs ${theirName}`,
+        color: wins * 2 >= games.length ? 0x3fb950 : 0xf85149,
+        description: `**${myName} ${wins} – ${games.length - wins} ${theirName}** in ${games.length} game${games.length === 1 ? '' : 's'} against each other` +
+          (lead ? ` · ${lead} leads` : ' · dead even') +
+          (lane.length ? `\nSame lane ${lane.length}× · ${laneW}–${lane.length - laneW}` : ''),
+        fields: [
+          { name: `${myName} KDA`, value: kda(avg((g) => g.me.kills), avg((g) => g.me.deaths), avg((g) => g.me.assists)), inline: true },
+          { name: `${theirName} KDA`, value: kda(avg((g) => g.them.kills), avg((g) => g.them.deaths), avg((g) => g.them.assists)), inline: true },
+          { name: 'Recent (your side)', value: recent, inline: false },
+          { name: 'Most played against each other', value: `${myName}: ${top((g) => g.me.championName)}\n${theirName}: ${top((g) => g.them.championName)}`, inline: false },
+        ],
+        footer: { text: 'From games Zeke has seen (tracked accounts, /recent, /scout …) · all linked accounts count' },
+      },
+      files: [],
+    };
+  }
+
   /** Champion names for /champ autocomplete. */
   async championNames(): Promise<string[]> {
     const sd = this.assets ? await this.assets.staticData('').catch(() => null) : null;
