@@ -11,7 +11,7 @@ import type { LeagueEntryDto } from '../riot/types.ts';
  * Transport-agnostic command logic. Slash commands and $prefix messages both
  * parse into a CommandRequest and render the returned Reply.
  */
-export type CommandName = 'zeke' | 'ladder' | 'champ' | 'peak' | 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'recap' | 'log' | 'server' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
+export type CommandName = 'zeke' | 'ladder' | 'champ' | 'peak' | 'duo' | 'rivals' | 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'recap' | 'log' | 'server' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
 
 export interface CommandRequest {
   name: CommandName;
@@ -152,6 +152,7 @@ export function helpEmbed(p: string): Embed {
           `${c('graph [games]')} LP graph${a('g')}`,
           `${c('champ [champion]')} your games on a champion (last 50 ranked)${a('c')}`,
           `${c('peak')} highest rank in each queue since tracking started`,
+          `${c('duo @friend')} your record together · ${c('rivals @friend')} head-to-head`,
         ].join('\n'),
       },
       {
@@ -238,6 +239,16 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
 
     case 'profile':
       return withNote(await service.profile(await target()));
+
+    case 'duo':
+    case 'rivals': {
+      // you (all linked accounts) vs an @user (all theirs) or one Riot ID
+      const mine = service.linkedAllOrThrow(req.callerId, true, p);
+      if (!req.targetUserId && !req.riotId) throw new UserError(`Usage: \`${p}${req.name} @friend\` or \`${p}${req.name} Name#TAG\``);
+      const theirs = req.targetUserId ? service.linkedAllOrThrow(req.targetUserId, false, p) : [await target()];
+      const nm = (ps: { game_name: string }[]) => ps[0]!.game_name;
+      return req.name === 'duo' ? service.duo(mine, theirs, nm(mine), nm(theirs)) : service.rivals(mine, theirs, nm(mine), nm(theirs));
+    }
 
     case 'peak':
       return service.peak(await target());

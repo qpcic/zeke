@@ -49,11 +49,13 @@ export interface MemberReport {
   mostPlayed: ChampStat[]; // top 10 by raw games (display)
   bans: ChampStat[]; // top 3 winrate among mostPlayed
   isTarget: boolean;
+  /** One-trick: most games on one champion (see markOtps) */
+  otp?: { championName: string; share: number } | null;
 }
 export interface ScoutReport {
   target: { puuid: string; name: string; tag: string; platform: Platform };
   members: MemberReport[]; // ordered by role TOP..UTILITY, unassigned last
-  priorityBans: (ChampStat & { owner: string })[];
+  priorityBans: (ChampStat & { owner: string; otp?: boolean })[];
   sample: number;
   queues: { flex: number; fives: number; solo?: number };
   /** per-game weight actually applied ({ fives: 1, flex: 1 } when only one queue is present) */
@@ -136,23 +138,36 @@ export function topBans(champs: ChampStat[]): ChampStat[] {
     .slice(0, 3);
 }
 
+/** Games looked at per scouted player. */
+export const SCOUT_GAMES = 30;
+
+/**
+ * Match ids to scout one player from: up to `n` Ranked 5s games first; if there aren't
+ * that many, the rest are filled with their most recent Flex / Solo/Duo games.
+ */
+export async function scoutIds(riot: RiotClient, platform: Platform, puuid: string, fivesQ: number | null, n = SCOUT_GAMES): Promise<string[]> {
+  const num = (id: string) => Number(id.split('_')[1] ?? 0);
+  const fives = fivesQ ? await riot.getMatchIds(platform, puuid, { queue: fivesQ, count: n }).catch(() => [] as string[]) : [];
+  if (fives.length >= n) return fives.slice(0, n);
+  const need = n - fives.length;
+  const [flex, solo] = await Promise.all([
+    riot.getMatchIds(platform, puuid, { queue: 440, count: need }).catch(() => [] as string[]),
+    riot.getMatchIds(platform, puuid, { queue: 420, count: need }).catch(() => [] as string[]),
+  ]);
+  const fill = [...new Set([...flex, ...solo])].filter((id) => !fives.includes(id)).sort((a, b) => num(b) - num(a)).slice(0, need);
+  return [...fives, ...fill];
+}
+
 export async function scoutTeam(
   repo: Repo,
   riot: RiotClient,
   target: { puuid: string; name: string; tag: string; platform: Platform },
   opts: { games?: number; log?: (m: string) => void } = {},
 ): Promise<ScoutReport> {
-  const N = opts.games ?? 50;
+  const N = opts.games ?? SCOUT_GAMES;
   const fivesQ = await discoverFivesQueue(repo, riot, target.platform, target.puuid).catch(() => null);
-  const [flexIds, fivesIds] = await Promise.all([
-    riot.getMatchIds(target.platform, target.puuid, { queue: 440, count: N }),
-    fivesQ ? riot.getMatchIds(target.platform, target.puuid, { queue: fivesQ, count: N }) : Promise.resolve([] as string[]),
-  ]);
-  // Ranked 5s first (it's what we're scouting for), newest Flex games fill up to N.
-  const num = (id: string) => Number(id.split('_')[1] ?? 0);
-  const fives = [...fivesIds].sort((a, b) => num(b) - num(a)).slice(0, N);
-  const flex = flexIds.filter((id) => !fives.includes(id)).sort((a, b) => num(b) - num(a)).slice(0, N - fives.length);
-  const ids = [...fives, ...flex];
+  // Ranked 5s first (it's what we're scouting for), newest Flex / Solo games fill up to N.
+  const ids = await scoutIds(riot, target.platform, target.puuid, fivesQ, N);
 
   const matches: MatchDto[] = [];
   await Promise.all(ids.map(async (id) => {
@@ -164,15 +179,16 @@ export async function scoutTeam(
     }
     if (m && m.info.participants.some((p) => p.puuid === target.puuid) && !m.info.participants[0]?.gameEndedInEarlySurrender) matches.push(m);
   }));
-  opts.log?.(`scout ${target.name}#${target.tag}: ${matches.length} games (${flexIds.length} flex ids, ${fivesIds.length} 5s ids)`);
+  opts.log?.(`scout ${target.name}#${target.tag}: ${matches.length} games from ${ids.length} ids`);
 
   // queue weights: Ranked 5s holds FIVES_WEIGHT of the total, Flex the rest (mean weight 1)
-  const nFives = matches.filter((m) => m.info.queueId !== 440).length;
-  const nFlex = matches.length - nFives;
+  const isFivesGame = (m: MatchDto) => fivesQ !== null && m.info.queueId === fivesQ;
+  const nFives = matches.filter(isFivesGame).length;
+  const nFlex = matches.length - nFives; // Flex and Solo/Duo fill-ins share the rest
   const weights = nFives && nFlex
     ? { fives: (FIVES_WEIGHT * matches.length) / nFives, flex: ((1 - FIVES_WEIGHT) * matches.length) / nFlex }
     : { fives: 1, flex: 1 };
-  const wOf = (m: MatchDto) => (m.info.queueId === 440 ? weights.flex : weights.fives);
+  const wOf = (m: MatchDto) => (isFivesGame(m) ? weights.fives : weights.flex);
 
   // allies frequency (raw count for the threshold, weighted for ranking)
   const allyCount = new Map<string, { n: number; w: number }>();
@@ -245,20 +261,20 @@ export async function scoutTeam(
     .filter((b) => (seen.has(b.championName) ? false : (seen.add(b.championName), true)))
     .slice(0, 5);
 
-  return {
+  return markOtps({
     target,
     members,
     priorityBans,
     sample: matches.length,
-    queues: { flex: nFlex, fives: nFives },
+    queues: { flex: matches.filter((m) => m.info.queueId === 440).length, fives: nFives, solo: matches.filter((m) => m.info.queueId === 420).length },
     weights,
     fivesQueueId: fivesQ,
     premadeShare: matches.length ? fullStack / matches.length : 0,
-  };
+  });
 }
 
 /** Games per player when several players are scouted individually. */
-export const INDIVIDUAL_GAMES = 20;
+export const INDIVIDUAL_GAMES = SCOUT_GAMES;
 
 /**
  * Scout 2–5 players given by hand (e.g. the five you're facing, premade or not): each one
@@ -288,15 +304,8 @@ export async function scoutPlayers(
   const given = new Set(players.map((p) => p.puuid));
   for (const pl of players) {
     // their own recent ranked games, plus (if roles are left to fill) their recent team-queue games
-    const lists = await Promise.all([
-      riot.getMatchIds(pl.platform, pl.puuid, { type: 'ranked', count: N }).catch(() => [] as string[]),
-      ...(players.length < 5
-        ? [
-          riot.getMatchIds(pl.platform, pl.puuid, { queue: 440, count: N }).catch(() => [] as string[]),
-          fivesQ ? riot.getMatchIds(pl.platform, pl.puuid, { queue: fivesQ, count: N }).catch(() => [] as string[]) : Promise.resolve([] as string[]),
-        ]
-        : []),
-    ]);
+    // same sample as a single scout: Ranked 5s first, newest Flex / Solo fill the rest
+    const lists = [await scoutIds(riot, pl.platform, pl.puuid, fivesQ, N)];
     const ids = [...new Set(lists.flat())].filter((id) => !all.has(id));
     const ms = await Promise.all(ids.map((id) => load(pl.platform, id)));
     for (const m of ms) if (m && !m.info.participants[0]?.gameEndedInEarlySurrender) all.set(m.metadata.matchId, m);
@@ -399,7 +408,7 @@ export async function scoutPlayers(
     .slice(0, 5);
 
   opts.log?.(`scout ${players.map((p) => `${p.name}#${p.tag}`).join(', ')}: ${all.size} games, ${together} together`);
-  return {
+  return markOtps({
     target: first,
     members,
     priorityBans,
@@ -412,5 +421,26 @@ export async function scoutPlayers(
     mode: 'individual',
     together,
     perPlayer: N,
-  };
+  });
+}
+
+/** A player counts as a one-trick when one champion is OTP_SHARE+ of their games (min OTP_MIN_GAMES). */
+export const OTP_SHARE = 0.6;
+export const OTP_MIN_GAMES = 8;
+
+/**
+ * Flag one-tricks and put their champion at the front of the priority bans: banning a
+ * one-trick's champion takes away most of what they play, whatever its winrate.
+ */
+export function markOtps(r: ScoutReport): ScoutReport {
+  const otpBans: (ChampStat & { owner: string; otp?: boolean })[] = [];
+  for (const m of r.members) {
+    const top = [...m.mostPlayed].sort((a, b) => b.games - a.games)[0];
+    m.otp = top && m.games >= OTP_MIN_GAMES && top.games / m.games >= OTP_SHARE ? { championName: top.championName, share: top.games / m.games } : null;
+    if (m.otp && top) otpBans.push({ ...top, owner: m.name, otp: true });
+  }
+  if (!otpBans.length) return r;
+  otpBans.sort((a, b) => b.games - a.games);
+  const rest = r.priorityBans.filter((b) => !otpBans.some((o) => o.championName === b.championName));
+  return { ...r, priorityBans: [...otpBans, ...rest].slice(0, 5) };
 }

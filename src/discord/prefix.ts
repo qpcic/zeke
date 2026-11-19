@@ -24,6 +24,8 @@ const ALIASES: Record<string, CommandName> = {
   recap: 'recap', dailyrecap: 'recap',
   ladder: 'ladder', ranks: 'ladder', rankings: 'ladder',
   peak: 'peak', best: 'peak', highest: 'peak',
+  duo: 'duo', together: 'duo',
+  rivals: 'rivals', rival: 'rivals', vs: 'rivals', h2h: 'rivals',
   champ: 'champ', c: 'champ', champion: 'champ',
   log: 'log', gamelog: 'log',
   server: 'server', serverinfo: 'server', settings: 'server',
@@ -139,7 +141,7 @@ export function parsePrefix(
   }
 
   // Target lookups: "$graph ferks kitten#retro eune flex 30"
-  if (name === 'recent' || name === 'live' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'profile' || name === 'champ' || name === 'peak') {
+  if (name === 'recent' || name === 'live' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'profile' || name === 'champ' || name === 'peak' || name === 'duo' || name === 'rivals') {
     const ex = extractRiotId(words);
     if (ex.riotId) {
       req.riotId = ex.riotId;
