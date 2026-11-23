@@ -228,3 +228,29 @@ test('OTP badge: one champion in 60%+ of 8+ games, and it goes to the front of t
   assert.equal(r.members[0]!.otp!.share, 0.75);
   assert.deepEqual(r.priorityBans.map((b) => [b.championName, !!b.otp]), [['Yasuo', true], ['Ahri', false]]);
 });
+
+test('scout budget: two cold 5-player scouts back to back stay under 100 requests; polling waits', async () => {
+  const ctx = setup(Date.UTC(2026, 9, 1, 12));
+  const { mock, clock, service, riot } = ctx;
+  const mk = (p: string) => ['Top', 'Jg', 'Mid', 'Adc', 'Sup'].map((r) => mock.addAccount(`${p} ${r}`, 'EUNE', 'EUN1'));
+  const teams = [mk('Blue'), mk('Red')];
+  for (let g = 0; g < 35; g++) {
+    for (const t of teams) for (const a of t) {
+      clock.advance(40 * MIN);
+      mock.play({ players: [{ puuid: a.puuid, team: 100, champion: g % 2 ? 'Ahri' : 'Zed' }], winner: g % 3 ? 100 : 200, queueId: 420 });
+    }
+  }
+  await service.linkUser('u1', 'EUNE', 'Blue Top#EUNE'); // a tracked account so polling has work to do
+  const before = riot.requestCount;
+  for (const t of teams) {
+    await runCommand(service, { callerId: 'u1', guildId: null, canManageGuild: false, style: '/', name: 'scout', riotIds: t.map((a) => `${a.gameName}#${a.tagLine}`), region: 'EUNE' });
+    const used = riot.requestCount - before;
+    assert.ok(used <= (t === teams[0] ? 50 : 100), `${used} requests after ${t === teams[0] ? 'one scout' : 'two scouts'}`);
+  }
+  const b2 = riot.requestCount;
+  assert.deepEqual(await service.tick(), { games: 0, requests: 0 }, 'poll skipped right after a scout');
+  assert.equal(riot.requestCount, b2);
+  clock.advance(2 * MIN + 1000);
+  await service.tick();
+  assert.ok(riot.requestCount > b2, 'polling resumes after the quiet window');
+});

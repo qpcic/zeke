@@ -147,14 +147,13 @@ export const SCOUT_GAMES = 30;
  */
 export async function scoutIds(riot: RiotClient, platform: Platform, puuid: string, fivesQ: number | null, n = SCOUT_GAMES): Promise<string[]> {
   const num = (id: string) => Number(id.split('_')[1] ?? 0);
+  // One list call when they have n Ranked 5s games, two otherwise. "ranked" lists Solo/Duo, Flex and 5s
+  // newest first; with fewer than n 5s games the first list holds all of them, so the rest is Flex / Solo.
   const fives = fivesQ ? await riot.getMatchIds(platform, puuid, { queue: fivesQ, count: n }).catch(() => [] as string[]) : [];
   if (fives.length >= n) return fives.slice(0, n);
   const need = n - fives.length;
-  const [flex, solo] = await Promise.all([
-    riot.getMatchIds(platform, puuid, { queue: 440, count: need }).catch(() => [] as string[]),
-    riot.getMatchIds(platform, puuid, { queue: 420, count: need }).catch(() => [] as string[]),
-  ]);
-  const fill = [...new Set([...flex, ...solo])].filter((id) => !fives.includes(id)).sort((a, b) => num(b) - num(a)).slice(0, need);
+  const ranked = await riot.getMatchIds(platform, puuid, { type: 'ranked', count: Math.min(100, n + fives.length) }).catch(() => [] as string[]);
+  const fill = ranked.filter((id) => !fives.includes(id)).sort((a, b) => num(b) - num(a)).slice(0, need);
   return [...fives, ...fill];
 }
 
@@ -275,6 +274,11 @@ export async function scoutTeam(
 
 /** Games per player when several players are scouted individually. */
 export const INDIVIDUAL_GAMES = SCOUT_GAMES;
+/**
+ * New (uncached) games one multi-player scout may fetch. With up to 5 account + 10 match-list calls
+ * a cold scout stays under ~45 requests, so two back to back fit the personal key's 100 per 2 min.
+ */
+export const MAX_NEW_MATCHES = 30;
 
 /**
  * Scout 2–5 players given by hand (e.g. the five you're facing, premade or not): each one
@@ -302,14 +306,27 @@ export async function scoutPlayers(
 
   const all = new Map<string, MatchDto>();
   const given = new Set(players.map((p) => p.puuid));
-  for (const pl of players) {
-    // their own recent ranked games, plus (if roles are left to fill) their recent team-queue games
-    // same sample as a single scout: Ranked 5s first, newest Flex / Solo fill the rest
-    const lists = [await scoutIds(riot, pl.platform, pl.puuid, fivesQ, N)];
-    const ids = [...new Set(lists.flat())].filter((id) => !all.has(id));
-    const ms = await Promise.all(ids.map((id) => load(pl.platform, id)));
-    for (const m of ms) if (m && !m.info.participants[0]?.gameEndedInEarlySurrender) all.set(m.metadata.matchId, m);
+  // Same sample as a single scout (Ranked 5s first, newest Flex / Solo fill the rest), but games
+  // not cached yet are capped at MAX_NEW_MATCHES per scout, taken round-robin (each player's newest
+  // first) so every player gets a fair share. Cached games are free and always used.
+  const lists = await Promise.all(players.map((pl) => scoutIds(riot, pl.platform, pl.puuid, fivesQ, N)));
+  const pick: { platform: Platform; id: string }[] = [];
+  const picked = new Set<string>();
+  let fresh = 0;
+  for (let i = 0; i < N; i++) {
+    players.forEach((pl, k) => {
+      const id = lists[k]![i];
+      if (!id || picked.has(id)) return;
+      const cached = repo.getCachedMatchSince(id, epoch) !== null;
+      if (!cached && fresh >= MAX_NEW_MATCHES) return;
+      if (!cached) fresh++;
+      picked.add(id);
+      pick.push({ platform: pl.platform, id });
+    });
   }
+  const ms = await Promise.all(pick.map((p) => load(p.platform, p.id)));
+  for (const m of ms) if (m && !m.info.participants[0]?.gameEndedInEarlySurrender) all.set(m.metadata.matchId, m);
+  opts.log?.(`scout ${players.length} players: ${all.size} games, ${fresh} fetched`);
   const isFives = (m: MatchDto) => fivesQ !== null && m.info.queueId === fivesQ;
   const isTeamQueue = (m: MatchDto) => m.info.queueId === 440 || isFives(m);
 

@@ -6,6 +6,10 @@ import { loadFivesQueue, saveFivesQueue } from './queues.ts';
 import type { GameNote, GameResult, LpAdjustment } from './events.ts';
 import { absoluteLp, compareDivision, type Rank } from './rank.ts';
 
+const IDS_FALLBACK_MS = 15 * 60_000; // check the match list at least this often without a spectator hint
+const POST_GAME_MS = 10 * 60_000; // keep checking this long after a game ends (match-v5 lags a bit)
+const IN_GAME_MAX_MS = 60 * 60_000; // in a game this long without a list check: check anyway
+
 export interface TrackerOptions {
   trackedQueues: number[];
   lpSettleTimeoutSec: number;
@@ -183,42 +187,69 @@ export class Tracker {
     return this.repo.getPlayer(acc.puuid) ?? null;
   }
 
+  /** Last time spectator-v5 showed each player in a game. */
+  private readonly seenInGame = new Map<string, number>();
+
+  /**
+   * Whether this tick needs the match list (match-v5, regional host: the busiest rate limit).
+   * Spectator-v5 runs on the platform host, a separate and nearly idle limit, so it gates the
+   * list: in a game → nothing to find yet; just left one → look until the game shows up;
+   * otherwise only every IDS_FALLBACK_MS (remakes and anything spectator missed).
+   */
+  private async needMatchList(player: PlayerRow): Promise<boolean> {
+    const now = this.now();
+    const sinceList = now - player.last_match_check * 1000;
+    const live = await this.riot.getActiveGame(player.platform, player.puuid).catch(() => undefined);
+    if (live === undefined) return true; // spectator failed: don't risk missing games
+    if (live) {
+      this.seenInGame.set(player.puuid, now);
+      return sinceList >= IN_GAME_MAX_MS;
+    }
+    const seen = this.seenInGame.get(player.puuid);
+    if (seen !== undefined && now - seen < POST_GAME_MS) return true;
+    if (seen !== undefined) this.seenInGame.delete(player.puuid);
+    return sinceList >= IDS_FALLBACK_MS;
+  }
+
   async pollPlayer(player: PlayerRow): Promise<{ games: GameResult[]; adjustments: LpAdjustment[]; detected: string[] }> {
     const detected: string[] = [];
     const tickStartSec = Math.floor(this.now() / 1000);
 
-    // 1. discover new match IDs
-    const ids = await this.riot.getMatchIds(player.platform, player.puuid, {
+    // 1. discover new match IDs (only when spectator says there may be a new one)
+    const ids = !(await this.needMatchList(player)) ? null : await this.riot.getMatchIds(player.platform, player.puuid, {
       startTime: Math.max(0, player.last_match_check - START_OVERLAP_SEC),
       type: this.rankedOnly ? 'ranked' : undefined,
       count: 20,
     });
-    const known = this.repo.knownMatchIds(player.puuid, ids);
-    const fresh = ids.filter((id) => !known.has(id)).reverse(); // oldest first
+    if (ids) {
+      const known = this.repo.knownMatchIds(player.puuid, ids);
+      const fresh = ids.filter((id) => !known.has(id)).reverse(); // oldest first
 
-    for (const id of fresh) {
-      const m = await this.getMatch(player, id);
-      if (!m) continue;
-      this.noteFivesQueue(m);
-      const gameEnd = m.info.gameEndTimestamp ?? m.info.gameStartTimestamp + m.info.gameDuration * 1000;
-      // The look-back window reaches before tracking began; those games were already in the baseline.
-      const tracked = this.isTracked(m.info.queueId) && gameEnd >= player.created_at;
-      const p = m.info.participants.find((x) => x.puuid === player.puuid);
-      this.repo.insertPlayerMatch({
-        match_id: id,
-        puuid: player.puuid,
-        queue_id: m.info.queueId,
-        status: tracked && p ? 'pending' : 'ignored',
-        win: p?.win ? 1 : 0,
-        remake: isRemake(m, player.puuid) ? 1 : 0,
-        game_end: gameEnd,
-      });
-      if (tracked && p) {
-        this.repo.bumpLastGame(player.puuid, gameEnd);
-        detected.push(id);
+      for (const id of fresh) {
+        const m = await this.getMatch(player, id);
+        if (!m) continue;
+        this.noteFivesQueue(m);
+        const gameEnd = m.info.gameEndTimestamp ?? m.info.gameStartTimestamp + m.info.gameDuration * 1000;
+        // The look-back window reaches before tracking began; those games were already in the baseline.
+        const tracked = this.isTracked(m.info.queueId) && gameEnd >= player.created_at;
+        const p = m.info.participants.find((x) => x.puuid === player.puuid);
+        this.repo.insertPlayerMatch({
+          match_id: id,
+          puuid: player.puuid,
+          queue_id: m.info.queueId,
+          status: tracked && p ? 'pending' : 'ignored',
+          win: p?.win ? 1 : 0,
+          remake: isRemake(m, player.puuid) ? 1 : 0,
+          game_end: gameEnd,
+        });
+        if (tracked && p) {
+          this.repo.bumpLastGame(player.puuid, gameEnd);
+          detected.push(id);
+          this.seenInGame.delete(player.puuid);
+        }
       }
+      this.repo.setLastMatchCheck(player.puuid, tickStartSec);
     }
-    this.repo.setLastMatchCheck(player.puuid, tickStartSec);
 
     // 2. reconcile LP if there's anything pending, or periodically to catch dodges/decay
     const pending = this.repo.pendingMatches(player.puuid);

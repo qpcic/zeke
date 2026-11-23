@@ -129,7 +129,7 @@ export function helpEmbed(p: string): Embed {
     color: COLORS.info,
     description: [
       `Every command works as \`/name\` or \`$name\`.`,
-      `With nothing after it, a command uses **your main account**. Add \`@user\` or \`Name#TAG\` to see someone else.`,
+      `With nothing after it, a command uses **your main account**. Add \`@user\` or \`Name#TAG\` to see someone else. Accounts Zeke already knows work with part of the name: \`${p}r kitten\`.`,
       `New here? ${c('zeke')} has a quick intro and links.`,
     ].join('\n'),
     fields: [
@@ -184,7 +184,7 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
   let newNote = '';
   const target = async () => {
     if (req.riotId) {
-      const r = await service.lookup(req.riotId, req.region);
+      const r = await service.lookup(req.riotId, req.region, { callerId: req.callerId, guildId: req.guildId });
       if (r.isNew) newNote = `Started tracking **${tag(r.player)}**; their games are recorded from now on.`;
       return r.player;
     }
@@ -327,7 +327,21 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
 
     case 'scout': {
       // One player: their usual team. Several (comma-separated / player_2..5): each one individually.
-      const ids = req.riotIds?.length ? req.riotIds : [need(req.riotId, 'scout <Name#TAG>[, Name#TAG …] [region]')];
+      const raw = req.riotIds?.length ? req.riotIds : [need(req.riotId, 'scout <Name#TAG>[, Name#TAG …] [region]')];
+      // names without a tag: known accounts by part of the name ("$scout kitten")
+      const known = (q: string) => {
+        const pl = service.findKnown(q, { callerId: req.callerId, guildId: req.guildId, region: req.region });
+        return `${pl.game_name}#${pl.tag_line}`;
+      };
+      let ids: string[];
+      try {
+        ids = raw.map((id) => (id.includes('#') ? id : known(id)));
+      } catch (e) {
+        // "$scout kitten mapet fram": no tags at all → one known name per word
+        const words = raw.length === 1 && !raw[0]!.includes('#') ? raw[0]!.split(/[\s,]+/).filter(Boolean) : [];
+        if (words.length < 2) throw e;
+        ids = words.map(known);
+      }
       return service.scoutMany(ids, req.region);
     }
 

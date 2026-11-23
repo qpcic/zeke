@@ -148,6 +148,17 @@ export function parsePrefix(
       const region = ex.rest.find((w) => parsePlatform(w));
       if (region) req.region = region;
       words = ex.rest.filter((w) => w !== region);
+    } else {
+      // No "#": the leftover words are part of a known account's name ("$r kitten" → ferks kitten#retro).
+      // Numbers ($graph 30) and window words ($daily 24h) are options, not name parts.
+      const isOpt = (w: string) => /^\d+$/.test(w) || WINDOW_24H.has(w.toLowerCase()) || w.toLowerCase() === 'today';
+      const region = words.length > 1 ? words.find((w) => parsePlatform(w)) : undefined;
+      const nameWords = words.filter((w) => w !== region && !isOpt(w));
+      if (nameWords.length) {
+        req.riotId = nameWords.join(' ');
+        if (region) req.region = region;
+        words = words.filter((w) => isOpt(w));
+      }
     }
   }
 
