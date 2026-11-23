@@ -214,6 +214,10 @@ export const MIGRATIONS: string[] = [
     PRIMARY KEY (guild_id, user_id)
   );
   `,
+  /* 12 */ `
+  -- the round post carries the /live draft image (later edits keep referring to it)
+  ALTER TABLE bet_rounds ADD COLUMN has_draft INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export type DB = DatabaseSync;

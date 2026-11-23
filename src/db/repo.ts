@@ -9,7 +9,7 @@ export interface GuildRow {
 export interface BetRoundRow {
   id: number; guild_id: string; match_id: string; puuid: string; team_id: number; queue_id: number;
   players: string; opponents: string; channel_id: string; message_id: string | null;
-  opened_at: number; closes_at: number; status: 'open' | 'locked' | 'settled' | 'void'; result: 'win' | 'loss' | 'remake' | null;
+  opened_at: number; closes_at: number; status: 'open' | 'locked' | 'settled' | 'void'; result: 'win' | 'loss' | 'remake' | null; has_draft: number;
 }
 export interface BetRow { round_id: number; user_id: string; side: 'win' | 'loss'; amount: number; payout: number | null; placed_at: number }
 export interface PlayerRow {
@@ -50,7 +50,7 @@ export class Repo {
   }
 
   // ---- bets ----
-  createBetRound(r: Omit<BetRoundRow, 'id' | 'message_id' | 'status' | 'result'>): number | null {
+  createBetRound(r: Omit<BetRoundRow, 'id' | 'message_id' | 'status' | 'result' | 'has_draft'>): number | null {
     const res = this.db.prepare(`INSERT OR IGNORE INTO bet_rounds (guild_id, match_id, puuid, team_id, queue_id, players, opponents, channel_id, opened_at, closes_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(r.guild_id, r.match_id, r.puuid, r.team_id, r.queue_id, r.players, r.opponents, r.channel_id, r.opened_at, r.closes_at);
     return res.changes ? Number(res.lastInsertRowid) : null;
@@ -58,8 +58,8 @@ export class Repo {
   getBetRound(id: number) {
     return this.db.prepare('SELECT * FROM bet_rounds WHERE id = ?').get(id) as BetRoundRow | undefined;
   }
-  setBetRoundMessage(id: number, messageId: string) {
-    this.db.prepare('UPDATE bet_rounds SET message_id = ? WHERE id = ?').run(messageId, id);
+  setBetRoundMessage(id: number, messageId: string, hasDraft = false) {
+    this.db.prepare('UPDATE bet_rounds SET message_id = ?, has_draft = ? WHERE id = ?').run(messageId, hasDraft ? 1 : 0, id);
   }
   deleteBetRound(id: number) {
     this.db.prepare('DELETE FROM bet_rounds WHERE id = ?').run(id);

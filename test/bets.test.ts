@@ -32,6 +32,9 @@ test('bets: round opens when a tracked player is in a ranked game, locks, pays 2
   assert.match(round.reply.embed.title!, /Bets open/);
   assert.match(round.reply.embed.description!, /\*\*Kitten\*\*.*\*\*Mapet\*\*.*are in a Ranked Solo\/Duo game/);
   const roundId = Number((round.reply.components![0] as any).components[0].custom_id.split(':')[2]);
+  assert.equal(round.reply.files[0]?.name, 'draft.png', 'draft image like /live');
+  assert.equal(round.reply.embed.image?.url, 'attachment://draft.png');
+  if (process.env.WRITE_PNG) (await import('node:fs')).writeFileSync('/tmp/draft.png', round.reply.files[0]!.data);
 
   assert.throws(() => service.bets.place(roundId, 'owner', 'loss', '100'), /only bet on your team to win/);
   service.bets.place(roundId, 'owner', 'win', '200');
@@ -54,6 +57,8 @@ test('bets: round opens when a tracked player is in a ranked game, locks, pays 2
   clock.advance(2 * MIN);
   await service.tick();
   assert.match(round.reply.embed.title!, /Kitten won/);
+  assert.equal(round.reply.embed.image?.url, 'attachment://draft.png', 'edits keep the draft image');
+  assert.equal(round.reply.files.length, 0, 'not re-uploaded');
   assert.equal(service.bets.balance('g1', 'owner'), 1200);
   assert.equal(service.bets.balance('g1', 'u2'), 500);
   assert.equal(service.bets.balance('g1', 'u3'), 2000);
