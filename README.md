@@ -53,7 +53,7 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
 
 ## Commands
 
-Every command works as a slash command and as a message with the `$` prefix. With no account given, a command shows **your** main linked account (`/recent` shows your newest game on any of your linked accounts). You can also pass `@someone` (their main account) or any Riot ID like `Name#TAG`.
+Every command works as a slash command and as a message with the `$` prefix. With no account given, a command shows **your** main linked account (`/recent` shows your newest game on any of your linked accounts). You can also pass `@someone` (their main account) or any Riot ID like `Name#TAG`. Accounts Zeke already knows also work with just part of the name: `$r kitten` finds `ferks kitten#retro` (case and spaces don't matter, regex works too, and if two accounts match Zeke lists them). Scout takes short names as well: `$scout kitten mapet fram`.
 
 ### You
 

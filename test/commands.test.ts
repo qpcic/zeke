@@ -261,11 +261,40 @@ test('idle players are skipped until due', async () => {
   clock.advance(2 * MIN);
   await service.tick();
   assert.equal(mock.calls.length, 0, 'not due yet');
-  clock.advance(9 * MIN);
+  clock.advance(14 * MIN); // due, and past the 15 min match-list fallback
   mock.play({ players: [{ puuid: a.puuid, team: 100 }], winner: 100, lp: { [a.puuid]: 20 } });
   await service.tick();
   assert.ok(mock.calls.some((c) => c.endsWith('/ids')));
   assert.equal(repo.getPlayer(a.puuid)!.next_poll_at, clock.now(), 'just played: back to every tick');
+});
+
+test('polling: spectator gates the match list (in game → no list call, game over → list until found)', async () => {
+  const { mock, service, clock, repo } = setup();
+  const a = mock.addAccount('Gated', 'EUW', 'EUW1', ranks('GOLD', 'II', 10));
+  await service.linkUser('u1', 'EUW', 'Gated#EUW');
+  await service.tick(); // first poll lists matches
+  const ids = () => mock.calls.filter((c) => c.endsWith('/ids')).length;
+
+  mock.calls = [];
+  clock.advance(2 * MIN);
+  await service.tick();
+  assert.equal(ids(), 0, 'not in game, list checked 2 min ago: spectator only');
+  assert.ok(mock.calls.some((c) => c.includes('/spectator/')));
+
+  mock.startLive({ players: [{ puuid: a.puuid, team: 100, championId: 103 }] });
+  for (let i = 0; i < 10; i++) { clock.advance(2 * MIN); await service.tick(); }
+  assert.equal(ids(), 0, 'in game for 20 min: no match list calls');
+
+  mock.endLive(a.puuid);
+  mock.play({ players: [{ puuid: a.puuid, team: 100 }], winner: 100, lp: { [a.puuid]: 20 } });
+  clock.advance(2 * MIN);
+  await service.tick();
+  assert.equal(ids(), 1, 'just left a game: list checked');
+
+  mock.calls = [];
+  clock.advance(2 * MIN);
+  await service.tick();
+  assert.equal(ids(), 0, 'game found: back to spectator only');
 });
 
 test('solo and flex are tracked separately in daily/weekly and leaderboard', async () => {

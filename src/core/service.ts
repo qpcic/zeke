@@ -2,7 +2,7 @@ import { signed } from '../render/format.ts';
 import type { GuildRow, PlayerMatchRow, PlayerRow, Repo } from '../db/repo.ts';
 import { isStalePuuidError, type RiotClient } from '../riot/client.ts';
 import { parsePlatform, PLATFORM_LABEL, type Platform } from '../riot/regions.ts';
-import { formatRiotId, parseRiotId } from '../riot/riotId.ts';
+import { cleanRiotText, formatRiotId, parseRiotId } from '../riot/riotId.ts';
 import type { LeagueEntryDto } from '../riot/types.ts';
 import { buildAdjustmentEmbed, buildDigestEmbed } from '../render/digestEmbed.ts';
 import { buildGameEmbed } from '../render/gameEmbed.ts';
@@ -102,6 +102,8 @@ const DIGEST_CATCHUP_HOURS = 6;
  * Glue between storage, Riot, tracker and the output sink. Discord slash commands
  * will call these methods 1:1 (/track add -> addPlayer, etc.).
  */
+const SCOUT_QUIET_MS = 2 * 60_000;
+
 export class Service {
   constructor(
     private readonly repo: Repo,
@@ -675,7 +677,50 @@ export class Service {
    * Find an account by Riot ID. Known accounts need no region. Unknown ones are
    * resolved (region required) and from then on tracked globally like everyone else.
    */
-  async lookup(riotIdInput: string, regionInput?: string): Promise<{ player: PlayerRow; isNew: boolean }> {
+  /**
+   * A known account from part of its name: "kitten" → ferks kitten#retro. Case, spaces and
+   * punctuation don't matter; a regex works too ("^ferk", "kit.*n"). Exact name > name starts
+   * with it > a word starts with it > anywhere in it; ties go to the caller's own accounts, then
+   * this server's tracked ones, then anyone's linked ones. Still a tie: ask which one.
+   */
+  findKnown(query: string, ctx: { callerId?: string; guildId?: string | null; region?: string } = {}): PlayerRow {
+    const q = cleanRiotText(query).trim();
+    const norm = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\p{L}\p{N}]/gu, '');
+    const nq = norm(q);
+    let re: RegExp | null = null;
+    if (/[\^$*+?()[\]{}|\\.]/.test(q)) {
+      try { re = new RegExp(q, 'i'); } catch { re = null; }
+    }
+    if (!nq && !re) throw new UserError('Give a Riot ID (`Name#TAG`) or part of a known name.');
+    const platform = ctx.region ? parsePlatform(ctx.region) : null;
+    const mine = new Set(ctx.callerId ? this.repo.linkedPlayers(ctx.callerId).map((p) => p.puuid) : []);
+    const here = new Set(ctx.guildId ? this.repo.trackedInGuild(ctx.guildId).map((p) => p.puuid) : []);
+    const linked = this.repo.linkedPuuids();
+    const scored: { p: PlayerRow; score: number; bonus: number }[] = [];
+    for (const p of this.repo.activePlayers()) {
+      if (platform && p.platform !== platform) continue;
+      const name = norm(p.game_name);
+      const score = name === nq ? 100
+        : nq && name.startsWith(nq) ? 80
+        : nq && p.game_name.split(/\s+/).some((w) => norm(w).startsWith(nq)) ? 70
+        : nq && name.includes(nq) ? 50
+        : re && re.test(`${p.game_name}#${p.tag_line}`) ? 40
+        : 0;
+      if (!score) continue;
+      scored.push({ p, score, bonus: mine.has(p.puuid) ? 3 : here.has(p.puuid) ? 2 : linked.has(p.puuid) ? 1 : 0 });
+    }
+    scored.sort((a, b) => b.score - a.score || b.bonus - a.bonus);
+    const best = scored[0];
+    if (!best) throw new UserError(`No known account matches **${q}**. Use the full Riot ID, e.g. \`Name#TAG EUNE\`.`);
+    const tied = scored.filter((s) => s.score === best.score && s.bonus === best.bonus);
+    if (tied.length > 1) {
+      throw new UserError(`**${q}** matches ${tied.length} accounts: ${tied.slice(0, 5).map((s) => `\`${s.p.game_name}#${s.p.tag_line}\``).join(', ')}${tied.length > 5 ? ' …' : ''}. Be more specific.`);
+    }
+    return best.p;
+  }
+
+  async lookup(riotIdInput: string, regionInput?: string, ctx: { callerId?: string; guildId?: string | null } = {}): Promise<{ player: PlayerRow; isNew: boolean }> {
+    if (!cleanRiotText(riotIdInput).includes('#')) return { player: this.findKnown(riotIdInput, { ...ctx, region: regionInput }), isNew: false };
     let id;
     try {
       id = parseRiotId(riotIdInput);
@@ -727,7 +772,7 @@ export class Service {
       else players.push({ puuid: acc.puuid, name: acc.gameName ?? id.gameName, tag: acc.tagLine ?? id.tagLine, platform: plat });
     }
     if (missing.length) throw new UserError(`Riot ID${missing.length > 1 ? 's' : ''} not found: **${missing.join('**, **')}**. Check the spelling and region.`);
-    const report = await scoutPlayers(this.repo, this.riot, players, { log: this.log });
+    const report = await this.scouting(() => scoutPlayers(this.repo, this.riot, players, { log: this.log }));
     if (report.sample < 3) throw new UserError(`Only ${report.sample} ranked games found for these players. Wrong region?`);
     const png = await renderBanPlan(report, this.assets);
     const bans = report.priorityBans.map((b) => b.championName).join(', ');
@@ -760,7 +805,7 @@ export class Service {
       if (!acc) throw new UserError(`Riot ID **${formatRiotId(id)}** not found`);
       target = { puuid: acc.puuid, name: acc.gameName ?? id.gameName, tag: acc.tagLine ?? id.tagLine, platform: plat };
     }
-    const report = await scoutTeam(this.repo, this.riot, target, { games: 50, log: this.log });
+    const report = await this.scouting(() => scoutTeam(this.repo, this.riot, target, { log: this.log }));
     if (report.sample < 3) {
       throw new UserError(`**${target.name}#${target.tag}** has only ${report.sample} Flex/Ranked 5s game${report.sample === 1 ? '' : 's'} on ${PLATFORM_LABEL[plat]}, not enough to plan bans. Wrong region?`);
     }
@@ -1552,8 +1597,25 @@ export class Service {
     return run;
   }
 
+  /**
+   * Scouts get the match-v5 rate limit to themselves: regular polls skip while one runs and for
+   * SCOUT_QUIET_MS after (the 2 min window it used), so two scouts back to back both fit.
+   */
+  private scouts = 0;
+  private scoutQuietUntil = 0;
+  private async scouting<T>(fn: () => Promise<T>): Promise<T> {
+    this.scouts++;
+    try {
+      return await fn();
+    } finally {
+      this.scouts--;
+      this.scoutQuietUntil = this.now() + SCOUT_QUIET_MS;
+    }
+  }
+
   /** Regular poll: new games for every due account, then LP for pending ones. */
   async tick(): Promise<{ games: number; requests: number }> {
+    if (this.scouts > 0 || this.now() < this.scoutQuietUntil) return { games: 0, requests: 0 };
     return this.exclusive(async () => {
       const { games, adjustments, requests, detected } = await this.tracker.tick();
       await this.afterTick(games, adjustments, detected);
