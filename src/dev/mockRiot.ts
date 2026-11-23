@@ -52,6 +52,8 @@ export interface PlayOpts {
   lp?: Record<string, number>;
   /** league-v4 shows the change only after this many reads for that player */
   lagReads?: number;
+  /** tie the match to a live game: `${platformId}_${gameId}` */
+  matchId?: string;
   /** extra stat overrides for tracked players */
   stats?: Partial<ParticipantDto>;
 }
@@ -112,7 +114,7 @@ export class MockRiot {
       }
     }
     const g: CurrentGameInfo = {
-      gameId: 7_000_000 + this.live.size, gameType: 'MATCHED', gameMode: 'CLASSIC', mapId: 11,
+      gameId: 7_000_000 + this.liveSeq++, gameType: 'MATCHED', gameMode: 'CLASSIC', mapId: 11,
       gameStartTime: o.startedAt ?? 0, gameLength: 0, gameQueueConfigId: o.queueId ?? 420, platformId: 'EUW1',
       bannedChampions: [{ championId: 157, teamId: 100, pickTurn: 1 }, { championId: 238, teamId: 200, pickTurn: 6 }],
       participants: parts,
@@ -121,6 +123,7 @@ export class MockRiot {
     return g;
   }
 
+  private liveSeq = 0;
   endLive(puuid: string) {
     this.live.delete(puuid);
   }
@@ -131,7 +134,7 @@ export class MockRiot {
     const end = this.clock.now();
     const start = end - dur * 1000;
     const platform = this.accounts.get(o.players[0]!.puuid)!.platform;
-    const matchId = `${platform}_${this.seq++}`;
+    const matchId = o.matchId ?? `${platform}_${this.seq++}`;
 
     const usedChamps = new Set(o.players.map((p) => p.champion).filter(Boolean));
     const pickChamp = () => {

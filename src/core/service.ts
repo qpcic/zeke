@@ -31,6 +31,9 @@ import type { AssetSource, StaticData } from '../assets/ddragon.ts';
 import { championName } from '../assets/ddragon.ts';
 import { performances } from './performance.ts';
 import { renderScoreboard } from '../render/image/scoreboard.ts';
+import { Bets } from './bets.ts';
+import { renderLpCompare } from '../render/image/lpCompare.ts';
+import { renderRoles, ROLE_ORDER, type RoleChamp, type RoleRow } from '../render/image/roles.ts';
 import { pointsFromHistory, renderLpGraph } from '../render/image/lpGraph.ts';
 import { QUEUE_LABEL } from '../riot/types.ts';
 import type { Tracker } from './tracker.ts';
@@ -55,6 +58,10 @@ export const MAX_LINKS = 10;
 
 /** /champ looks at this many recent ranked games. */
 export const CHAMP_SAMPLE = 50;
+export const ROLES_SAMPLE = 50;
+/** New (uncached) games one /roles may download. */
+export const ROLES_NEW_MAX = 20;
+const roleName = (r: string) => ({ TOP: 'Top', JUNGLE: 'Jungle', MIDDLE: 'Mid', BOTTOM: 'Bot', UTILITY: 'Support' } as Record<string, string>)[r] ?? r;
 
 const normChamp = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 /** Champion id from user text: exact name/id, then prefix ("mf" style aliases too), then games seen. */
@@ -103,6 +110,7 @@ const DIGEST_CATCHUP_HOURS = 6;
  * will call these methods 1:1 (/track add -> addPlayer, etc.).
  */
 const SCOUT_QUIET_MS = 2 * 60_000;
+export const MAX_COMPARE = 6;
 
 export class Service {
   constructor(
@@ -124,8 +132,26 @@ export class Service {
    */
   private logPoster: LogPoster | null = null;
   private gameLogChannel: string | null = null;
+  /** Bets on live games (posted with the same poster as game logs). */
+  private betsImpl: Bets | null = null;
+  get bets(): Bets {
+    this.betsImpl ??= new Bets(this.repo, this.now, this.log, this.assets, () => {
+      const fives = Number(this.repo.getKv('ranked5s_queue_id'));
+      return [420, 440, ...(fives ? [fives] : [])];
+    });
+    return this.betsImpl;
+  }
+  setBetChannel(guildId: string, channelId: string | null) {
+    this.repo.ensureGuild(guildId, this.defaultTz);
+    this.repo.setBetChannel(guildId, channelId);
+  }
+  betChannel(guildId: string): string | null {
+    return this.repo.getGuild(guildId)?.bet_channel_id ?? null;
+  }
+
   setLogPoster(poster: LogPoster | null, gameLogChannelId?: string) {
     this.logPoster = poster;
+    this.bets.setPoster(poster);
     this.gameLogChannel = gameLogChannelId || null;
   }
 
@@ -391,6 +417,69 @@ export class Service {
    * run for a player fetches all 50 from Riot; later runs only fetch games not cached yet.
    * Without a champion it picks their most played one.
    */
+  /** /roles: winrate, KDA and best champions per position over the last ROLES_SAMPLE ranked games. */
+  async roles(player: PlayerRow, queueId?: number): Promise<Reply> {
+    return this.fresh(player, (p) => this.rolesImpl(p, queueId));
+  }
+
+  private async rolesImpl(player: PlayerRow, queueId: number | undefined): Promise<Reply> {
+    const q = queueId === undefined ? undefined : await this.resolveQueue(queueId, player);
+    const ids = await this.riot.getMatchIds(player.platform, player.puuid, q === undefined ? { count: ROLES_SAMPLE, type: 'ranked' } : { count: ROLES_SAMPLE, queue: q });
+    // cached games are free; at most ROLES_NEW_MAX downloads so a cold /roles stays cheap
+    let fetched = 0;
+    const matches = (await Promise.all(ids.map(async (id) => {
+      const cached = this.repo.getCachedMatch(id);
+      if (cached) return cached;
+      if (fetched >= ROLES_NEW_MAX) return null;
+      fetched++;
+      const m = await this.riot.getMatch(player.platform, id).catch(() => null);
+      if (m) this.repo.cacheMatch(m);
+      return m;
+    }))).filter((m): m is MatchDto => !!m);
+    if (fetched) this.log(`roles: fetched ${fetched} matches for ${player.game_name}#${player.tag_line}`);
+    const mine = matches
+      .map((m) => ({ m, me: m.info.participants.find((x) => x.puuid === player.puuid) }))
+      .filter((x): x is { m: MatchDto; me: ParticipantDto } => !!x.me && !x.me.gameEndedInEarlySurrender && x.m.info.gameDuration > 300);
+    if (!mine.length) throw new UserError(`No ranked games found for **${player.game_name}#${player.tag_line}**.`);
+
+    const rows: RoleRow[] = ROLE_ORDER.map((role) => {
+      const gs = mine.filter((x) => x.me.teamPosition === role);
+      const n = Math.max(1, gs.length);
+      const avg = (f: (x: (typeof gs)[number]) => number) => gs.reduce((s, x) => s + f(x), 0) / n;
+      const kps = gs.map((x) => x.me.challenges?.killParticipation).filter((v): v is number => typeof v === 'number');
+      const champs = new Map<number, RoleChamp>();
+      for (const x of gs) {
+        const c = champs.get(x.me.championId) ?? { championId: x.me.championId, championName: x.me.championName, wins: 0, games: 0 };
+        c.games++;
+        if (x.me.win) c.wins++;
+        champs.set(x.me.championId, c);
+      }
+      return {
+        role, games: gs.length, wins: gs.filter((x) => x.me.win).length,
+        k: avg((x) => x.me.kills), d: avg((x) => x.me.deaths), a: avg((x) => x.me.assists),
+        csPerMin: avg((x) => (x.me.totalMinionsKilled + x.me.neutralMinionsKilled) / Math.max(1, x.m.info.gameDuration / 60)),
+        kp: kps.length ? kps.reduce((s, v) => s + v, 0) / kps.length : null,
+        champs: [...champs.values()].sort((a, b) => b.games - a.games || b.wins - a.wins).slice(0, 3),
+      };
+    });
+    // best / worst: only roles with enough games to mean something
+    const enough = rows.filter((r) => r.games >= Math.max(3, Math.ceil(mine.length * 0.1))).sort((a, b) => b.wins / b.games - a.wins / a.games);
+    const best = enough.length >= 2 ? enough[0]!.role : null;
+    const worst = enough.length >= 2 && enough[enough.length - 1]!.wins / enough[enough.length - 1]!.games < enough[0]!.wins / enough[0]!.games ? enough[enough.length - 1]!.role : null;
+    const version = mine[0]!.m.info.gameVersion || '99.99';
+    const queueLabel = q === undefined ? 'ranked' : (QUEUE_LABEL[q] ?? 'ranked').replace(/^Ranked /, '');
+    const png = await renderRoles({ player: player.game_name, tag: player.tag_line, queueLabel, sample: mine.length, version, rows, best, worst }, this.assets);
+    const top = [...rows].sort((a, b) => b.games - a.games)[0]!;
+    return {
+      embed: {
+        color: 0x5865f2,
+        image: { url: 'attachment://roles.png' },
+        footer: { text: `Mostly ${roleName(top.role)} (${Math.round((top.games / mine.length) * 100)}%)${fetched >= ROLES_NEW_MAX ? ' · some older games not loaded yet' : ''}` },
+      },
+      files: [{ name: 'roles.png', data: png }],
+    };
+  }
+
   async champ(player: PlayerRow, championInput?: string, queueId?: number): Promise<Reply> {
     return this.fresh(player, (p) => this.champImpl(p, championInput, queueId));
   }
@@ -1255,6 +1344,36 @@ export class Service {
     };
   }
 
+  /**
+   * LP race: several players on one time-based chart (/graph @a @b, $graph kitten, mapet).
+   * Players are deduped; ones without games in the window are still listed in the legend.
+   */
+  async graphCompare(players: PlayerRow[], queueId: number, days: number, tz = this.defaultTz): Promise<Reply> {
+    const uniq = [...new Map(players.map((p) => [p.puuid, p])).values()].slice(0, MAX_COMPARE);
+    if (uniq.length < 2) throw new UserError('Give at least two different players to compare.');
+    const to = this.now(), from = to - days * 86_400_000;
+    const series = uniq.map((p) => {
+      const rows = this.repo.lpHistorySince(p.puuid, queueId, from);
+      const wins = rows.filter((r) => r.win).length;
+      return { name: p.game_name, pts: pointsFromHistory(rows), wins, losses: rows.length - wins };
+    });
+    if (!series.some((s) => s.pts.length)) {
+      throw new UserError(`None of them have recorded ${QUEUE_LABEL[queueId] ?? ''} games in the last ${days} days.`);
+    }
+    const net = (s: (typeof series)[number]) => (s.pts.length >= 2 ? s.pts[s.pts.length - 1]!.abs - s.pts[0]!.abs : -Infinity);
+    series.sort((a, b) => net(b) - net(a));
+    const png = renderLpCompare(series, { queueLabel: QUEUE_LABEL[queueId] ?? `Queue ${queueId}`, tz, from, to, days });
+    const leader = series[0]!;
+    return {
+      embed: {
+        color: 0x5865f2,
+        image: { url: 'attachment://lp-race.png' },
+        footer: { text: net(leader) > -Infinity ? `${leader.name} gained the most · ${series.length} players` : `${series.length} players` },
+      },
+      files: [{ name: 'lp-race.png', data: png }],
+    };
+  }
+
   /** Data behind the personal recap image (exposed for tests). Null when there are no games. */
   recapData(player: PlayerRow, kind: 'daily' | 'weekly', queueId = SOLO, window: DailyWindow = 'today', tz = this.defaultTz): { header: RecapHeader; games: RecapGame[] } | null {
     const period = personalWindow(kind, window, this.now(), tz);
@@ -1617,7 +1736,8 @@ export class Service {
   async tick(): Promise<{ games: number; requests: number }> {
     if (this.scouts > 0 || this.now() < this.scoutQuietUntil) return { games: 0, requests: 0 };
     return this.exclusive(async () => {
-      const { games, adjustments, requests, detected } = await this.tracker.tick();
+      const { games, adjustments, requests, detected, live } = await this.tracker.tick();
+      await this.bets.open(live);
       await this.afterTick(games, adjustments, detected);
       await this.postDueRecaps();
       return { games: games.length, requests };
@@ -1629,6 +1749,7 @@ export class Service {
     return this.exclusive(async () => {
       const { games, adjustments, requests } = await this.tracker.checkPending();
       if (games.length || adjustments.length) await this.afterTick(games, adjustments, []);
+      else await this.bets.update(); // lock bets on time even between regular polls
       return { games: games.length, requests };
     });
   }
@@ -1648,6 +1769,7 @@ export class Service {
     // New games are posted right away; resolved ones edit their post with the LP.
     await this.postGameLogs([...detected, ...games.map((g) => g.match.metadata.matchId)]);
     await this.updateRecentWatchers(games);
+    await this.bets.update();
     for (const a of adjustments) {
       for (const guild of this.repo.guildsTracking(a.player.puuid)) {
         await this.sink.send(guild, 'notice', [buildAdjustmentEmbed(a.player.game_name, a.queueType, a.delta, formatRank(a.rankBefore), formatRank(a.rankAfter))], { label: `adj-${a.player.game_name}` });

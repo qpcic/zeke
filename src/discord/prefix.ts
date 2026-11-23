@@ -25,9 +25,12 @@ const ALIASES: Record<string, CommandName> = {
   ladder: 'ladder', ranks: 'ladder', rankings: 'ladder',
   peak: 'peak', best: 'peak', highest: 'peak',
   duo: 'duo', together: 'duo',
+  roles: 'roles', role: 'roles', positions: 'roles', pos: 'roles',
   rivals: 'rivals', rival: 'rivals', vs: 'rivals', h2h: 'rivals',
   champ: 'champ', c: 'champ', champion: 'champ',
   log: 'log', gamelog: 'log',
+  bets: 'bets', betting: 'bets',
+  points: 'points', pts: 'points', bal: 'points', balance: 'points', wallet: 'points',
   server: 'server', serverinfo: 'server', settings: 'server',
   live: 'live', lg: 'live', ingame: 'live', spectate: 'live', game: 'live',
   graph: 'graph', g: 'graph',
@@ -95,7 +98,7 @@ export function extractRiotId(words: string[]): { riotId?: string; rest: string[
 export function parsePrefix(
   content: string,
   prefix: string,
-  ctx: { callerId: string; guildId: string | null; canManageGuild: boolean; mentionedUserId?: string; mentionedChannelId?: string },
+  ctx: { callerId: string; guildId: string | null; canManageGuild: boolean; mentionedUserId?: string; mentionedUserIds?: string[]; mentionedChannelId?: string },
 ): CommandRequest | null {
   if (!prefix || !content.startsWith(prefix)) return null;
   // drop user mentions from the argument text; they arrive via ctx.mentionedUserId
@@ -116,7 +119,7 @@ export function parsePrefix(
   let words = rest.filter(Boolean);
 
   // Queue is always the LAST argument ("$daily @friend flex", "$lb week flex"); default Solo/Duo.
-  if (name === 'recent' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'leaderboard' || name === 'mode' || name === 'ladder' || name === 'champ') {
+  if (name === 'recent' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'leaderboard' || name === 'mode' || name === 'ladder' || name === 'champ' || name === 'roles') {
     const last = words[words.length - 1]?.toLowerCase();
     if (last && last in QUEUE_WORDS) {
       req.queue = QUEUE_WORDS[last];
@@ -140,8 +143,23 @@ export function parsePrefix(
     if (ids.region) req.region = ids.region;
   }
 
+  // LP race: "$graph @a @b", "$graph kitten, mapet, @c 30d", "$graph vs @a" (vs / me = you too)
+  if (name === 'graph') {
+    const mentions = ctx.mentionedUserIds ?? (ctx.mentionedUserId ? [ctx.mentionedUserId] : []);
+    const vs = words.some((w) => /^(vs|me)$/i.test(w.replace(/,$/, '')));
+    if (mentions.length >= 2 || words.join(' ').includes(',') || (vs && (mentions.length > 0 || words.length > 1))) {
+      const daysW = words.find((w) => /^\d+d?$/i.test(w));
+      if (daysW) req.days = parseInt(daysW, 10);
+      const names = words.filter((w) => w !== daysW && !/^(vs|me),?$/i.test(w)).join(' ')
+        .split(',').map((x) => x.trim()).filter(Boolean);
+      req.compare = [...(vs ? ['me'] : []), ...mentions.map((id) => `<@${id}>`), ...names];
+      req.targetUserId = undefined;
+      words = [];
+    }
+  }
+
   // Target lookups: "$graph ferks kitten#retro eune flex 30"
-  if (name === 'recent' || name === 'live' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'profile' || name === 'champ' || name === 'peak' || name === 'duo' || name === 'rivals') {
+  if (name === 'recent' || name === 'live' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'profile' || name === 'champ' || name === 'peak' || name === 'duo' || name === 'rivals' || name === 'roles') {
     const ex = extractRiotId(words);
     if (ex.riotId) {
       req.riotId = ex.riotId;
@@ -183,6 +201,7 @@ export function parsePrefix(
       break;
     }
     case 'log':
+    case 'bets':
     case 'recap': {
       // "$recap #channel" (channel mention) or "$recap off"
       const ch = ctx.mentionedChannelId ?? /^<#(\d+)>$/.exec(words[0] ?? '')?.[1];
@@ -382,6 +401,7 @@ export function createPrefixHandler(
       guildId: msg.guildId,
       canManageGuild: !!msg.member?.permissions.has(PermissionFlagsBits.ManageGuild),
       mentionedUserId: mentioned?.id,
+      mentionedUserIds: [...msg.mentions.users.filter((u) => u.id !== botUserId()).keys()],
       mentionedChannelId: msg.mentions.channels.first()?.id,
     });
     if (!req) return;

@@ -4,8 +4,14 @@ import type { MatchDto } from '../riot/types.ts';
 
 export interface GuildRow {
   guild_id: string; log_channel_id: string | null; timezone: string; created_at: number;
-  recap_channel_id: string | null; recap_posted_to: number;
+  recap_channel_id: string | null; recap_posted_to: number; bet_channel_id?: string | null;
 }
+export interface BetRoundRow {
+  id: number; guild_id: string; match_id: string; puuid: string; team_id: number; queue_id: number;
+  players: string; opponents: string; channel_id: string; message_id: string | null;
+  opened_at: number; closes_at: number; status: 'open' | 'locked' | 'settled' | 'void'; result: 'win' | 'loss' | 'remake' | null;
+}
+export interface BetRow { round_id: number; user_id: string; side: 'win' | 'loss'; amount: number; payout: number | null; placed_at: number }
 export interface PlayerRow {
   puuid: string; platform: Platform; game_name: string; tag_line: string;
   last_match_check: number; last_rank_check: number; created_at: number;
@@ -39,6 +45,94 @@ export class Repo {
   setGuildChannel(guildId: string, channelId: string | null) {
     this.db.prepare('UPDATE guilds SET log_channel_id = ? WHERE guild_id = ?').run(channelId, guildId);
   }
+  setBetChannel(guildId: string, channelId: string | null) {
+    this.db.prepare('UPDATE guilds SET bet_channel_id = ? WHERE guild_id = ?').run(channelId, guildId);
+  }
+
+  // ---- bets ----
+  createBetRound(r: Omit<BetRoundRow, 'id' | 'message_id' | 'status' | 'result'>): number | null {
+    const res = this.db.prepare(`INSERT OR IGNORE INTO bet_rounds (guild_id, match_id, puuid, team_id, queue_id, players, opponents, channel_id, opened_at, closes_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(r.guild_id, r.match_id, r.puuid, r.team_id, r.queue_id, r.players, r.opponents, r.channel_id, r.opened_at, r.closes_at);
+    return res.changes ? Number(res.lastInsertRowid) : null;
+  }
+  getBetRound(id: number) {
+    return this.db.prepare('SELECT * FROM bet_rounds WHERE id = ?').get(id) as BetRoundRow | undefined;
+  }
+  setBetRoundMessage(id: number, messageId: string) {
+    this.db.prepare('UPDATE bet_rounds SET message_id = ? WHERE id = ?').run(messageId, id);
+  }
+  deleteBetRound(id: number) {
+    this.db.prepare('DELETE FROM bet_rounds WHERE id = ?').run(id);
+  }
+  /** Rounds not settled yet, optionally only for some matches. */
+  unsettledBetRounds(matchIds?: string[]) {
+    const rows = this.db.prepare("SELECT * FROM bet_rounds WHERE status IN ('open', 'locked') ORDER BY id").all() as unknown as BetRoundRow[];
+    return matchIds ? rows.filter((r) => matchIds.includes(r.match_id)) : rows;
+  }
+  setBetRoundStatus(id: number, status: BetRoundRow['status'], result: BetRoundRow['result'] = null) {
+    this.db.prepare('UPDATE bet_rounds SET status = ?, result = COALESCE(?, result) WHERE id = ?').run(status, result, id);
+  }
+  betsFor(roundId: number) {
+    return this.db.prepare('SELECT * FROM bets WHERE round_id = ? ORDER BY placed_at').all(roundId) as unknown as BetRow[];
+  }
+  getBet(roundId: number, userId: string) {
+    return this.db.prepare('SELECT * FROM bets WHERE round_id = ? AND user_id = ?').get(roundId, userId) as BetRow | undefined;
+  }
+  /** Take the stake and record the bet in one go. False if they already bet on this round. */
+  placeBet(guildId: string, roundId: number, userId: string, side: 'win' | 'loss', amount: number, at: number): boolean {
+    this.db.exec('BEGIN');
+    try {
+      const res = this.db.prepare('INSERT OR IGNORE INTO bets (round_id, user_id, side, amount, placed_at) VALUES (?, ?, ?, ?, ?)').run(roundId, userId, side, amount, at);
+      if (!res.changes) { this.db.exec('ROLLBACK'); return false; }
+      this.db.prepare('UPDATE wallets SET points = points - ? WHERE guild_id = ? AND user_id = ?').run(amount, guildId, userId);
+      this.db.exec('COMMIT');
+      return true;
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+  /** Pay out a round: each bet's payout is credited and recorded; the round gets its final status. */
+  settleBetRound(round: BetRoundRow, payouts: Map<string, number>, status: 'settled' | 'void', result: BetRoundRow['result']) {
+    this.db.exec('BEGIN');
+    try {
+      for (const [userId, payout] of payouts) {
+        this.db.prepare('UPDATE bets SET payout = ? WHERE round_id = ? AND user_id = ?').run(payout, round.id, userId);
+        if (payout) this.db.prepare('UPDATE wallets SET points = points + ? WHERE guild_id = ? AND user_id = ?').run(payout, round.guild_id, userId);
+      }
+      this.db.prepare('UPDATE bet_rounds SET status = ?, result = ? WHERE id = ?').run(status, result, round.id);
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+  /** A wallet, created with `start` points on first use. */
+  wallet(guildId: string, userId: string, start: number): number {
+    this.db.prepare('INSERT OR IGNORE INTO wallets (guild_id, user_id, points) VALUES (?, ?, ?)').run(guildId, userId, start);
+    return (this.db.prepare('SELECT points FROM wallets WHERE guild_id = ? AND user_id = ?').get(guildId, userId) as { points: number }).points;
+  }
+  setWallet(guildId: string, userId: string, points: number) {
+    this.db.prepare('UPDATE wallets SET points = ? WHERE guild_id = ? AND user_id = ?').run(points, guildId, userId);
+  }
+  walletTop(guildId: string, limit: number) {
+    return this.db.prepare('SELECT user_id, points FROM wallets WHERE guild_id = ? ORDER BY points DESC, user_id LIMIT ?').all(guildId, limit) as { user_id: string; points: number }[];
+  }
+  /** Settled bets of one user in one server: won, lost and net. */
+  betRecord(guildId: string, userId: string) {
+    return this.db.prepare(`
+      SELECT COUNT(*) FILTER (WHERE b.payout > b.amount) AS won,
+             COUNT(*) FILTER (WHERE b.payout = 0) AS lost,
+             COALESCE(SUM(b.payout - b.amount), 0) AS net
+      FROM bets b JOIN bet_rounds r ON r.id = b.round_id
+      WHERE r.guild_id = ? AND b.user_id = ? AND r.status = 'settled' AND b.payout IS NOT NULL
+    `).get(guildId, userId) as { won: number; lost: number; net: number };
+  }
+  /** Discord users linked to an account. */
+  usersLinkedTo(puuid: string): string[] {
+    return (this.db.prepare('SELECT discord_user_id AS id FROM links WHERE puuid = ?').all(puuid) as { id: string }[]).map((r) => r.id);
+  }
+
   setGuildTimezone(guildId: string, tz: string) {
     this.db.prepare('UPDATE guilds SET timezone = ? WHERE guild_id = ?').run(tz, guildId);
   }
@@ -325,6 +419,14 @@ export class Repo {
       WHERE puuid = ? AND queue_id = ? AND status = 'done' AND remake = 0
       ORDER BY game_end DESC LIMIT ?
     `).all(puuid, queueId, limit) as unknown as PlayerMatchRow[]).reverse();
+  }
+  /** Done, non-remake games of one queue since a time (oldest first): the LP race graph. */
+  lpHistorySince(puuid: string, queueId: number, sinceMs: number) {
+    return this.db.prepare(`
+      SELECT * FROM player_matches
+      WHERE puuid = ? AND queue_id = ? AND status = 'done' AND remake = 0 AND game_end >= ?
+      ORDER BY game_end
+    `).all(puuid, queueId, sinceMs) as unknown as PlayerMatchRow[];
   }
   latestDoneMatches(puuid: string, limit: number) {
     return this.db.prepare("SELECT * FROM player_matches WHERE puuid = ? AND status = 'done' ORDER BY game_end DESC LIMIT ?")

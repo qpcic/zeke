@@ -4,13 +4,14 @@ import { validateEmbed } from '../src/render/embed.ts';
 import { asGuildCommands, commands } from '../src/discord/commands.ts';
 import { setup } from './helpers.ts';
 import { runCommand } from '../src/discord/actions.ts';
+import { parsePrefix } from '../src/discord/prefix.ts';
 
 const MIN = 60_000;
 const ranks = (tier: string, rank: string, lp: number) => [{ queueType: 'RANKED_SOLO_5x5', tier, rank, lp, wins: 100, losses: 90 }];
 
 test('command definitions are valid and scoped right', () => {
   const names = commands.map((c) => c.name).sort();
-  assert.deepEqual(names, ['champ', 'daily', 'duo', 'graph', 'help', 'ladder', 'leaderboard', 'link', 'live', 'log', 'mode', 'peak', 'profile', 'recap', 'recent', 'rivals', 'scout', 'server', 'track', 'unlink', 'weekly', 'zeke']);
+  assert.deepEqual(names, ['bets', 'champ', 'daily', 'duo', 'graph', 'help', 'ladder', 'leaderboard', 'link', 'live', 'log', 'mode', 'peak', 'points', 'profile', 'recap', 'recent', 'rivals', 'roles', 'scout', 'server', 'track', 'unlink', 'weekly', 'zeke']);
   const byName = Object.fromEntries(commands.map((c) => [c.name, c]));
   assert.deepEqual(byName.link!.integration_types, [0, 1]);
   assert.deepEqual(byName.recent!.contexts, [0, 1, 2]);
@@ -352,4 +353,58 @@ test('profile queue cards sort by tier, division, LP; unranked last', async () =
     q('Ranked 5s', { tier: 'GOLD', division: 'I', lp: 40 }),
   ]);
   assert.deepEqual(out2.map((x) => x.label), ['Ranked 5s', 'Flex', 'Solo/Duo']);
+});
+
+test('/graph LP race: several players on one chart; $graph @a @b, kitten, mapet, vs @a', async () => {
+  const { mock, service, clock } = setup();
+  const accs = [
+    mock.addAccount('Climber', 'EUW', 'EUW1', ranks('GOLD', 'I', 50)),
+    mock.addAccount('Faller', 'EUW', 'EUW1', ranks('PLATINUM', 'IV', 20)),
+    mock.addAccount('Sitter', 'EUW', 'EUW1', ranks('SILVER', 'II', 10)),
+  ];
+  await service.linkUser('u1', 'EUW', 'Climber#EUW');
+  await service.linkUser('222', 'EUW', 'Faller#EUW');
+  await service.lookup('Sitter#EUW', 'EUW');
+  for (let i = 0; i < 6; i++) {
+    clock.advance(5 * 3600_000);
+    mock.play({ players: [{ puuid: accs[0]!.puuid, team: 100 }], winner: i % 3 ? 100 : 200, lp: { [accs[0]!.puuid]: i % 3 ? 24 : -19 } });
+    mock.play({ players: [{ puuid: accs[1]!.puuid, team: 100 }], winner: i % 3 ? 200 : 100, lp: { [accs[1]!.puuid]: i % 3 ? -21 : 18 } });
+    await service.tick();
+  }
+  const base = { callerId: 'u1', guildId: 'g1', canManageGuild: false, style: '$' } as const;
+  const r = await runCommand(service, { ...base, name: 'graph', compare: ['me', '<@222>', 'sitt'] });
+  assert.equal(r.files[0]!.name, 'lp-race.png');
+  assert.equal(r.files[0]!.data.subarray(1, 4).toString(), 'PNG');
+  assert.match(r.embed.footer!.text!, /Climber gained the most · 3 players/);
+  if (process.env.WRITE_PNG) (await import('node:fs')).writeFileSync('/tmp/race.png', r.files[0]!.data);
+  await assert.rejects(runCommand(service, { ...base, name: 'graph', compare: ['me', 'Climber#EUW'] }), /two different players/);
+
+  const ctx = { callerId: 'u1', guildId: 'g1', canManageGuild: false };
+  assert.deepEqual(parsePrefix('$graph <@1> <@2> 30d flex', '$', { ...ctx, mentionedUserId: '1', mentionedUserIds: ['1', '2'] })!.compare, ['<@1>', '<@2>']);
+  const p2 = parsePrefix('$graph kitten, mapet 30', '$', ctx)!;
+  assert.deepEqual([p2.compare, p2.days], [['kitten', 'mapet'], 30]);
+  assert.deepEqual(parsePrefix('$graph vs <@1>', '$', { ...ctx, mentionedUserId: '1', mentionedUserIds: ['1'] })!.compare, ['me', '<@1>']);
+  assert.equal(parsePrefix('$graph <@1> 30', '$', { ...ctx, mentionedUserId: '1', mentionedUserIds: ['1'] })!.compare, undefined, 'one mention: normal graph');
+});
+
+test('/roles: winrate, KDA and top champs per position; best and worst role', async () => {
+  const { mock, service, clock } = setup();
+  const a = mock.addAccount('Flexer', 'EUW', 'EUW1', ranks('GOLD', 'I', 50));
+  await service.linkUser('u1', 'EUW', 'Flexer#EUW');
+  const plan: [string, string, boolean][] = [
+    ...Array.from({ length: 6 }, (_, i) => ['MIDDLE', i % 2 ? 'Ahri' : 'Syndra', i !== 5] as [string, string, boolean]), // 5W 1L
+    ...Array.from({ length: 4 }, (_, i) => ['JUNGLE', 'Lee Sin', i === 0] as [string, string, boolean]), // 1W 3L
+    ['UTILITY', 'Thresh', true],
+  ];
+  for (const [role, champion, win] of plan) {
+    clock.advance(40 * MIN);
+    mock.play({ players: [{ puuid: a.puuid, team: 100, role, champion }], winner: win ? 100 : 200, durationSec: 1800 });
+  }
+  const r = await runCommand(service, { callerId: 'u1', guildId: null, canManageGuild: false, style: '/', name: 'roles' });
+  assert.equal(r.files[0]!.name, 'roles.png');
+  assert.match(r.embed.footer!.text!, /Mostly Mid \(55%\)/);
+  if (process.env.WRITE_PNG) (await import('node:fs')).writeFileSync('/tmp/roles.png', r.files[0]!.data);
+  const ctx = { callerId: 'u1', guildId: 'g1', canManageGuild: false };
+  const p = parsePrefix('$pos kitten flex', '$', ctx)!;
+  assert.deepEqual([p.name, p.riotId, p.queue], ['roles', 'kitten', 440]);
 });

@@ -39,6 +39,9 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
   userOpt(new SlashCommandBuilder().setName('duo').setDescription('Your record playing together with someone, and your best champion pairs'))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
+  queueOpt(userOpt(new SlashCommandBuilder().setName('roles').setDescription('Winrate, KDA and best champions per position')))
+    .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
+
   userOpt(new SlashCommandBuilder().setName('rivals').setDescription('Your head-to-head record against someone'))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
@@ -80,7 +83,9 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
   queueOpt(userOpt(new SlashCommandBuilder().setName('graph').setDescription('LP graph over recorded games'))
-    .addIntegerOption((o) => o.setName('games').setDescription('How many recent games (default 50)').setMinValue(5).setMaxValue(200)))
+    .addIntegerOption((o) => o.setName('games').setDescription('How many recent games (default 50)').setMinValue(5).setMaxValue(200))
+    .addStringOption((o) => o.setName('compare').setDescription('LP race: overlay others, e.g. @friend, kitten, Name#TAG (comma-separated)').setMaxLength(200))
+    .addIntegerOption((o) => o.setName('days').setDescription('LP race window in days (default 14)').setMinValue(1).setMaxValue(90)))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
   queueOpt(userOpt(new SlashCommandBuilder().setName('daily').setDescription("Today's games and LP (or the past 24 hours)"))
@@ -112,6 +117,18 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
     .setIntegrationTypes(SERVER_ONLY.integrations).setContexts(SERVER_ONLY.contexts)
     .addChannelOption((o) => o.setName('channel').setDescription('Channel to post in (leave empty to open the settings)').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
     .addBooleanOption((o) => o.setName('off').setDescription('Turn the game log off'))
+    .toJSON(),
+
+  new SlashCommandBuilder().setName('bets').setDescription('Bets: post tracked players\' ranked games so people can bet points on them')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setIntegrationTypes(SERVER_ONLY.integrations).setContexts(SERVER_ONLY.contexts)
+    .addChannelOption((o) => o.setName('channel').setDescription('Channel to post bets in').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
+    .addBooleanOption((o) => o.setName('off').setDescription('Turn bets off'))
+    .toJSON(),
+
+  new SlashCommandBuilder().setName('points').setDescription('Your bet points and the richest in this server')
+    .setIntegrationTypes(SERVER_ONLY.integrations).setContexts(SERVER_ONLY.contexts)
+    .addUserOption((o) => o.setName('user').setDescription("Someone else's points"))
     .toJSON(),
 
   new SlashCommandBuilder().setName('server').setDescription("This server's tracked accounts, recap and game log channels")

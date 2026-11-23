@@ -74,6 +74,8 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 | `/duo @user \| Name#TAG` | Your record playing on the same team: W/L, queues, recent streak and best champion pairs · `$duo`, `$together` |
 | `/rivals @user \| Name#TAG` | Head-to-head when you were on opposite teams: score, same-lane games, KDA and most-played picks · `$rivals`, `$vs`, `$h2h` |
 | `/graph [@user \| Name#TAG] [games] [solo\|flex\|5s]` | LP graph over recorded games · `$g` |
+| `/graph compare:@a, kitten [days]` | LP race: up to 6 players on one chart over the last 14 days (or `days`), with each player's net LP and W/L · `$graph @a @b`, `$graph kitten, mapet 30`, `$graph vs @a` (you vs them) |
+| `/roles [@user \| Name#TAG] [solo\|flex\|5s]` | Winrate, KDA, CS/min and top champions per position over the last 50 ranked games, best and worst role marked · `$roles`, `$pos` |
 | `/scout <Name#TAG> [region] [player_2…5]` | One player: scout their usual Ranked 5s / Flex team from the last 30 games (Ranked 5s first). Up to 5 players: scout each one from their own last 30 ranked games (Ranked 5s first, then the most recent Flex or Solo/Duo), with roles fitted across them and how often they queue together. Roles, best champs, bans · `$scout fram#polar Mapet#MR10 eune` |
 
 ### Server
@@ -87,6 +89,8 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 | `/track list` | Show tracked accounts |
 | `/recap` | Daily recap: pick a channel, and every night just after midnight the day's LP leaderboard (one per queue played), a games-played leaderboard and the day's awards and rank changes are posted there. On Mondays the weekly recap follows *(Manage Server)* · `$recap #channel`, `$recap off` |
 | `/log` | Game log: pick a channel and every new ranked game of the tracked accounts is posted there as a scoreboard, once per game, plus promotions and demotions *(Manage Server)* · `$log #channel`, `$log off` |
+| `/bets #channel` | Bets: when a tracked player starts a ranked game, Zeke posts it there with **Bet Win** / **Bet Lose** buttons. Bets close after 5 minutes and pay 2x; remakes refund; players can't bet against their own team. Points are per server and not real (everyone starts with 1000, a bailout tops broke players up to 100) *(Manage Server)* · `$bets #channel`, `$bets off` |
+| `/points [@user]` | Bet points, record and the richest in the server · `$points`, `$pts`, `$bal` |
 | `/server` | Tracked accounts, timezone, and the recap and game log channels |
 
 **Good to know**
