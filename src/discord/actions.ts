@@ -11,7 +11,7 @@ import type { LeagueEntryDto } from '../riot/types.ts';
  * Transport-agnostic command logic. Slash commands and $prefix messages both
  * parse into a CommandRequest and render the returned Reply.
  */
-export type CommandName = 'zeke' | 'ladder' | 'champ' | 'peak' | 'duo' | 'rivals' | 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'recap' | 'log' | 'server' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
+export type CommandName = 'zeke' | 'ladder' | 'champ' | 'peak' | 'duo' | 'rivals' | 'roles' | 'bets' | 'points' | 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'recap' | 'log' | 'server' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
 
 export interface CommandRequest {
   name: CommandName;
@@ -43,12 +43,20 @@ export interface CommandRequest {
   riotIds?: string[];
   /** /champ: champion name as typed */
   champion?: string;
+  /**
+   * /graph LP race: players to overlay. Entries are "me", "<@id>", "Name#TAG" or part of a known
+   * name. With compareWithTarget (slash), the usual target (you / user / riot_id) is added first.
+   */
+  compare?: string[];
+  compareWithTarget?: boolean;
+  /** /graph LP race window in days */
+  days?: number;
   /** /ladder: server members with linked accounts (resolved by the Discord layer) */
   members?: { id: string; name: string }[];
 }
 
 /** Replies that should only be visible to the caller where the transport supports it. */
-export const PRIVATE: ReadonlySet<CommandName> = new Set(['link', 'unlink', 'mode', 'help', 'recap', 'log']);
+export const PRIVATE: ReadonlySet<CommandName> = new Set(['link', 'unlink', 'mode', 'help', 'recap', 'log', 'bets']);
 
 const QUEUE_NAME: Record<string, string> = { RANKED_SOLO_5x5: 'Solo/Duo', RANKED_FLEX_SR: 'Flex', RANKED_PREMADE_5x5: 'Ranked 5s' };
 export const tag = (p: PlayerRow) => `${p.game_name}#${p.tag_line}`;
@@ -149,10 +157,11 @@ export function helpEmbed(p: string): Embed {
           `${c('live')} the game you're in right now: teams, ranks, runes${a('lg')}`,
           `${c('daily [24h]')} today, or the past 24 hours${a('d')}`,
           `${c('weekly')} the past 7 days${a('w')}`,
-          `${c('graph [games]')} LP graph${a('g')}`,
+          `${c('graph [games]')} LP graph${a('g')} · ${c('graph @a @b')} or ${c('graph kitten, mapet')} LP race on one chart`,
           `${c('champ [champion]')} your games on a champion (last 50 ranked)${a('c')}`,
           `${c('peak')} highest rank in each queue since tracking started`,
           `${c('duo @friend')} your record together · ${c('rivals @friend')} head-to-head`,
+          `${c('roles')} winrate, KDA and best champs per position`,
         ].join('\n'),
       },
       {
@@ -167,6 +176,7 @@ export function helpEmbed(p: string): Embed {
           `${c('track add|remove|list')} accounts on the leaderboard (Manage Server)`,
           `${c('recap')} daily leaderboards every midnight, weekly on Mondays (Manage Server)`,
           `${c('log')} post every new game of the tracked accounts to a channel (Manage Server)`,
+          `${c('bets #channel')} bet points on tracked players' ranked games (Manage Server) · ${c('points')} your balance`,
           `${c('server')} tracked accounts and this server's recap / game log channels`,
         ].join('\n'),
       },
@@ -240,6 +250,10 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
     case 'profile':
       return withNote(await service.profile(await target()));
 
+    case 'roles':
+      // like /champ: all ranked queues unless one is named
+      return withNote(await service.roles(await target(), req.queue));
+
     case 'duo':
     case 'rivals': {
       // you (all linked accounts) vs an @user (all theirs) or one Riot ID
@@ -288,6 +302,27 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
       return logPanel(service, g);
     }
 
+    case 'bets': {
+      const g = needGuild();
+      const cur = service.betChannel(g);
+      const c = (x: string) => `\`${p}${x}\``;
+      if (!req.channelId && !req.off) {
+        return only(info('🎲 Bets', cur
+          ? `Bets are posted in <#${cur}> when a tracked player starts a ranked game.\nChange it with ${c('bets #channel')} or turn it off with ${c('bets off')}.`
+          : `Bets are off. Turn them on with ${c('bets #channel')}: when a tracked player starts a ranked game, Zeke posts it there and people bet points (not real) on Win or Lose.`));
+      }
+      if (!req.canManageGuild) throw new UserError('You need the **Manage Server** permission to set up bets.');
+      if (req.off) {
+        service.setBetChannel(g, null);
+        return only(info('🎲 Bets', 'Bets turned off. Open rounds still pay out.'));
+      }
+      service.setBetChannel(g, req.channelId!);
+      return only(info('🎲 Bets', `Bets will be posted in <#${req.channelId}> when a tracked player starts a ranked game. Everyone starts with 1000 points; a win pays 2x.`));
+    }
+
+    case 'points':
+      return service.bets.pointsReply(needGuild(), req.callerId, req.targetUserId ?? req.callerId);
+
     case 'server':
       return service.serverInfo(needGuild(), req.guildName);
 
@@ -309,6 +344,23 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
       return withNote(await service.recent(await target(), req.queue));
 
     case 'graph': {
+      if (req.compare?.length) {
+        const ctx = { callerId: req.callerId, guildId: req.guildId };
+        const resolve = async (e: string) => {
+          const m = /^<@!?(\d+)>$/.exec(e.trim());
+          if (m || /^me$/i.test(e.trim())) {
+            const id = m ? m[1]! : req.callerId;
+            return service.linkedOrThrow(id, id === req.callerId, p);
+          }
+          return (await service.lookup(e, req.region, ctx)).player;
+        };
+        const players = [
+          ...(req.compareWithTarget ? [await target()] : []),
+          ...(await Promise.all(req.compare.map(resolve))),
+        ];
+        const days = Math.min(90, Math.max(1, req.days ?? 14));
+        return service.graphCompare(players, await service.resolveQueue(queue, players[0]), days);
+      }
       const pl = await target();
       try {
         return withNote(await service.graph(pl, await service.resolveQueue(queue, pl), Math.min(200, Math.max(5, req.games ?? 50))));

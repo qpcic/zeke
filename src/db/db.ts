@@ -177,6 +177,43 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE posts ADD COLUMN message_id TEXT;
   ALTER TABLE posts ADD COLUMN final INTEGER NOT NULL DEFAULT 1;
   `,
+  /* 11 */ `
+  -- Bets: a round opens when a tracked player is seen in a ranked game; points are per server.
+  ALTER TABLE guilds ADD COLUMN bet_channel_id TEXT;
+  CREATE TABLE bet_rounds (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id   TEXT NOT NULL,
+    match_id   TEXT NOT NULL,              -- <platformId>_<gameId>, same as match-v5
+    puuid      TEXT NOT NULL,              -- focus player: their team's result decides
+    team_id    INTEGER NOT NULL,
+    queue_id   INTEGER NOT NULL,
+    players    TEXT NOT NULL,              -- JSON [{puuid, name, champion}] tracked on the focus team
+    opponents  TEXT NOT NULL,              -- JSON, tracked on the other team
+    channel_id TEXT NOT NULL,
+    message_id TEXT,
+    opened_at  INTEGER NOT NULL,
+    closes_at  INTEGER NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'open', -- open | locked | settled | void
+    result     TEXT,                         -- win | loss | remake
+    UNIQUE (guild_id, match_id)
+  );
+  CREATE INDEX bet_rounds_status ON bet_rounds(status);
+  CREATE TABLE bets (
+    round_id  INTEGER NOT NULL REFERENCES bet_rounds(id) ON DELETE CASCADE,
+    user_id   TEXT NOT NULL,
+    side      TEXT NOT NULL,               -- win | loss
+    amount    INTEGER NOT NULL,
+    payout    INTEGER,                     -- after settling: what came back (0 = lost)
+    placed_at INTEGER NOT NULL,
+    PRIMARY KEY (round_id, user_id)
+  );
+  CREATE TABLE wallets (
+    guild_id TEXT NOT NULL,
+    user_id  TEXT NOT NULL,
+    points   INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+  );
+  `,
 ];
 
 export type DB = DatabaseSync;

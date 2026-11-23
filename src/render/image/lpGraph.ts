@@ -16,7 +16,7 @@ export const TIER_COLOR: Record<string, string> = {
 const DIVS = ['IV', 'III', 'II', 'I'];
 const title = (t: string) => t.charAt(0) + t.slice(1).toLowerCase();
 
-function rankAt(abs: number): { tier: string; division: string; lp: number } {
+export function rankAt(abs: number): { tier: string; division: string; lp: number } {
   if (abs >= 2800) return { tier: 'MASTER', division: 'I', lp: abs - 2800 };
   const a = Math.max(0, abs);
   return { tier: TIERS[Math.floor(a / 400)]!, division: DIVS[Math.floor((a % 400) / 100)]!, lp: a % 100 };

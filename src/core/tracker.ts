@@ -1,3 +1,4 @@
+import type { CurrentGameInfo } from '../riot/types.ts';
 import { tx } from '../db/db.ts';
 import type { PlayerMatchRow, PlayerRow, Repo, SnapshotRow } from '../db/repo.ts';
 import { isStalePuuidError, type RiotClient } from '../riot/client.ts';
@@ -36,7 +37,11 @@ export interface TickResult {
   requests: number;
   /** Match ids of tracked games first seen this tick (LP may still be pending). */
   detected: string[];
+  /** Games spectator showed a player in for the first time this tick (bets open on these). */
+  live: LiveSeen[];
 }
+
+export interface LiveSeen { player: PlayerRow; game: CurrentGameInfo }
 
 /**
  * match-v5 `startTime` filters on game START, so a game in progress during the previous
@@ -112,6 +117,7 @@ export class Tracker {
     const games: GameResult[] = [];
     const adjustments: LpAdjustment[] = [];
     const detected = new Set<string>();
+    this.newLive = [];
     this.ensureFivesBaseline();
     for (const due of this.repo.duePlayers(this.now())) {
       let player = due;
@@ -140,7 +146,7 @@ export class Tracker {
       }
     }
     games.sort((a, b) => (a.match.info.gameEndTimestamp ?? 0) - (b.match.info.gameEndTimestamp ?? 0));
-    return { games, adjustments, requests: this.riot.requestCount - before, detected: [...detected] };
+    return { games, adjustments, requests: this.riot.requestCount - before, detected: [...detected], live: this.newLive };
   }
 
   /**
@@ -187,6 +193,10 @@ export class Tracker {
     return this.repo.getPlayer(acc.puuid) ?? null;
   }
 
+  /** Spectator game id last seen per player, and games first seen this tick. */
+  private readonly liveGameOf = new Map<string, number>();
+  private newLive: LiveSeen[] = [];
+
   /** Last time spectator-v5 showed each player in a game. */
   private readonly seenInGame = new Map<string, number>();
 
@@ -203,6 +213,10 @@ export class Tracker {
     if (live === undefined) return true; // spectator failed: don't risk missing games
     if (live) {
       this.seenInGame.set(player.puuid, now);
+      if (this.liveGameOf.get(player.puuid) !== live.gameId) {
+        this.liveGameOf.set(player.puuid, live.gameId);
+        this.newLive.push({ player, game: live });
+      }
       return sinceList >= IN_GAME_MAX_MS;
     }
     const seen = this.seenInGame.get(player.puuid);

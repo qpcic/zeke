@@ -13,6 +13,8 @@ import type { CommandLogger } from './commandLog.ts';
 import { LINK_PREFIX, onLinkComponent } from './linkComponents.ts';
 import { onRecapComponent } from './recapComponents.ts';
 import { membersOf } from './members.ts';
+import { BET_PREFIX } from '../core/bets.ts';
+import { onBetComponent } from './betComponents.ts';
 import { GLOG_PREFIX, RECAP_PREFIX } from './recapPanel.ts';
 
 export const payload = (r: Reply) => ({
@@ -52,8 +54,13 @@ function toRequest(i: ChatInputCommandInteraction): CommandRequest {
     window: o.getString('window') === '24h' ? '24h' : o.getString('window') === 'today' ? 'today' : undefined,
     sub,
     account: sub === 'remove' || i.commandName === 'unlink' ? o.getString('account') ?? undefined : undefined,
-    channelId: i.commandName === 'recap' || i.commandName === 'log' ? o.getChannel('channel')?.id : undefined,
-    off: i.commandName === 'recap' || i.commandName === 'log' ? o.getBoolean('off') ?? undefined : undefined,
+    compare: i.commandName === 'graph' && o.getString('compare')
+      ? o.getString('compare')!.replace(/(<@!?\d+>)/g, ',$1,').split(',').map((x) => x.trim()).filter(Boolean)
+      : undefined,
+    compareWithTarget: i.commandName === 'graph' ? true : undefined,
+    days: i.commandName === 'graph' ? o.getInteger('days') ?? undefined : undefined,
+    channelId: ['recap', 'log', 'bets'].includes(i.commandName) ? o.getChannel('channel')?.id : undefined,
+    off: ['recap', 'log', 'bets'].includes(i.commandName) ? o.getBoolean('off') ?? undefined : undefined,
   };
 }
 
@@ -92,6 +99,10 @@ export function createInteractionHandler(service: Service, log: (m: string) => v
     }
     if ((i.isButton() || i.isChannelSelectMenu()) && (i.customId.startsWith(RECAP_PREFIX) || i.customId.startsWith(GLOG_PREFIX))) {
       await onRecapComponent(service, i, log, cmdLog);
+      return;
+    }
+    if ((i.isButton() || i.isModalSubmit()) && i.customId.startsWith(BET_PREFIX)) {
+      await onBetComponent(service, i, log, cmdLog);
       return;
     }
     if (!i.isChatInputCommand()) return;
