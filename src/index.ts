@@ -44,8 +44,9 @@ service.setLogPoster({
   async edit(channelId, messageId, reply) {
     const ch = await client.channels.fetch(channelId);
     if (!ch?.isTextBased()) throw new Error(`channel ${channelId} not found`);
-    // attachments: [] replaces the old scoreboard image instead of adding a second one
-    await ch.messages.edit(messageId, { ...payload(reply), attachments: [], allowedMentions: { parse: [] } });
+    // attachments: [] replaces the old scoreboard image instead of adding a second one;
+    // with no new image (bet updates) the one already on the message stays
+    await ch.messages.edit(messageId, { ...payload(reply), ...(reply.files.length ? { attachments: [] } : {}), allowedMentions: { parse: [] } });
   },
 }, config.gameLogChannelId);
 

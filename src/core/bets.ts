@@ -1,6 +1,8 @@
 import { championName, type AssetSource } from '../assets/ddragon.ts';
 import type { BetRoundRow, BetRow, Repo } from '../db/repo.ts';
 import { QUEUE_LABEL } from '../riot/types.ts';
+import type { PlayerRow } from '../db/repo.ts';
+import type { CurrentGameInfo } from '../riot/types.ts';
 import type { LiveSeen } from './tracker.ts';
 import type { LogPoster, Reply } from './service.ts';
 
@@ -23,6 +25,9 @@ export const LATE_MS = 8 * 60_000;
 
 export class BetError extends Error {}
 
+/** The draft image is attached once, when the round is posted; later edits keep it. */
+export const DRAFT_FILE = 'draft.png';
+
 interface Who { puuid: string; name: string; champion: string }
 
 export class Bets {
@@ -32,6 +37,8 @@ export class Bets {
     private readonly log: (m: string) => void,
     private readonly assets: AssetSource | null,
     private readonly rankedQueues: () => number[],
+    /** The /live draft image for a round post (both teams, champions, ranks). */
+    private readonly draft?: (player: PlayerRow, game: CurrentGameInfo) => Promise<Buffer>,
   ) {}
 
   private poster: LogPoster | null = null;
@@ -44,6 +51,7 @@ export class Bets {
     if (!this.poster || !live.length) return;
     const ranked = this.rankedQueues();
     const sd = this.assets ? await this.assets.staticData('').catch(() => null) : null;
+    const drafts = new Map<number, Promise<Buffer | null>>(); // one render per game, shared by servers
     for (const { player, game } of live) {
       const queueId = game.gameQueueConfigId ?? 0;
       if (!ranked.includes(queueId)) continue;
@@ -67,8 +75,20 @@ export class Bets {
         });
         if (id === null) continue; // a teammate already opened this game's round here
         try {
-          const messageId = await this.poster.send(guild.bet_channel_id, this.roundReply(this.repo.getBetRound(id)!));
-          this.repo.setBetRoundMessage(id, messageId);
+          if (!drafts.has(game.gameId)) {
+            drafts.set(game.gameId, this.draft ? this.draft(player, game).catch((e) => {
+              this.log(`bets: draft image failed for ${matchId}: ${(e as Error).message}`);
+              return null;
+            }) : Promise.resolve(null));
+          }
+          const png = await drafts.get(game.gameId)!;
+          const reply = this.roundReply(this.repo.getBetRound(id)!);
+          if (png) {
+            reply.embed.image = { url: `attachment://${DRAFT_FILE}` };
+            reply.files = [{ name: DRAFT_FILE, data: png }];
+          }
+          const messageId = await this.poster.send(guild.bet_channel_id, reply);
+          this.repo.setBetRoundMessage(id, messageId, !!png);
         } catch (e) {
           this.log(`bets: could not post round for ${matchId} in ${guild.guild_id}: ${(e as Error).message}`);
           this.repo.deleteBetRound(id);
@@ -198,6 +218,7 @@ export class Bets {
           { name: `🟥 Lose · ${sum(loss)} pts`, value: list(loss), inline: true },
         ],
         footer: { text: `Points aren't real · /points for your balance` },
+        ...(r.has_draft ? { image: { url: `attachment://${DRAFT_FILE}` } } : {}),
       },
       files: [],
       components: r.status === 'open'

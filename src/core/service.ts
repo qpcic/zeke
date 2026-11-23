@@ -138,7 +138,7 @@ export class Service {
     this.betsImpl ??= new Bets(this.repo, this.now, this.log, this.assets, () => {
       const fives = Number(this.repo.getKv('ranked5s_queue_id'));
       return [420, 440, ...(fives ? [fives] : [])];
-    });
+    }, (player, game) => this.liveImage(player, game, { parties: false }));
     return this.betsImpl;
   }
   setBetChannel(guildId: string, channelId: string | null) {
@@ -1181,6 +1181,27 @@ export class Service {
   }
 
   private async renderLiveReply(player: PlayerRow, g: CurrentGameInfo): Promise<Reply> {
+    if (!this.assets) throw new UserError('Live games need images, which are turned off on this bot.');
+    const png = await this.liveImage(player, g);
+    const history = this.lobbyHistory(player, g);
+    return {
+      embed: {
+        color: 0xf85149,
+        ...(history ? { description: history } : {}),
+        image: { url: 'attachment://live.png' },
+        footer: { text: `${player.game_name}#${player.tag_line} · ${PLATFORM_LABEL[player.platform]}` },
+      },
+      files: [{ name: 'live.png', data: png }],
+      components: [linkButtonRow(liveGameLinks(player.platform, player.game_name, player.tag_line))],
+    };
+  }
+
+  /**
+   * The /live draft image: both teams with champions, ranks, spells and runes. Ranks are
+   * league-v4 (platform host); premade icons need match-v5, so bets leave them out.
+   */
+  async liveImage(player: PlayerRow, g: CurrentGameInfo, opts: { parties?: boolean } = {}): Promise<Buffer> {
+    if (!this.assets) throw new UserError('Live games need images, which are turned off on this bot.');
     // Ranks for everyone (hidden players and bots have no PUUID to look up).
     const entries = await Promise.all(g.participants.map((p) =>
       p.puuid && !p.bot ? this.riot.getLeagueEntries(player.platform, p.puuid).catch(() => [] as LeagueEntryDto[]) : Promise.resolve([] as LeagueEntryDto[])));
@@ -1192,7 +1213,7 @@ export class Service {
     const q = g.gameQueueConfigId ?? 0;
     const rankQueue = q === FLEX ? 'RANKED_FLEX_SR' : isFivesQueue(q) ? 'RANKED_PREMADE_5x5' : 'RANKED_SOLO_5x5';
     const rankLabel = q === FLEX ? 'FLEX' : isFivesQueue(q) ? 'RANKED 5S' : 'SOLO/DUO';
-    const parties = await this.liveParties(player.platform, g, player.puuid);
+    const parties = opts.parties === false ? [] : await this.liveParties(player.platform, g, player.puuid);
     const players: LivePlayer[] = g.participants.map((p, i) => {
       const [gameName, tagLine] = p.riotId?.includes('#') ? [p.riotId.slice(0, p.riotId.lastIndexOf('#')), p.riotId.slice(p.riotId.lastIndexOf('#') + 1)] : [p.riotId || null, null];
       const known = p.puuid ? this.repo.getPlayer(p.puuid) : undefined;
@@ -1215,19 +1236,7 @@ export class Service {
     const queueLabel = (q && QUEUE_LABEL[q]) || (g.gameMode === 'CLASSIC' ? 'Summoner\'s Rift' : g.gameMode.charAt(0) + g.gameMode.slice(1).toLowerCase());
     // gameLength is only refreshed now and then; time since gameStartTime is more current.
     const seconds = g.gameStartTime > 0 ? Math.max(0, Math.round((this.now() - g.gameStartTime) / 1000)) : null;
-    const history = this.lobbyHistory(player, g);
-    if (!this.assets) throw new UserError('Live games need images, which are turned off on this bot.');
-    const png = await renderLive({ queueLabel, rankLabel, seconds, bans: g.bannedChampions, players }, this.assets);
-    return {
-      embed: {
-        color: 0xf85149,
-        ...(history ? { description: history } : {}),
-        image: { url: 'attachment://live.png' },
-        footer: { text: `${player.game_name}#${player.tag_line} · ${PLATFORM_LABEL[player.platform]}` },
-      },
-      files: [{ name: 'live.png', data: png }],
-      components: [linkButtonRow(liveGameLinks(player.platform, player.game_name, player.tag_line))],
-    };
+    return renderLive({ queueLabel, rankLabel, seconds, bans: g.bannedChampions, players }, this.assets);
   }
 
   /**
