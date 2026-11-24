@@ -21,7 +21,7 @@ export interface ShotEntry {
   image: string;
   /** what's typed: "/graph compare:@Mochi, kitten days:14" or "$r kitten" */
   command?: string;
-  /** who runs it (default Jan) */
+  /** who runs it (default User) */
   user?: string;
   /** embed colour bar, e.g. "#3fb950" (default Discord blurple) */
   color?: string;
@@ -45,7 +45,7 @@ export function parseCommand(cmd: string): { name: string; options: [string, str
 
 export async function frame(e: ShotEntry): Promise<Buffer> {
   const data = readFileSync(join(IN, e.image));
-  const user = e.user ?? 'Jan';
+  const user = e.user ?? 'User';
   const cmd = e.command && !e.auto ? parseCommand(e.command) : null;
   return renderShot({
     command: cmd ? { user, userColor: USER_COLORS[user] ?? '#f0b232', name: cmd.name, options: cmd.options } : undefined,

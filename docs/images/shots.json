@@ -20,7 +20,7 @@
   { "image": "log-post.png", "auto": true, "color": "#3fb950" },
   { "image": "rank-post.png", "auto": true, "color": "#3fb950" },
   { "image": "bets-post.png", "auto": true, "color": "#f5c542" },
-  { "image": "points.png", "command": "/points", "user": "Mochi", "color": "#f5c542" },
+  { "image": "points.png", "command": "/points", "color": "#f5c542" },
   { "image": "link.png", "command": "/link", "ephemeral": true },
   { "image": "server.png", "command": "/server", "ephemeral": true },
   { "image": "help.png", "command": "/help", "ephemeral": true }
