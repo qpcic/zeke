@@ -2,7 +2,7 @@ import { MessageFlags, type ButtonInteraction, type ModalSubmitInteraction } fro
 import { BET_PREFIX, BetError } from '../core/bets.ts';
 import type { Service } from '../core/service.ts';
 import type { CommandLogger } from './commandLog.ts';
-import { payload } from './handlers.ts';
+import { editPayload, payload } from './handlers.ts';
 
 /**
  * Bet buttons on a round post: Win / Lose open a modal for the amount, My points answers privately.
@@ -49,7 +49,7 @@ export async function onBetComponent(service: Service, i: ButtonInteraction | Mo
     const [, side, id] = parts;
     const amount = i.fields.getTextInputValue('amount');
     const r = service.bets.place(Number(id), i.user.id, side === 'w' ? 'win' : 'loss', amount);
-    if (i.isFromMessage()) await i.update(payload(r.reply));
+    if (i.isFromMessage()) await i.update(editPayload(r.reply)); // keeps the draft image
     else await i.deferUpdate();
     await i.followUp({ content: r.note, flags: MessageFlags.Ephemeral });
     audit(`bet ${side === 'w' ? 'win' : 'loss'} ${amount} on round ${id}`);

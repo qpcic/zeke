@@ -24,6 +24,16 @@ export const payload = (r: Reply) => ({
   ...(r.components ? { components: r.components as any[] } : {}),
 });
 
+/**
+ * For editing a message. discord.js turns `files: []` into "remove every attachment", so an
+ * edit without new files leaves the key out and the images on the message stay; new files (or
+ * clearAttachments) replace them.
+ */
+export const editPayload = (r: Reply) => {
+  const { files, ...rest } = payload(r);
+  return r.files.length || r.clearAttachments ? { ...rest, files, attachments: [] } : rest;
+};
+
 export const errorEmbed = (e: unknown) => {
   const user = e instanceof UserError;
   return info(user ? 'Hmm' : 'Something went wrong', user ? (e as Error).message : 'Riot or Discord had a hiccup. Try again in a minute.', COLORS.loss);
