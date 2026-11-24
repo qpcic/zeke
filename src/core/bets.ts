@@ -70,7 +70,9 @@ export class Bets {
         const opponents = who(me.teamId === 100 ? 200 : 100);
         const id = this.repo.createBetRound({
           guild_id: guild.guild_id, match_id: matchId, puuid: player.puuid, team_id: me.teamId, queue_id: queueId,
-          players: JSON.stringify(players), opponents: JSON.stringify(opponents), channel_id: guild.bet_channel_id,
+          players: JSON.stringify(players), opponents: JSON.stringify(opponents),
+          participants: JSON.stringify(game.participants.map((p) => p.puuid).filter(Boolean)),
+          channel_id: guild.bet_channel_id,
           opened_at: this.now(), closes_at: this.now() + BET_WINDOW_MS,
         });
         if (id === null) continue; // a teammate already opened this game's round here
@@ -131,7 +133,7 @@ export class Bets {
   }
 
   /**
-   * Place a bet. Players can't bet against their own team (no throwing for points).
+   * Place a bet. Needs a linked account; anyone playing in the game can't bet on it.
    * Returns the refreshed round post and a short confirmation for the bettor.
    */
   place(roundId: number, userId: string, side: 'win' | 'loss', amountInput: string): { reply: Reply; note: string } {
@@ -139,9 +141,14 @@ export class Bets {
     if (!r) throw new BetError('That bet is gone.');
     if (r.status !== 'open' || this.now() >= r.closes_at) throw new BetError('Betting on this game is closed.');
     if (this.repo.getBet(r.id, userId)) throw new BetError('You already bet on this game.');
-    const mine = (list: string) => (JSON.parse(list) as Who[]).some((w) => this.repo.usersLinkedTo(w.puuid).includes(userId));
-    if (side === 'loss' && mine(r.players)) throw new BetError("You're in this game: you can only bet on your team to win.");
-    if (side === 'win' && mine(r.opponents)) throw new BetError("You're on the other team in this game: you can only bet on them to lose.");
+    // Betting needs a linked account, so Zeke can tell who is playing; players sit their own game out.
+    const linked = this.repo.linkedPlayers(userId).map((p) => p.puuid);
+    if (!linked.length) throw new BetError('Link your League account first (`/link`) to bet: that way nobody can bet on their own game.');
+    const inGame = new Set([
+      ...(JSON.parse(r.participants) as string[]),
+      ...[...(JSON.parse(r.players) as Who[]), ...(JSON.parse(r.opponents) as Who[])].map((w) => w.puuid),
+    ]);
+    if (linked.some((p) => inGame.has(p))) throw new BetError("You're in this game, so you can't bet on it.");
 
     let note = '';
     let points = this.repo.wallet(r.guild_id, userId, START_POINTS);

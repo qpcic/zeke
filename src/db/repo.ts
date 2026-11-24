@@ -9,7 +9,7 @@ export interface GuildRow {
 export interface BetRoundRow {
   id: number; guild_id: string; match_id: string; puuid: string; team_id: number; queue_id: number;
   players: string; opponents: string; channel_id: string; message_id: string | null;
-  opened_at: number; closes_at: number; status: 'open' | 'locked' | 'settled' | 'void'; result: 'win' | 'loss' | 'remake' | null; has_draft: number;
+  opened_at: number; closes_at: number; status: 'open' | 'locked' | 'settled' | 'void'; result: 'win' | 'loss' | 'remake' | null; has_draft: number; participants: string;
 }
 export interface BetRow { round_id: number; user_id: string; side: 'win' | 'loss'; amount: number; payout: number | null; placed_at: number }
 export interface PlayerRow {
@@ -51,8 +51,8 @@ export class Repo {
 
   // ---- bets ----
   createBetRound(r: Omit<BetRoundRow, 'id' | 'message_id' | 'status' | 'result' | 'has_draft'>): number | null {
-    const res = this.db.prepare(`INSERT OR IGNORE INTO bet_rounds (guild_id, match_id, puuid, team_id, queue_id, players, opponents, channel_id, opened_at, closes_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(r.guild_id, r.match_id, r.puuid, r.team_id, r.queue_id, r.players, r.opponents, r.channel_id, r.opened_at, r.closes_at);
+    const res = this.db.prepare(`INSERT OR IGNORE INTO bet_rounds (guild_id, match_id, puuid, team_id, queue_id, players, opponents, participants, channel_id, opened_at, closes_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(r.guild_id, r.match_id, r.puuid, r.team_id, r.queue_id, r.players, r.opponents, r.participants, r.channel_id, r.opened_at, r.closes_at);
     return res.changes ? Number(res.lastInsertRowid) : null;
   }
   getBetRound(id: number) {
