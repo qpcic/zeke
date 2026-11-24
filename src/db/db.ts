@@ -218,6 +218,10 @@ export const MIGRATIONS: string[] = [
   -- the round post carries the /live draft image (later edits keep referring to it)
   ALTER TABLE bet_rounds ADD COLUMN has_draft INTEGER NOT NULL DEFAULT 0;
   `,
+  /* 13 */ `
+  -- everyone in the game (JSON puuids): players can't bet on their own game
+  ALTER TABLE bet_rounds ADD COLUMN participants TEXT NOT NULL DEFAULT '[]';
+  `,
 ];
 
 export type DB = DatabaseSync;

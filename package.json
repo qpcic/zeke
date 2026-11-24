@@ -16,7 +16,8 @@
     "build": "tsc",
     "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning dist/index.js",
     "register": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --import tsx src/discord/register.ts",
-    "export-db": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --import tsx src/tools/exportDb.ts"
+    "export-db": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --import tsx src/tools/exportDb.ts",
+    "frame": "node --disable-warning=ExperimentalWarning --import tsx src/tools/frameShots.ts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.1.0",

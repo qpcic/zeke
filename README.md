@@ -11,7 +11,7 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
 </div>
 
 <p align="center">
-  <img src="docs/images/profile.png" alt="Profile card" width="720">
+  <img src="docs/images/framed/profile.png" alt="Profile card" width="760">
 </p>
 
 ## Features
@@ -25,29 +25,44 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
 - **LP graphs:** your climb over the last games, drawn on the tier and division ladder with your peak marked.
 - **Server leaderboards:** who climbed the most in the past 24 hours or 7 days, with win/loss, LP trend and current rank.
 - **Scout:** type one name from the enemy Ranked 5s or Flex team. Zeke finds their five-stack, works out each player's role and best champions, and suggests what to ban. One-tricks get an OTP badge and go to the top of the ban list.
-- **Solo/Duo and Flex kept separate**, and every command also works with a `$` prefix (`$p`, `$rs`, `$lb`…).
+- **Champion stats:** `/champ` shows how you do on one champion: W/L, KDA, CS and damage per minute, kill participation, LP and recent games.
+- **Role stats:** `/roles` shows winrate, KDA, CS/min and top champions per position, with your best and worst role marked.
+- **Duos and rivals:** `/duo @friend` is your record together and your best champion pairs; `/rivals @friend` is the head-to-head when you were on opposite teams.
+- **LP race:** `/graph` with several players draws everyone's LP on one chart, so a server race is easy to follow.
+- **Peak rank:** `/peak` shows the highest rank in each queue since tracking started.
+- **Server ladder:** `/ladder` lists everyone in the server by current rank, alts included.
+- **Game log and rank posts:** every game of the tracked accounts is posted as a scoreboard the moment it's spotted and updated when the LP comes in, plus a post for every promotion and demotion.
+- **Bets:** when a tracked player starts a ranked game, Zeke posts the draft with **Bet Win** / **Bet Lose** buttons. Points aren't real; `/points` has the server's richest.
+- **Short names:** accounts Zeke already knows work with part of the name: `$r kitten` finds `ferks kitten#retro`.
+- **Solo/Duo, Flex and Ranked 5s kept separate**, and every command also works with a `$` prefix (`$p`, `$rs`, `$lb`…).
 
 <table>
   <tr>
-    <td align="center"><img src="docs/images/recent.png" alt="Match scoreboard" width="860"><br><sub><code>/recent</code> · full scoreboard of the latest game</sub></td>
+    <td align="center"><img src="docs/images/framed/recent.png" alt="Match scoreboard" width="860"><br><sub><code>/recent</code> · full scoreboard of the latest game</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/graph.png" alt="LP graph" width="860"><br><sub><code>/graph</code> · LP over your last games on the rank ladder, peak marked</sub></td>
+    <td align="center"><img src="docs/images/framed/live.png" alt="Live game" width="860"><br><sub><code>/live</code> · the game you're in right now: both teams with ranks, runes, spells, bans and premades</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/daily.png" alt="Daily recap" width="860"><br><sub><code>/daily</code> · today's games and LP</sub></td>
+    <td align="center"><img src="docs/images/framed/graph.png" alt="LP graph" width="860"><br><sub><code>/graph</code> · LP over your last games on the rank ladder, peak marked</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/leaderboard.png" alt="Leaderboard" width="860"><br><sub><code>/leaderboard</code> · who climbed in the past 24h</sub></td>
+    <td align="center"><img src="docs/images/framed/daily.png" alt="Daily recap" width="860"><br><sub><code>/daily</code> · today's games and LP</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/recap.png" alt="Server recap" width="860"><br><sub><code>/recap</code> · posted every night after midnight: the day's LP leaderboard, one per queue played…</sub></td>
+    <td align="center"><img src="docs/images/framed/leaderboard.png" alt="Leaderboard" width="860"><br><sub><code>/leaderboard</code> · who climbed in the past 24h</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/recap-games.png" alt="Games played" width="860"><br><sub>…followed by who played the most games. On Mondays the weekly recap comes after.</sub></td>
+    <td align="center"><img src="docs/images/framed/ladder.png" alt="Server ladder" width="860"><br><sub><code>/ladder</code> · everyone in the server by current rank, alts included</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/images/scout.png" alt="Scout" width="860"><br><sub><code>/scout</code> · scout a premade: roles, best champions and what to ban</sub></td>
+    <td align="center"><img src="docs/images/framed/recap.png" alt="Server recap" width="860"><br><sub><code>/recap</code> · posted every night after midnight: the day's LP leaderboard, one per queue played…</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/framed/recap-games.png" alt="Games played" width="860"><br><sub>…followed by who played the most games. On Mondays the weekly recap comes after.</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/framed/scout.png" alt="Scout" width="860"><br><sub><code>/scout</code> · scout a premade: roles, best champions and what to ban</sub></td>
   </tr>
 </table>
 
@@ -89,7 +104,7 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 | `/track list` | Show tracked accounts |
 | `/recap` | Daily recap: pick a channel, and every night just after midnight the day's LP leaderboard (one per queue played), a games-played leaderboard and the day's awards and rank changes are posted there. On Mondays the weekly recap follows *(Manage Server)* · `$recap #channel`, `$recap off` |
 | `/log` | Game log: pick a channel and every new ranked game of the tracked accounts is posted there as a scoreboard, once per game, plus promotions and demotions *(Manage Server)* · `$log #channel`, `$log off` |
-| `/bets #channel` | Bets: when a tracked player starts a ranked game, Zeke posts it there with **Bet Win** / **Bet Lose** buttons. Bets close after 5 minutes and pay 2x; remakes refund; players can't bet against their own team. Points are per server and not real (everyone starts with 1000, a bailout tops broke players up to 100) *(Manage Server)* · `$bets #channel`, `$bets off` |
+| `/bets #channel` | Bets: when a tracked player starts a ranked game, Zeke posts it there with **Bet Win** / **Bet Lose** buttons. Bets close after 5 minutes and pay 2x; remakes refund. Betting needs a linked account (`/link`), and anyone playing in the game can't bet on it. Points are per server and not real (everyone starts with 1000, a bailout tops broke players up to 100) *(Manage Server)* · `$bets #channel`, `$bets off` |
 | `/points [@user]` | Bet points, record and the richest in the server · `$points`, `$pts`, `$bal` |
 | `/server` | Tracked accounts, timezone, and the recap and game log channels |
 

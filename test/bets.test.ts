@@ -15,6 +15,10 @@ test('bets: round opens when a tracked player is in a ranked game, locks, pays 2
   await service.addPlayer('g1', 'EUW', 'Kitten#EUW');
   await service.addPlayer('g1', 'EUW', 'Mapet#EUW');
   await service.linkUser('owner', 'EUW', 'Kitten#EUW');
+  for (const [u, n] of [['u2', 'Watch Two'], ['u3', 'Watch Three'], ['u4', 'Watch Four']] as const) {
+    mock.addAccount(n, 'EUW', 'EUW1', ranks);
+    await service.linkUser(u, 'EUW', `${n}#EUW`);
+  }
   const { poster, msgs } = fakePoster();
   service.setLogPoster(poster);
   const base = { guildId: 'g1', canManageGuild: true, style: '$' } as const;
@@ -36,20 +40,23 @@ test('bets: round opens when a tracked player is in a ranked game, locks, pays 2
   assert.equal(round.reply.embed.image?.url, 'attachment://draft.png');
   if (process.env.WRITE_PNG) (await import('node:fs')).writeFileSync('/tmp/draft.png', round.reply.files[0]!.data);
 
-  assert.throws(() => service.bets.place(roundId, 'owner', 'loss', '100'), /only bet on your team to win/);
-  service.bets.place(roundId, 'owner', 'win', '200');
+  assert.throws(() => service.bets.place(roundId, 'owner', 'loss', '100'), /in this game, so you can't bet/);
+  assert.throws(() => service.bets.place(roundId, 'owner', 'win', '100'), /in this game, so you can't bet/);
+  assert.throws(() => service.bets.place(roundId, 'nolink', 'win', '100'), /Link your League account first/);
+  service.bets.place(roundId, 'u4', 'win', '200');
   service.bets.place(roundId, 'u2', 'loss', 'half');
   const r3 = service.bets.place(roundId, 'u3', 'win', 'all');
   assert.match(r3.note, /Bet \*\*1000\*\* on \*\*Win\*\*\. 0 points left/);
   assert.throws(() => service.bets.place(roundId, 'u2', 'win', '5'), /already bet/);
   assert.match(JSON.stringify(r3.reply.embed.fields), /Win · 1200 pts.*Lose · 500 pts/);
+  assert.equal(service.bets.balance('g1', 'owner'), 1000, 'blocked bets cost nothing');
 
   // window closes: locked, buttons gone
   clock.advance(6 * MIN);
   await service.lpTick();
   assert.match(round.reply.embed.title!, /Bets closed/);
   assert.deepEqual(round.reply.components, []);
-  assert.throws(() => service.bets.place(roundId, 'u4', 'win', '10'), /closed/);
+  assert.throws(() => service.bets.place(roundId, 'u3', 'win', '10'), /closed/);
 
   // game ends: Kitten's team wins
   mock.endLive(a.puuid); mock.endLive(b.puuid);
@@ -59,7 +66,7 @@ test('bets: round opens when a tracked player is in a ranked game, locks, pays 2
   assert.match(round.reply.embed.title!, /Kitten won/);
   assert.equal(round.reply.embed.image?.url, 'attachment://draft.png', 'edits keep the draft image');
   assert.equal(round.reply.files.length, 0, 'not re-uploaded');
-  assert.equal(service.bets.balance('g1', 'owner'), 1200);
+  assert.equal(service.bets.balance('g1', 'u4'), 1200);
   assert.equal(service.bets.balance('g1', 'u2'), 500);
   assert.equal(service.bets.balance('g1', 'u3'), 2000);
 
@@ -95,6 +102,8 @@ test('bets: remakes refund; normals and no bet channel open nothing', async () =
   await service.tick();
   const round = [...msgs.values()][0]!;
   const roundId = Number((round.reply.components![0] as any).components[0].custom_id.split(':')[2]);
+  mock.addAccount('Fan', 'EUW', 'EUW1', ranks);
+  await service.linkUser('u1', 'EUW', 'Fan#EUW');
   service.bets.place(roundId, 'u1', 'loss', '300');
   mock.endLive(a.puuid);
   mock.play({ matchId: `EUW1_${g.gameId}`, players: [{ puuid: a.puuid, team: 200 }], winner: 100, remake: true });
@@ -113,6 +122,24 @@ test('bets: amount parsing', () => {
   assert.equal(parseAmount('0', 100), null);
   assert.equal(parseAmount('2000', 1000), null);
   assert.equal(parseAmount('abc', 1000), null);
+});
+
+test('bets: an untracked linked account in the game counts too', async () => {
+  const { mock, service, clock } = setup();
+  const a = mock.addAccount('Star', 'EUW', 'EUW1', ranks);
+  const enemy = mock.addAccount('Enemy Alt', 'EUW', 'EUW1', ranks);
+  await service.addPlayer('g1', 'EUW', 'Star#EUW');
+  await service.linkUser('sneaky', 'EUW', 'Enemy Alt#EUW');
+  const { poster, msgs } = fakePoster();
+  service.setLogPoster(poster);
+  service.setBetChannel('g1', '777');
+  await service.tick();
+  mock.startLive({ players: [{ puuid: a.puuid, team: 100, championId: 1 }, { puuid: enemy.puuid, team: 200, championId: 2 }] });
+  clock.advance(2 * MIN);
+  await service.tick();
+  const round = [...msgs.values()][0]!;
+  const roundId = Number((round.reply.components![0] as any).components[0].custom_id.split(':')[2]);
+  assert.throws(() => service.bets.place(roundId, 'sneaky', 'loss', '100'), /in this game/);
 });
 
 test('bets: games spotted late get no round', async () => {
