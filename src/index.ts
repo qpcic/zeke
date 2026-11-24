@@ -2,7 +2,7 @@ import { Client, Events, GatewayIntentBits, Partials } from 'discord.js';
 import { resolve } from 'node:path';
 import { bootstrap, log } from './bootstrap.ts';
 import { config, requireDiscord } from './config.ts';
-import { createInteractionHandler, payload } from './discord/handlers.ts';
+import { createInteractionHandler, editPayload, payload } from './discord/handlers.ts';
 import { createPrefixHandler } from './discord/prefix.ts';
 import { createCommandLogger } from './discord/commandLog.ts';
 import { announceUpdate } from './discord/updates.ts';
@@ -44,9 +44,8 @@ service.setLogPoster({
   async edit(channelId, messageId, reply) {
     const ch = await client.channels.fetch(channelId);
     if (!ch?.isTextBased()) throw new Error(`channel ${channelId} not found`);
-    // attachments: [] replaces the old scoreboard image instead of adding a second one;
-    // with no new image (bet updates) the one already on the message stays
-    await ch.messages.edit(messageId, { ...payload(reply), ...(reply.files.length ? { attachments: [] } : {}), allowedMentions: { parse: [] } });
+    // a new image replaces the old one; no new image (bet updates) keeps it
+    await ch.messages.edit(messageId, { ...editPayload(reply), allowedMentions: { parse: [] } });
   },
 }, config.gameLogChannelId);
 

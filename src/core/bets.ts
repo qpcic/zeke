@@ -215,6 +215,7 @@ export class Bets {
       : r.status === 'settled' ? `${bets.filter((b) => b.payout).length} of ${bets.length} bet${bets.length === 1 ? '' : 's'} paid out.`
       : 'Everyone got their points back.';
     const win = side('win'), loss = side('loss');
+    const live = r.status === 'open' || r.status === 'locked';
     return {
       embed: {
         title,
@@ -225,8 +226,10 @@ export class Bets {
           { name: `🟥 Lose · ${sum(loss)} pts`, value: list(loss), inline: true },
         ],
         footer: { text: `Points aren't real · /points for your balance` },
-        ...(r.has_draft ? { image: { url: `attachment://${DRAFT_FILE}` } } : {}),
+        // the draft stays while the game runs; once it's decided the post is just the result
+        ...(r.has_draft && live ? { image: { url: `attachment://${DRAFT_FILE}` } } : {}),
       },
+      ...(r.has_draft && !live ? { clearAttachments: true } : {}),
       files: [],
       components: r.status === 'open'
         ? [{

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseAmount } from '../src/core/bets.ts';
 import { runCommand } from '../src/discord/actions.ts';
+import { editPayload } from '../src/discord/handlers.ts';
 import { parsePrefix } from '../src/discord/prefix.ts';
 import { fakePoster, setup } from './helpers.ts';
 
@@ -49,12 +50,16 @@ test('bets: round opens when a tracked player is in a ranked game, locks, pays 2
   assert.match(r3.note, /Bet \*\*1000\*\* on \*\*Win\*\*\. 0 points left/);
   assert.throws(() => service.bets.place(roundId, 'u2', 'win', '5'), /already bet/);
   assert.match(JSON.stringify(r3.reply.embed.fields), /Win · 1200 pts.*Lose · 500 pts/);
+  assert.equal(r3.reply.embed.image?.url, 'attachment://draft.png', 'a bet keeps the draft');
+  assert.equal('files' in editPayload(r3.reply), false, 'button update leaves attachments alone');
   assert.equal(service.bets.balance('g1', 'owner'), 1000, 'blocked bets cost nothing');
 
   // window closes: locked, buttons gone
   clock.advance(6 * MIN);
   await service.lpTick();
   assert.match(round.reply.embed.title!, /Bets closed/);
+  assert.equal(round.reply.embed.image?.url, 'attachment://draft.png', 'draft stays while the game runs');
+  assert.equal(editPayload(round.reply).files, undefined, 'edit keeps the image on the message');
   assert.deepEqual(round.reply.components, []);
   assert.throws(() => service.bets.place(roundId, 'u3', 'win', '10'), /closed/);
 
@@ -64,8 +69,8 @@ test('bets: round opens when a tracked player is in a ranked game, locks, pays 2
   clock.advance(2 * MIN);
   await service.tick();
   assert.match(round.reply.embed.title!, /Kitten won/);
-  assert.equal(round.reply.embed.image?.url, 'attachment://draft.png', 'edits keep the draft image');
-  assert.equal(round.reply.files.length, 0, 'not re-uploaded');
+  assert.equal(round.reply.embed.image, undefined, 'game over: draft gone');
+  assert.deepEqual(editPayload(round.reply).attachments, [], 'and removed from the message');
   assert.equal(service.bets.balance('g1', 'u4'), 1200);
   assert.equal(service.bets.balance('g1', 'u2'), 500);
   assert.equal(service.bets.balance('g1', 'u3'), 2000);

@@ -100,6 +100,8 @@ export interface Reply {
   components?: object[];
   /** Set when LP isn't in yet: the Discord layer can register the message for an update. */
   watch?: { matchId: string; puuid: string };
+  /** Edits: drop the images already on the message (a finished bet loses its draft). */
+  clearAttachments?: boolean;
 }
 
 /** If the bot was down at midnight, still post the digest if we come back within this window. */
