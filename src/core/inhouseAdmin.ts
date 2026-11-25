@@ -58,7 +58,7 @@ export class InhouseAdmin {
   private line(p: Listed, opts: { pool?: boolean } = {}): string {
     const pool = opts.pool && p.in_pool ? '✅ ' : '';
     const games = p.wins + p.losses;
-    const f = p.in_pool ? forced(p) : [];
+    const f = forced(p);
     return `${pool}\`${ROLE_LABEL[p.main_role as Role].padEnd(7)}\` **${p.game_name}**#${p.tag_line} · ${this.rankLabel(p.puuid)} · **${p.rating}**${games ? ` (${p.wins}W ${p.losses}L)` : ''}${f.length ? ` · 🔒 ${roleList(f)}` : ''}`;
   }
 
@@ -256,14 +256,18 @@ export class InhouseAdmin {
   }
 
   /**
-   * Force roles: pick someone from the pool, then tick the roles they may play (generate keeps
-   * them in one of those). Nothing or everything ticked = any role. Leaving the pool drops it.
+   * Force roles: pick someone (pool first, then the rest of the list), then tick the roles they
+   * may play; generate keeps them in one of those. Nothing or everything ticked = any role.
+   * Forces belong to the player and stay until changed, night after night.
    */
   forcePanel(selected?: string, note?: string): Reply {
-    const pool = this.poolPlayers().sort((a, b) => this.byRoleThenRank(a, b));
-    if (!pool.length) throw new UserError('The pool is empty: pick who is playing in `$admin 5v5 pool` first.');
-    const sel = pool.find((p) => p.puuid === selected);
-    const withForce = pool.filter((p) => forced(p).length);
+    const all = this.d.repo.inhouseList();
+    if (!all.length) throw new UserError('The list is empty: add people with `$admin 5v5 add <name> <role>` first.');
+    const byName = (a: Listed, b: Listed) => a.game_name.localeCompare(b.game_name, undefined, { sensitivity: 'base' });
+    const pool = all.filter((p) => p.in_pool).sort(byName);
+    const shown = [...pool, ...all.filter((p) => !p.in_pool).sort(byName)].slice(0, 25);
+    const sel = all.find((p) => p.puuid === selected);
+    const withForce = all.filter((p) => forced(p).length).sort(byName);
     return {
       embed: {
         title: sel ? `Force roles · ${sel.game_name}` : 'Force roles',
@@ -272,9 +276,11 @@ export class InhouseAdmin {
           note ? `${note}\n` : '',
           sel
             ? `Main: **${ROLE_LABEL[sel.main_role as Role]}**. Tick the roles **${sel.game_name}** may play; teams will put them on one of those. Untick everything for any role.`
-            : 'Pick a player, then tick the roles they may play.',
+            : 'Pick a player, then tick the roles they may play. Forced roles stay with the player until you change them.',
           '',
-          withForce.length ? withForce.map((p) => `🔒 **${p.game_name}**: ${roleList(forced(p))}`).join('\n') : '-# Nobody has forced roles.',
+          withForce.length
+            ? withForce.map((p) => `🔒 **${p.game_name}**: ${roleList(forced(p))}${p.in_pool ? '' : ' · not in the pool'}`).join('\n')
+            : '-# Nobody has forced roles.',
         ].filter((x) => x !== '').join('\n'),
       },
       files: [],
@@ -283,9 +289,9 @@ export class InhouseAdmin {
           type: 1,
           components: [{
             type: 3, custom_id: `${INHOUSE_PREFIX}fp`, placeholder: 'Player', min_values: 1, max_values: 1,
-            options: pool.map((p) => ({
+            options: shown.map((p) => ({
               label: `${p.game_name}#${p.tag_line}`.slice(0, 100), value: p.puuid, default: p.puuid === sel?.puuid,
-              description: `Main ${ROLE_LABEL[p.main_role as Role]}${forced(p).length ? ` · forced: ${roleList(forced(p))}` : ''}`.slice(0, 100),
+              description: `${p.in_pool ? 'In the pool · ' : ''}Main ${ROLE_LABEL[p.main_role as Role]}${forced(p).length ? ` · forced: ${roleList(forced(p))}` : ''}`.slice(0, 100),
             })),
           }],
         },
@@ -313,14 +319,14 @@ export class InhouseAdmin {
   setForce(puuid: string, roles: string[]): Reply {
     const rs = ROLES.filter((r) => roles.includes(r));
     const list = rs.length === ROLES.length ? [] : rs; // all ticked = any
-    if (!this.d.repo.inhouseForce(puuid, list)) throw new UserError("They aren't in the pool any more.");
-    const p = this.poolPlayers().find((x) => x.puuid === puuid);
+    if (!this.d.repo.inhouseForce(puuid, list)) throw new UserError("They aren't on the list any more.");
+    const p = this.d.repo.inhouseList().find((x) => x.puuid === puuid);
     return this.forcePanel(puuid, p ? (list.length ? `🔒 **${p.game_name}** will play ${roleList(list)}.` : `**${p.game_name}** can play any role.`) : undefined);
   }
 
   clearForces(): Reply {
     this.d.repo.inhouseForceClear();
-    return this.forcePanel(undefined, 'Forced roles cleared.');
+    return this.forcePanel(undefined, 'Forced roles cleared for everyone.');
   }
 
   /** Rating table: everyone on the list who has played. */

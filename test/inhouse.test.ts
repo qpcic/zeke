@@ -144,7 +144,7 @@ test('5v5 forced roles: generate keeps people on their forced roles, every mode'
   assert.throws(() => generate(bad, 'tryhard'), ForcedRolesError);
 });
 
-test('$admin 5v5 force: pick a player, tick roles, generate follows; leaving the pool drops it', async () => {
+test('$admin 5v5 force: pick a player, tick roles, generate follows; forces stay with the player', async () => {
   const { mock, service } = setup();
   const solo = [{ queueType: 'RANKED_SOLO_5x5', tier: 'GOLD', rank: 'II', lp: 40, wins: 10, losses: 10 }];
   const names = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Fox', 'Golf', 'Hotel', 'India', 'Juliet'];
@@ -176,7 +176,11 @@ test('$admin 5v5 force: pick a player, tick roles, generate follows; leaving the
   ih.setForce(alpha, ['MIDDLE']);
   await ih.remove('alpha');
   await ih.add('alpha');
-  assert.doesNotMatch(ih.pool().embed.description!, /🔒/, 'leaving the pool drops forced roles');
+  assert.match(ih.pool().embed.description!, /\*\*Alpha\*\*.*🔒 Mid/, 'forced roles stay with the player');
+  ih.clear();
+  assert.match(ih.list().embed.description!, /\*\*Alpha\*\*.*🔒 Mid/, 'even after the pool is cleared');
+  assert.match(ih.forcePanel().embed.description!, /🔒 \*\*Alpha\*\*: Mid · not in the pool/);
+  assert.match(ih.clearForces().embed.description!, /Nobody has forced roles/);
 });
 
 test('$admin 5v5: rank is the highest of Solo/Duo, Flex and 5s', async () => {

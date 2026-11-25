@@ -254,6 +254,11 @@ export const MIGRATIONS: string[] = [
   -- roles someone in the pool must play (comma list; empty = any); leaving the pool drops it
   ALTER TABLE inhouse_pool ADD COLUMN forced_roles TEXT NOT NULL DEFAULT '';
   `,
+  /* 17 */ `
+  -- forced roles belong to the player (kept between nights), not the pool
+  ALTER TABLE inhouse_players ADD COLUMN forced_roles TEXT NOT NULL DEFAULT '';
+  UPDATE inhouse_players SET forced_roles = COALESCE((SELECT q.forced_roles FROM inhouse_pool q WHERE q.puuid = inhouse_players.puuid), '');
+  `,
 ];
 
 export type DB = DatabaseSync;
