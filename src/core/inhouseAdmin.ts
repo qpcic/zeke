@@ -1,7 +1,7 @@
 import type { PlayerRow, Repo } from '../db/repo.ts';
 import { renderInhouse } from '../render/image/inhouse.ts';
 import type { RiotClient } from '../riot/client.ts';
-import { generate, MODES, parseRole, rankValue, ratingChanges, ROLE_LABEL, ROLES, type InhousePlayer, type Matchup, type Mode, type Role, type Seat } from './inhouse.ts';
+import { ForcedRolesError, generate, MODES, parseRole, rankValue, ratingChanges, ROLE_LABEL, ROLES, type InhousePlayer, type Matchup, type Mode, type Role, type Seat } from './inhouse.ts';
 import { formatRank, type Rank } from './rank.ts';
 import { UserError, type Reply, type Service } from './service.ts';
 
@@ -14,7 +14,9 @@ const SOLO = 'RANKED_SOLO_5x5';
 const COLOR = 0x5865f2;
 
 interface Deps { service: Service; repo: Repo; riot: RiotClient; now: () => number; log: (m: string) => void }
-type Listed = PlayerRow & { main_role: string; in_pool: number; rating: number; wins: number; losses: number };
+type Listed = PlayerRow & { main_role: string; in_pool: number; rating: number; wins: number; losses: number; forced_roles: string };
+const forced = (p: Listed): Role[] => (p.forced_roles ? (p.forced_roles.split(',') as Role[]) : []);
+const roleList = (rs: Role[]) => rs.map((r) => ROLE_LABEL[r]).join(' / ');
 
 export class InhouseAdmin {
   constructor(private readonly d: Deps) {}
@@ -39,7 +41,8 @@ export class InhouseAdmin {
   private line(p: Listed, opts: { pool?: boolean } = {}): string {
     const pool = opts.pool && p.in_pool ? '✅ ' : '';
     const games = p.wins + p.losses;
-    return `${pool}\`${ROLE_LABEL[p.main_role as Role].padEnd(7)}\` **${p.game_name}**#${p.tag_line} · ${formatRank(this.rank(p.puuid))} · **${p.rating}**${games ? ` (${p.wins}W ${p.losses}L)` : ''}`;
+    const f = p.in_pool ? forced(p) : [];
+    return `${pool}\`${ROLE_LABEL[p.main_role as Role].padEnd(7)}\` **${p.game_name}**#${p.tag_line} · ${formatRank(this.rank(p.puuid))} · **${p.rating}**${games ? ` (${p.wins}W ${p.losses}L)` : ''}${f.length ? ` · 🔒 ${roleList(f)}` : ''}`;
   }
 
   /** Someone on the list first (short names), else any known account, @user or Riot ID. */
@@ -207,6 +210,7 @@ export class InhouseAdmin {
             { type: 2, style: 1, label: 'Generate teams', custom_id: `${INHOUSE_PREFIX}new:tryhard`, disabled: !ready },
             { type: 2, style: 2, label: 'Random', custom_id: `${INHOUSE_PREFIX}new:random`, disabled: !ready },
             { type: 2, style: 2, label: 'Off-role', custom_id: `${INHOUSE_PREFIX}new:offrole`, disabled: !ready },
+            { type: 2, style: 2, label: 'Force roles', custom_id: `${INHOUSE_PREFIX}force`, disabled: !inPool.length },
             { type: 2, style: 4, label: 'Clear pool', custom_id: `${INHOUSE_PREFIX}clear`, disabled: !inPool.length },
           ],
         },
@@ -232,6 +236,74 @@ export class InhouseAdmin {
     }
     this.d.repo.inhousePoolSet(next, this.d.now());
     return this.pool();
+  }
+
+  /**
+   * Force roles: pick someone from the pool, then tick the roles they may play (generate keeps
+   * them in one of those). Nothing or everything ticked = any role. Leaving the pool drops it.
+   */
+  forcePanel(selected?: string, note?: string): Reply {
+    const pool = this.poolPlayers().sort((a, b) => this.byRoleThenRank(a, b));
+    if (!pool.length) throw new UserError('The pool is empty: pick who is playing in `$admin 5v5 pool` first.');
+    const sel = pool.find((p) => p.puuid === selected);
+    const withForce = pool.filter((p) => forced(p).length);
+    return {
+      embed: {
+        title: sel ? `Force roles · ${sel.game_name}` : 'Force roles',
+        color: COLOR,
+        description: [
+          note ? `${note}\n` : '',
+          sel
+            ? `Main: **${ROLE_LABEL[sel.main_role as Role]}**. Tick the roles **${sel.game_name}** may play; teams will put them on one of those. Untick everything for any role.`
+            : 'Pick a player, then tick the roles they may play.',
+          '',
+          withForce.length ? withForce.map((p) => `🔒 **${p.game_name}**: ${roleList(forced(p))}`).join('\n') : '-# Nobody has forced roles.',
+        ].filter((x) => x !== '').join('\n'),
+      },
+      files: [],
+      components: [
+        {
+          type: 1,
+          components: [{
+            type: 3, custom_id: `${INHOUSE_PREFIX}fp`, placeholder: 'Player', min_values: 1, max_values: 1,
+            options: pool.map((p) => ({
+              label: `${p.game_name}#${p.tag_line}`.slice(0, 100), value: p.puuid, default: p.puuid === sel?.puuid,
+              description: `Main ${ROLE_LABEL[p.main_role as Role]}${forced(p).length ? ` · forced: ${roleList(forced(p))}` : ''}`.slice(0, 100),
+            })),
+          }],
+        },
+        ...(sel ? [{
+          type: 1,
+          components: [{
+            type: 3, custom_id: `${INHOUSE_PREFIX}fr:${sel.puuid}`, placeholder: 'Any role', min_values: 0, max_values: ROLES.length,
+            options: ROLES.map((r) => ({
+              label: ROLE_LABEL[r], value: r, default: forced(sel).includes(r),
+              description: r === sel.main_role ? 'main role' : undefined,
+            })),
+          }],
+        }] : []),
+        {
+          type: 1,
+          components: [
+            { type: 2, style: 4, label: 'Clear all forced roles', custom_id: `${INHOUSE_PREFIX}fclear`, disabled: !withForce.length },
+            { type: 2, style: 1, label: 'Generate teams', custom_id: `${INHOUSE_PREFIX}new:tryhard`, disabled: pool.length !== POOL_MAX },
+          ],
+        },
+      ],
+    };
+  }
+
+  setForce(puuid: string, roles: string[]): Reply {
+    const rs = ROLES.filter((r) => roles.includes(r));
+    const list = rs.length === ROLES.length ? [] : rs; // all ticked = any
+    if (!this.d.repo.inhouseForce(puuid, list)) throw new UserError("They aren't in the pool any more.");
+    const p = this.poolPlayers().find((x) => x.puuid === puuid);
+    return this.forcePanel(puuid, p ? (list.length ? `🔒 **${p.game_name}** will play ${roleList(list)}.` : `**${p.game_name}** can play any role.`) : undefined);
+  }
+
+  clearForces(): Reply {
+    this.d.repo.inhouseForceClear();
+    return this.forcePanel(undefined, 'Forced roles cleared.');
   }
 
   /** Rating table: everyone on the list who has played. */
@@ -261,14 +333,20 @@ export class InhouseAdmin {
         : `The pool has ${pool.length} players but only ${POOL_MAX} can play: untick ${pool.length - POOL_MAX} in \`$admin 5v5 pool\`.`);
     }
     await this.refreshRanks(pool);
-    const m = generate(pool.map((p) => this.toPlayer(p)), mode);
+    let m: Matchup;
+    try {
+      m = generate(pool.map((p) => this.toPlayer(p)), mode);
+    } catch (e) {
+      if (e instanceof ForcedRolesError) throw new UserError(e.message);
+      throw e;
+    }
     const seats = (t: Seat[]) => JSON.stringify(t.map((x) => ({ puuid: x.player.puuid, role: x.role })));
     const id = this.d.repo.inhouseMatchCreate({ mode, blue: seats(m.blue), red: seats(m.red) }, this.d.now());
     return this.matchReply(id);
   }
 
   private toPlayer(p: Listed): InhousePlayer {
-    return { puuid: p.puuid, name: p.game_name, tag: p.tag_line, main: p.main_role as Role, rank: this.rank(p.puuid), rating: p.rating };
+    return { puuid: p.puuid, name: p.game_name, tag: p.tag_line, main: p.main_role as Role, rank: this.rank(p.puuid), rating: p.rating, allowed: forced(p) };
   }
 
   /** A saved game, rebuilt from the list (current ratings), as its card + buttons. */

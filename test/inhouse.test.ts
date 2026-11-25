@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { generate, parseRole, ratingChanges, ROLES, type InhousePlayer, type Role } from '../src/core/inhouse.ts';
+import { ForcedRolesError, generate, parseRole, ratingChanges, ROLES, type InhousePlayer, type Role } from '../src/core/inhouse.ts';
 import { mulberry32 } from '../src/dev/mockRiot.ts';
 import { setup } from './helpers.ts';
 
@@ -124,4 +124,57 @@ test('$admin 5v5: list, pool (max 10, menus), generate, winner, rating, undo', a
   assert.match(ih.clear().embed.description!, /10 players removed/);
   assert.match((await ih.unlist('kilo')).embed.description!, /Kilo/);
   assert.doesNotMatch(ih.list().embed.description!, /Kilo/);
+});
+
+test('5v5 forced roles: generate keeps people on their forced roles, every mode', () => {
+  for (const mode of ['tryhard', 'offrole', 'random'] as const) {
+    for (let s = 0; s < 15; s++) {
+      const pool = mk(10, [...ROLES, ...ROLES]);
+      pool[0]!.allowed = ['MIDDLE']; // a top main forced mid
+      pool[1]!.allowed = ['UTILITY', 'BOTTOM'];
+      const m = generate(pool, mode, mulberry32(s));
+      const seat = (id: string) => [...m.blue, ...m.red].find((x) => x.player.puuid === id)!;
+      assert.equal(seat('p0').role, 'MIDDLE', mode);
+      assert.ok(['UTILITY', 'BOTTOM'].includes(seat('p1').role), mode);
+      valid(m.blue); valid(m.red);
+    }
+  }
+  const bad = mk(10, [...ROLES]);
+  for (const i of [0, 1, 2]) bad[i]!.allowed = ['MIDDLE'];
+  assert.throws(() => generate(bad, 'tryhard'), ForcedRolesError);
+});
+
+test('$admin 5v5 force: pick a player, tick roles, generate follows; leaving the pool drops it', async () => {
+  const { mock, service } = setup();
+  const solo = [{ queueType: 'RANKED_SOLO_5x5', tier: 'GOLD', rank: 'II', lp: 40, wins: 10, losses: 10 }];
+  const names = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Fox', 'Golf', 'Hotel', 'India', 'Juliet'];
+  names.forEach((n) => mock.addAccount(n, 'EUW', 'EUW1', solo));
+  const roles = ['top', 'jg', 'mid', 'adc', 'sup', 'top', 'jg', 'mid', 'adc', 'sup'];
+  const ih = service.inhouse;
+  await ih.add(names.map((n, i) => `${n}#EUW euw ${roles[i]}`).join(', '));
+
+  let panel = ih.forcePanel();
+  const players = (panel.components![0] as { components: { custom_id: string; options: { value: string; label: string }[] }[] }).components[0]!;
+  assert.equal(players.custom_id, 'ih:fp');
+  const alpha = players.options.find((o) => o.label.startsWith('Alpha'))!.value;
+  panel = ih.forcePanel(alpha);
+  const roleMenu = (panel.components![1] as { components: { custom_id: string; options: { value: string; description?: string }[] }[] }).components[0]!;
+  assert.equal(roleMenu.custom_id, `ih:fr:${alpha}`);
+  assert.equal(roleMenu.options.find((o) => o.value === 'TOP')!.description, 'main role');
+
+  panel = ih.setForce(alpha, ['UTILITY']);
+  assert.match(panel.embed.description!, /🔒 \*\*Alpha\*\* will play Support/);
+  assert.match(ih.pool().embed.description!, /\*\*Alpha\*\*.*🔒 Support/);
+  for (let k = 0; k < 5; k++) {
+    const g = await ih.generate('tryhard');
+    const id = Number((g.components![0] as { components: { custom_id: string }[] }).components[0]!.custom_id.split(':')[2]);
+    const row = service['repo'].inhouseMatch(id)!;
+    const seats = [...JSON.parse(row.blue), ...JSON.parse(row.red)] as { puuid: string; role: string }[];
+    assert.equal(seats.find((x) => x.puuid === alpha)!.role, 'UTILITY');
+  }
+  assert.match(ih.setForce(alpha, ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY']).embed.description!, /Alpha\*\* can play any role/);
+  ih.setForce(alpha, ['MIDDLE']);
+  await ih.remove('alpha');
+  await ih.add('alpha');
+  assert.doesNotMatch(ih.pool().embed.description!, /🔒/, 'leaving the pool drops forced roles');
 });

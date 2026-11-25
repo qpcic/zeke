@@ -132,10 +132,11 @@ export class Repo {
   /** The 5v5 list (with player info), pool members flagged. */
   inhouseList() {
     return this.db.prepare(`
-      SELECT p.*, i.main_role, i.rating, i.wins, i.losses, (SELECT 1 FROM inhouse_pool q WHERE q.puuid = i.puuid) IS NOT NULL AS in_pool
+      SELECT p.*, i.main_role, i.rating, i.wins, i.losses, (SELECT 1 FROM inhouse_pool q WHERE q.puuid = i.puuid) IS NOT NULL AS in_pool,
+        COALESCE((SELECT q.forced_roles FROM inhouse_pool q WHERE q.puuid = i.puuid), '') AS forced_roles
       FROM inhouse_players i JOIN players p ON p.puuid = i.puuid
       ORDER BY p.game_name COLLATE NOCASE
-    `).all() as unknown as (PlayerRow & { main_role: string; in_pool: number; rating: number; wins: number; losses: number })[];
+    `).all() as unknown as (PlayerRow & { main_role: string; in_pool: number; rating: number; wins: number; losses: number; forced_roles: string })[];
   }
   inhouseMatchCreate(m: { mode: string; blue: string; red: string }, at: number): number {
     return Number(this.db.prepare('INSERT INTO inhouse_matches (created_at, mode, blue, red) VALUES (?, ?, ?, ?)').run(at, m.mode, m.blue, m.red).lastInsertRowid);
@@ -164,10 +165,19 @@ export class Repo {
       throw e;
     }
   }
+  /** Forced roles for someone in the pool ('' = any). False if they aren't in the pool. */
+  inhouseForce(puuid: string, roles: string[]): boolean {
+    return this.db.prepare('UPDATE inhouse_pool SET forced_roles = ? WHERE puuid = ?').run(roles.join(','), puuid).changes > 0;
+  }
+  inhouseForceClear() {
+    this.db.prepare("UPDATE inhouse_pool SET forced_roles = ''").run();
+  }
+  /** The pool becomes exactly these people; those who stay keep their forced roles. */
   inhousePoolSet(puuids: string[], at: number) {
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      this.db.prepare('DELETE FROM inhouse_pool').run();
+      const keep = puuids.map((p) => `'${p.replace(/'/g, "''")}'`).join(',');
+      this.db.prepare(`DELETE FROM inhouse_pool${puuids.length ? ` WHERE puuid NOT IN (${keep})` : ''}`).run();
       for (const p of puuids) this.db.prepare('INSERT OR IGNORE INTO inhouse_pool (puuid, added_at) VALUES (?, ?)').run(p, at);
       this.db.exec('COMMIT');
     } catch (e) {

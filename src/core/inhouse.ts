@@ -39,6 +39,8 @@ export interface InhousePlayer {
   rank: Rank | null;
   /** in-house rating */
   rating: number;
+  /** forced: must play one of these (empty/undefined = any role) */
+  allowed?: Role[];
 }
 export interface Seat { player: InhousePlayer; role: Role }
 export interface Matchup {
@@ -91,18 +93,28 @@ export function generate(pool: InhousePlayer[], mode: Mode, rng: () => number = 
   const fallback = ranked.length ? ranked[Math.floor(ranked.length / 2)]! : UNRANKED_DEFAULT;
   const val = ten.map((p) => rankValue(p.rank) ?? fallback);
 
+  // forced roles: a role assignment is only allowed if everyone gets one of theirs
+  const ok = (team: number[], perm: number[]) => perm.every((r, k) => {
+    const a = ten[team[k]!]!.allowed;
+    return !a?.length || a.includes(ROLES[r]!);
+  });
   let blueIdx: number[], redIdx: number[], blueRoles: number[], redRoles: number[];
   if (mode === 'random') {
-    const order = shuffle([...Array(10).keys()], rng);
-    blueIdx = order.slice(0, 5); redIdx = order.slice(5);
-    blueRoles = PERMS[Math.floor(rng() * PERMS.length)]!;
-    redRoles = PERMS[Math.floor(rng() * PERMS.length)]!;
+    const splits = shuffle(SPLITS.map((a) => [a, [...Array(10).keys()].filter((i) => !a.includes(i))] as const), rng);
+    const fit = splits.map(([a, b]) => ({ a, b, pa: PERMS.filter((p) => ok(a, p)), pb: PERMS.filter((p) => ok(b, p)) })).filter((x) => x.pa.length && x.pb.length);
+    if (!fit.length) throw new ForcedRolesError();
+    const o = fit[0]!;
+    const swap = rng() < 0.5;
+    blueIdx = swap ? o.b : o.a; redIdx = swap ? o.a : o.b;
+    const pa = o.pa[Math.floor(rng() * o.pa.length)]!, pb = o.pb[Math.floor(rng() * o.pb.length)]!;
+    blueRoles = swap ? pb : pa; redRoles = swap ? pa : pb;
   } else {
     // per team: the role assignments with the most (tryhard) / fewest (offrole) people on their main
     const better = (a: number, b: number) => (mode === 'tryhard' ? a > b : a < b);
     const bestFor = (team: number[]) => {
       let best = -1, perms: number[][] = [];
       for (const perm of PERMS) {
+        if (!ok(team, perm)) continue;
         const n = perm.reduce((s, r, k) => s + (ten[team[k]!]!.main === ROLES[r] ? 1 : 0), 0);
         if (best < 0 || better(n, best)) { best = n; perms = [perm]; } else if (n === best) perms.push(perm);
       }
@@ -113,7 +125,8 @@ export function generate(pool: InhousePlayer[], mode: Mode, rng: () => number = 
       const A = bestFor(a), B = bestFor(b);
       const avg = (t: number[]) => t.reduce((s, i) => s + val[i]!, 0) / 5;
       return { a, b, A, B, n: A.n + B.n, diff: Math.abs(avg(a) - avg(b)) };
-    });
+    }).filter((o) => o.A.perms.length && o.B.perms.length);
+    if (!options.length) throw new ForcedRolesError();
     const target = mode === 'tryhard' ? Math.max(...options.map((o) => o.n)) : Math.min(...options.map((o) => o.n));
     const fit = options.filter((o) => o.n === target);
     const minDiff = Math.min(...fit.map((o) => o.diff));
@@ -133,6 +146,10 @@ export function generate(pool: InhousePlayer[], mode: Mode, rng: () => number = 
     onMain: [...blue, ...red].filter((s) => s.player.main === s.role).length,
     bench,
   };
+}
+
+export class ForcedRolesError extends Error {
+  constructor() { super("The forced roles can't all be met: two teams of five need one of each role. Loosen some in `$admin 5v5 force`."); }
 }
 
 function shuffle<T>(a: T[], rng: () => number): T[] {

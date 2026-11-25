@@ -78,7 +78,13 @@ function row(ctx: ReturnType<ReturnType<typeof createCanvas>['getContext']>, s: 
 
   ctx.fillStyle = C.faint;
   ctx.font = font(700, 13);
-  ctx.fillText(ROLE_LABEL[s.role].toUpperCase(), x + 14, mid + 5);
+  const isForced = !!s.player.allowed?.length;
+  ctx.fillText(ROLE_LABEL[s.role].toUpperCase(), x + 14, mid + (isForced ? -2 : 5));
+  if (isForced) {
+    ctx.fillStyle = '#f5c542';
+    ctx.font = font(600, 11);
+    ctx.fillText('FORCED', x + 14, mid + 14);
+  }
 
   const em = s.player.rank ? emblems.get(s.player.rank.tier) : null;
   if (em) {

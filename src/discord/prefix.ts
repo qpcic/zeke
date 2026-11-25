@@ -361,6 +361,7 @@ export function createPrefixHandler(
             : action === 'unlist' || action === 'delete' ? await ih.unlist(text)
             : action === 'list' || action === 'all' ? ih.list()
             : action === 'top' || action === 'rating' || action === 'ratings' || action === 'lb' ? ih.top()
+            : action === 'force' || action === 'lock' || action === 'roles' ? ih.forcePanel()
             : action === 'clear' || action === 'reset' ? ih.clear()
             : action === 'pool' || action === '' ? ih.pool()
             : null;
@@ -379,6 +380,7 @@ export function createPrefixHandler(
               `\`${prefix}admin 5v5 list\` everyone on the list: main role and Solo/Duo rank`,
               `\`${prefix}admin 5v5 unlist <name>\` take someone off the list`,
               `\`${prefix}admin 5v5 generate [tryhard|random|offrole]\` two teams from the pool, then **Blue won** / **Red won** for rating`,
+              `\`${prefix}admin 5v5 force\` lock someone in the pool to certain roles (pick a player, tick roles)`,
               `\`${prefix}admin 5v5 top\` rating table (everyone starts at 1000; ±25 for even teams, half on your main role)`,
               '',
               '**tryhard** as many people on their main role as possible, then the closest average rank',

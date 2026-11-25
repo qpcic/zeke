@@ -250,6 +250,10 @@ export const MIGRATIONS: string[] = [
     decided_at INTEGER
   );
   `,
+  /* 16 */ `
+  -- roles someone in the pool must play (comma list; empty = any); leaving the pool drops it
+  ALTER TABLE inhouse_pool ADD COLUMN forced_roles TEXT NOT NULL DEFAULT '';
+  `,
 ];
 
 export type DB = DatabaseSync;
