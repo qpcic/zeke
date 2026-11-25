@@ -3,7 +3,8 @@ import { renderInhouse } from '../render/image/inhouse.ts';
 import type { RiotClient } from '../riot/client.ts';
 import { FIVES_QUEUE_TYPE } from '../riot/types.ts';
 import { ForcedRolesError, generate, MODES, parseRole, rankValue, ratingChanges, ROLE_LABEL, ROLES, type InhousePlayer, type Matchup, type Mode, type Role, type Seat } from './inhouse.ts';
-import { formatRank, type Rank } from './rank.ts';
+import { rankAt } from '../render/image/lpGraph.ts';
+import { formatRank, formatTierDiv, type Rank } from './rank.ts';
 import { UserError, type Reply, type Service } from './service.ts';
 
 /** `$admin 5v5 …`: the list, tonight's pool, and team generation. Owner console only. */
@@ -11,8 +12,12 @@ import { UserError, type Reply, type Service } from './service.ts';
 export const INHOUSE_PREFIX = 'ih:';
 /** The pool is the ten people playing right now. */
 export const POOL_MAX = 10;
-/** Highest of these counts (balancing and display); label shown when it isn't Solo/Duo. */
-const QUEUES: [string, string][] = [['RANKED_SOLO_5x5', 'Solo'], ['RANKED_FLEX_SR', 'Flex'], [FIVES_QUEUE_TYPE, '5s']];
+/**
+ * A player's 5v5 rank blends their ranked queues: Solo/Duo counts fully, Flex and Ranked 5s half
+ * as much (a weighted average of the queues they're ranked in). Only one queue: that rank as is.
+ */
+const QUEUES: [string, string, number][] = [['RANKED_SOLO_5x5', 'Solo', 1], ['RANKED_FLEX_SR', 'Flex', 0.5], [FIVES_QUEUE_TYPE, '5s', 0.5]];
+type BlendRank = Rank & { queue: string; parts: string };
 const COLOR = 0x5865f2;
 
 interface Deps { service: Service; repo: Repo; riot: RiotClient; now: () => number; log: (m: string) => void }
@@ -23,21 +28,28 @@ const roleList = (rs: Role[]) => rs.map((r) => ROLE_LABEL[r]).join(' / ');
 export class InhouseAdmin {
   constructor(private readonly d: Deps) {}
 
-  /** Highest current rank across Solo/Duo, Flex and Ranked 5s (null = unranked in all). */
-  private rank(puuid: string): (Rank & { queue: string }) | null {
-    let best: (Rank & { queue: string }) | null = null;
-    for (const [qt, label] of QUEUES) {
+  /** Solo/Duo weighs 1, Flex and 5s ½ each (null = unranked in all three). */
+  private rank(puuid: string): BlendRank | null {
+    const got: { r: Rank; label: string; w: number; v: number }[] = [];
+    for (const [qt, label, w] of QUEUES) {
       const s = this.d.repo.getSnapshot(puuid, qt);
       if (!s || !s.tier || s.tier === 'UNRANKED') continue;
-      const r = { tier: s.tier, division: s.division, lp: s.lp, queue: label } as Rank & { queue: string };
-      if (!best || (rankValue(r) ?? -1) > (rankValue(best) ?? -1)) best = r;
+      const r = { tier: s.tier, division: s.division, lp: s.lp } as Rank;
+      const v = rankValue(r);
+      if (v !== null) got.push({ r, label, w, v });
     }
-    return best;
+    if (!got.length) return null;
+    const parts = got.map((g) => `${g.label} ${formatTierDiv(g.r)}`).join(' · ');
+    if (got.length === 1) return { ...got[0]!.r, queue: got[0]!.label, parts };
+    const abs = Math.round(got.reduce((s, g) => s + g.v * g.w, 0) / got.reduce((s, g) => s + g.w, 0));
+    return { ...(rankAt(abs) as Rank), queue: 'blend', parts };
   }
-  /** "Diamond III 40 LP", with "(Flex)" / "(5s)" when the best rank isn't Solo/Duo. */
+  /** "Diamond III 40 LP"; "(Flex)" when that's the only queue; a blend shows where it comes from. */
   private rankLabel(puuid: string): string {
     const r = this.rank(puuid);
-    return r ? `${formatRank(r)}${r.queue === 'Solo' ? '' : ` (${r.queue})`}` : 'Unranked';
+    if (!r) return 'Unranked';
+    if (r.queue === 'blend') return `≈ ${formatRank(r)} (${r.parts})`;
+    return `${formatRank(r)}${r.queue === 'Solo' ? '' : ` (${r.queue})`}`;
   }
 
   /** Fresh ranks for Solo/Duo, Flex and 5s (league-v4: platform host, not the busy match-v5 limit). */
