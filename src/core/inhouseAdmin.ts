@@ -1,6 +1,7 @@
 import type { PlayerRow, Repo } from '../db/repo.ts';
 import { renderInhouse } from '../render/image/inhouse.ts';
 import type { RiotClient } from '../riot/client.ts';
+import { FIVES_QUEUE_TYPE } from '../riot/types.ts';
 import { ForcedRolesError, generate, MODES, parseRole, rankValue, ratingChanges, ROLE_LABEL, ROLES, type InhousePlayer, type Matchup, type Mode, type Role, type Seat } from './inhouse.ts';
 import { formatRank, type Rank } from './rank.ts';
 import { UserError, type Reply, type Service } from './service.ts';
@@ -10,7 +11,8 @@ import { UserError, type Reply, type Service } from './service.ts';
 export const INHOUSE_PREFIX = 'ih:';
 /** The pool is the ten people playing right now. */
 export const POOL_MAX = 10;
-const SOLO = 'RANKED_SOLO_5x5';
+/** Highest of these counts (balancing and display); label shown when it isn't Solo/Duo. */
+const QUEUES: [string, string][] = [['RANKED_SOLO_5x5', 'Solo'], ['RANKED_FLEX_SR', 'Flex'], [FIVES_QUEUE_TYPE, '5s']];
 const COLOR = 0x5865f2;
 
 interface Deps { service: Service; repo: Repo; riot: RiotClient; now: () => number; log: (m: string) => void }
@@ -21,17 +23,32 @@ const roleList = (rs: Role[]) => rs.map((r) => ROLE_LABEL[r]).join(' / ');
 export class InhouseAdmin {
   constructor(private readonly d: Deps) {}
 
-  private rank(puuid: string): Rank | null {
-    const s = this.d.repo.getSnapshot(puuid, SOLO);
-    return s && s.tier && s.tier !== 'UNRANKED' ? { tier: s.tier, division: s.division, lp: s.lp } as Rank : null;
+  /** Highest current rank across Solo/Duo, Flex and Ranked 5s (null = unranked in all). */
+  private rank(puuid: string): (Rank & { queue: string }) | null {
+    let best: (Rank & { queue: string }) | null = null;
+    for (const [qt, label] of QUEUES) {
+      const s = this.d.repo.getSnapshot(puuid, qt);
+      if (!s || !s.tier || s.tier === 'UNRANKED') continue;
+      const r = { tier: s.tier, division: s.division, lp: s.lp, queue: label } as Rank & { queue: string };
+      if (!best || (rankValue(r) ?? -1) > (rankValue(best) ?? -1)) best = r;
+    }
+    return best;
+  }
+  /** "Diamond III 40 LP", with "(Flex)" / "(5s)" when the best rank isn't Solo/Duo. */
+  private rankLabel(puuid: string): string {
+    const r = this.rank(puuid);
+    return r ? `${formatRank(r)}${r.queue === 'Solo' ? '' : ` (${r.queue})`}` : 'Unranked';
   }
 
-  /** Fresh Solo/Duo ranks (league-v4: platform host, not the busy match-v5 limit). */
+  /** Fresh ranks for Solo/Duo, Flex and 5s (league-v4: platform host, not the busy match-v5 limit). */
   private async refreshRanks(players: PlayerRow[]): Promise<void> {
     await Promise.all(players.map(async (p) => {
       try {
-        const e = (await this.d.riot.getLeagueEntries(p.platform, p.puuid)).find((x) => x.queueType === SOLO);
-        if (e) this.d.repo.putSnapshot({ puuid: p.puuid, queue_type: SOLO, tier: e.tier, division: e.rank, lp: e.leaguePoints, wins: e.wins, losses: e.losses, taken_at: this.d.now() });
+        const entries = await this.d.riot.getLeagueEntries(p.platform, p.puuid);
+        for (const e of entries) {
+          if (!QUEUES.some(([qt]) => qt === e.queueType)) continue;
+          this.d.repo.putSnapshot({ puuid: p.puuid, queue_type: e.queueType, tier: e.tier, division: e.rank, lp: e.leaguePoints, wins: e.wins, losses: e.losses, taken_at: this.d.now() });
+        }
       } catch (err) {
         this.d.log(`5v5: rank refresh failed for ${p.game_name}#${p.tag_line}: ${(err as Error).message}`);
       }
@@ -42,7 +59,7 @@ export class InhouseAdmin {
     const pool = opts.pool && p.in_pool ? '✅ ' : '';
     const games = p.wins + p.losses;
     const f = p.in_pool ? forced(p) : [];
-    return `${pool}\`${ROLE_LABEL[p.main_role as Role].padEnd(7)}\` **${p.game_name}**#${p.tag_line} · ${formatRank(this.rank(p.puuid))} · **${p.rating}**${games ? ` (${p.wins}W ${p.losses}L)` : ''}${f.length ? ` · 🔒 ${roleList(f)}` : ''}`;
+    return `${pool}\`${ROLE_LABEL[p.main_role as Role].padEnd(7)}\` **${p.game_name}**#${p.tag_line} · ${this.rankLabel(p.puuid)} · **${p.rating}**${games ? ` (${p.wins}W ${p.losses}L)` : ''}${f.length ? ` · 🔒 ${roleList(f)}` : ''}`;
   }
 
   /** Someone on the list first (short names), else any known account, @user or Riot ID. */
@@ -199,7 +216,7 @@ export class InhouseAdmin {
             options: c.map((p) => ({
               label: `${p.game_name}#${p.tag_line}`.slice(0, 100),
               value: p.puuid,
-              description: `${ROLE_LABEL[p.main_role as Role]} · ${formatRank(this.rank(p.puuid))} · ${p.rating} rating`.slice(0, 100),
+              description: `${ROLE_LABEL[p.main_role as Role]} · ${this.rankLabel(p.puuid)} · ${p.rating} rating`.slice(0, 100),
               default: !!p.in_pool,
             })),
           }],
@@ -346,7 +363,7 @@ export class InhouseAdmin {
   }
 
   private toPlayer(p: Listed): InhousePlayer {
-    return { puuid: p.puuid, name: p.game_name, tag: p.tag_line, main: p.main_role as Role, rank: this.rank(p.puuid), rating: p.rating, allowed: forced(p) };
+    return { puuid: p.puuid, name: p.game_name, tag: p.tag_line, main: p.main_role as Role, rank: this.rank(p.puuid), rankQueue: this.rank(p.puuid)?.queue, rating: p.rating, allowed: forced(p) };
   }
 
   /** A saved game, rebuilt from the list (current ratings), as its card + buttons. */

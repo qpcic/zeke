@@ -377,7 +377,7 @@ export function createPrefixHandler(
               `\`${prefix}admin 5v5 pool\` who's playing now (max 10): pick from the list in menus, generate from there`,
               `\`${prefix}admin 5v5 remove <name>, …\` take people out of the pool`,
               `\`${prefix}admin 5v5 clear\` empty the pool`,
-              `\`${prefix}admin 5v5 list\` everyone on the list: main role and Solo/Duo rank`,
+              `\`${prefix}admin 5v5 list\` everyone on the list: main role and highest rank (Solo/Duo, Flex or 5s)`,
               `\`${prefix}admin 5v5 unlist <name>\` take someone off the list`,
               `\`${prefix}admin 5v5 generate [tryhard|random|offrole]\` two teams from the pool, then **Blue won** / **Red won** for rating`,
               `\`${prefix}admin 5v5 force\` lock someone in the pool to certain roles (pick a player, tick roles)`,

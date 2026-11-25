@@ -178,3 +178,19 @@ test('$admin 5v5 force: pick a player, tick roles, generate follows; leaving the
   await ih.add('alpha');
   assert.doesNotMatch(ih.pool().embed.description!, /🔒/, 'leaving the pool drops forced roles');
 });
+
+test('$admin 5v5: rank is the highest of Solo/Duo, Flex and 5s', async () => {
+  const { mock, service } = setup();
+  mock.addAccount('Flexer', 'EUW', 'EUW1', [
+    { queueType: 'RANKED_SOLO_5x5', tier: 'GOLD', rank: 'II', lp: 40, wins: 10, losses: 10 },
+    { queueType: 'RANKED_FLEX_SR', tier: 'DIAMOND', rank: 'IV', lp: 12, wins: 10, losses: 10 },
+  ]);
+  mock.addAccount('Soloer', 'EUW', 'EUW1', [
+    { queueType: 'RANKED_SOLO_5x5', tier: 'EMERALD', rank: 'I', lp: 70, wins: 10, losses: 10 },
+    { queueType: 'RANKED_FLEX_SR', tier: 'SILVER', rank: 'I', lp: 5, wins: 10, losses: 10 },
+  ]);
+  await service.inhouse.add('Flexer#EUW euw mid, Soloer#EUW euw top');
+  const list = service.inhouse.list().embed.description!;
+  assert.match(list, /\*\*Flexer\*\*#EUW · Diamond IV 12 LP \(Flex\)/);
+  assert.match(list, /\*\*Soloer\*\*#EUW · Emerald I 70 LP · /);
+});
