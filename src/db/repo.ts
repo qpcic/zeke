@@ -132,10 +132,48 @@ export class Repo {
   /** The 5v5 list (with player info), pool members flagged. */
   inhouseList() {
     return this.db.prepare(`
-      SELECT p.*, i.main_role, (SELECT 1 FROM inhouse_pool q WHERE q.puuid = i.puuid) IS NOT NULL AS in_pool
+      SELECT p.*, i.main_role, i.rating, i.wins, i.losses, (SELECT 1 FROM inhouse_pool q WHERE q.puuid = i.puuid) IS NOT NULL AS in_pool
       FROM inhouse_players i JOIN players p ON p.puuid = i.puuid
       ORDER BY p.game_name COLLATE NOCASE
-    `).all() as unknown as (PlayerRow & { main_role: string; in_pool: number })[];
+    `).all() as unknown as (PlayerRow & { main_role: string; in_pool: number; rating: number; wins: number; losses: number })[];
+  }
+  inhouseMatchCreate(m: { mode: string; blue: string; red: string }, at: number): number {
+    return Number(this.db.prepare('INSERT INTO inhouse_matches (created_at, mode, blue, red) VALUES (?, ?, ?, ?)').run(at, m.mode, m.blue, m.red).lastInsertRowid);
+  }
+  inhouseMatch(id: number) {
+    return this.db.prepare('SELECT * FROM inhouse_matches WHERE id = ?').get(id) as
+      { id: number; created_at: number; mode: string; blue: string; red: string; winner: 'blue' | 'red' | null; deltas: string | null; decided_at: number | null } | undefined;
+  }
+  /**
+   * Set (winner) or clear (null) a game's result, applying the rating changes and W/L in one go.
+   * `apply` is +1 to add them, -1 to take them back (undo).
+   */
+  inhouseResult(id: number, winner: 'blue' | 'red' | null, changes: { puuid: string; delta: number; won: boolean }[], apply: 1 | -1, at: number) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const c of changes) {
+        this.db.prepare('UPDATE inhouse_players SET rating = rating + ?, wins = wins + ?, losses = losses + ? WHERE puuid = ?')
+          .run(apply * c.delta, c.won ? apply : 0, c.won ? 0 : apply, c.puuid);
+      }
+      const deltas = Object.fromEntries(changes.map((c) => [c.puuid, c.delta]));
+      this.db.prepare('UPDATE inhouse_matches SET winner = ?, deltas = ?, decided_at = ? WHERE id = ?')
+        .run(winner, winner ? JSON.stringify(deltas) : null, winner ? at : null, id);
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+  inhousePoolSet(puuids: string[], at: number) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('DELETE FROM inhouse_pool').run();
+      for (const p of puuids) this.db.prepare('INSERT OR IGNORE INTO inhouse_pool (puuid, added_at) VALUES (?, ?)').run(p, at);
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
   }
   inhouseSet(puuid: string, mainRole: string, at: number) {
     this.db.prepare(`INSERT INTO inhouse_players (puuid, main_role, added_at) VALUES (?, ?, ?)

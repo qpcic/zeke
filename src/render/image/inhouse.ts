@@ -12,7 +12,9 @@ const COL_W = (W - 2 * PAD - GAP) / 2;
 const MODE_TITLE = { tryhard: 'Tryhard', random: 'Random', offrole: 'Off-role' } as const;
 const BLUE = '#4c8dff', RED = '#ff5a5f';
 
-export async function renderInhouse(m: Matchup, assets: AssetSource | null): Promise<Buffer> {
+export interface InhouseResult { winner: 'blue' | 'red'; deltas: Record<string, number> }
+
+export async function renderInhouse(m: Matchup, assets: AssetSource | null, result?: InhouseResult | null): Promise<Buffer> {
   ensureFonts();
   const seats = [...m.blue, ...m.red];
   const tiers = [...new Set(seats.map((s) => s.player.rank?.tier).filter((t): t is string => !!t))];
@@ -36,13 +38,15 @@ export async function renderInhouse(m: Matchup, assets: AssetSource | null): Pro
   ctx.fillRect(0, 0, W, 80);
   ctx.fillStyle = C.text;
   ctx.font = font(700, 30);
-  ctx.fillText(`5v5 · ${MODE_TITLE[m.mode]}`, PAD + 8, 44);
+  ctx.fillText(result ? `5v5 · ${result.winner === 'blue' ? 'Blue' : 'Red'} team won` : `5v5 · ${MODE_TITLE[m.mode]}`, PAD + 8, 44);
   ctx.fillStyle = C.sub;
   ctx.font = font(400, 16);
   const gap = Math.round(Math.abs(m.blueAvg - m.redAvg));
-  ctx.fillText(`${m.onMain} of 10 on their main role · average ranks ${gap} LP apart`, PAD + 8, 70);
+  ctx.fillText(`${MODE_TITLE[m.mode]} · ${m.onMain} of 10 on their main role · average ranks ${gap} LP apart`, PAD + 8, 70);
 
-  ([['BLUE TEAM', m.blue, m.blueAvg, BLUE], ['RED TEAM', m.red, m.redAvg, RED]] as const).forEach(([label, team, avg, color], k) => {
+  ([['BLUE TEAM', m.blue, m.blueAvg, BLUE, 'blue'], ['RED TEAM', m.red, m.redAvg, RED, 'red']] as const).forEach(([label0, team, avg, color, side], k) => {
+    const label = result ? `${label0} · ${result.winner === side ? 'WON' : 'LOST'}` : label0;
+    const ratingAvg = Math.round(team.reduce((s, x) => s + x.player.rating, 0) / team.length);
     const x = PAD + k * (COL_W + GAP);
     let y = HEAD;
     ctx.fillStyle = `${color}22`;
@@ -53,10 +57,10 @@ export async function renderInhouse(m: Matchup, assets: AssetSource | null): Pro
     ctx.textAlign = 'right';
     ctx.fillStyle = C.sub;
     ctx.font = font(400, 14);
-    ctx.fillText(`avg ${formatTierDiv(rankAt(avg))}`, x + COL_W - 14, y + 25);
+    ctx.fillText(`avg ${formatTierDiv(rankAt(avg))} · ${ratingAvg} rating`, x + COL_W - 14, y + 25);
     ctx.textAlign = 'left';
     y += TEAM_HEAD;
-    team.forEach((s, i) => row(ctx, s, x, y + i * ROW, emblems, i));
+    team.forEach((s, i) => row(ctx, s, x, y + i * ROW, emblems, i, result?.deltas[s.player.puuid]));
   });
 
   if (m.bench.length) {
@@ -67,7 +71,7 @@ export async function renderInhouse(m: Matchup, assets: AssetSource | null): Pro
   return canvas.toBuffer('image/png');
 }
 
-function row(ctx: ReturnType<ReturnType<typeof createCanvas>['getContext']>, s: Seat, x: number, y: number, emblems: Map<string, Image | Canvas | null>, i: number) {
+function row(ctx: ReturnType<ReturnType<typeof createCanvas>['getContext']>, s: Seat, x: number, y: number, emblems: Map<string, Image | Canvas | null>, i: number, delta?: number) {
   const mid = y + (ROW - 6) / 2;
   ctx.fillStyle = i % 2 === 0 ? C.panel : '#1a1b1f';
   rounded(ctx, x, y, COL_W, ROW - 6, 8); ctx.fill();
@@ -86,7 +90,8 @@ function row(ctx: ReturnType<ReturnType<typeof createCanvas>['getContext']>, s: 
   const chip = onMain ? 'MAIN' : `main: ${ROLE_LABEL[s.player.main]}`;
   ctx.font = font(700, 12);
   const cw = ctx.measureText(chip).width + 16;
-  const nameMax = COL_W - 150 - cw - 20;
+  const RATING_W = 70;
+  const nameMax = COL_W - 150 - 128 - 20 - RATING_W;
 
   ctx.fillStyle = C.text;
   ctx.font = font(700, 17);
@@ -99,6 +104,18 @@ function row(ctx: ReturnType<ReturnType<typeof createCanvas>['getContext']>, s: 
   ctx.fillStyle = C.sub;
   ctx.font = font(400, 14);
   ctx.fillText(s.player.rank ? `${formatTierDiv(s.player.rank)} · ${s.player.rank.lp} LP` : 'Unranked', x + 144, mid + 17);
+
+  // rating (and its change once the game is in)
+  const CHIP_SLOT = 128; // widest chip ("main: Support"), so ratings line up
+  const rx = x + COL_W - 14 - CHIP_SLOT - 12;
+  ctx.textAlign = 'right';
+  ctx.fillStyle = C.text;
+  ctx.font = font(700, 17);
+  ctx.fillText(String(s.player.rating), rx, mid - 3);
+  ctx.font = font(delta === undefined ? 400 : 700, 12);
+  ctx.fillStyle = delta === undefined ? C.faint : delta >= 0 ? C.win : C.loss;
+  ctx.fillText(delta === undefined ? 'rating' : `${delta >= 0 ? '+' : '−'}${Math.abs(delta)}`, rx, mid + 15);
+  ctx.textAlign = 'left';
 
   const cx = x + COL_W - 14 - cw;
   ctx.fillStyle = onMain ? 'rgba(63,185,80,0.18)' : 'rgba(255,255,255,0.07)';

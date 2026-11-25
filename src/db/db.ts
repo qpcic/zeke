@@ -234,6 +234,22 @@ export const MIGRATIONS: string[] = [
     added_at INTEGER NOT NULL
   );
   `,
+  /* 15 */ `
+  -- in-house rating (everyone starts at 1000) and the games it comes from
+  ALTER TABLE inhouse_players ADD COLUMN rating INTEGER NOT NULL DEFAULT 1000;
+  ALTER TABLE inhouse_players ADD COLUMN wins INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE inhouse_players ADD COLUMN losses INTEGER NOT NULL DEFAULT 0;
+  CREATE TABLE inhouse_matches (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at INTEGER NOT NULL,
+    mode       TEXT NOT NULL,
+    blue       TEXT NOT NULL,   -- JSON [{puuid, role}] in role order
+    red        TEXT NOT NULL,
+    winner     TEXT,            -- blue | red, null until set
+    deltas     TEXT,            -- JSON {puuid: rating change} once decided
+    decided_at INTEGER
+  );
+  `,
 ];
 
 export type DB = DatabaseSync;

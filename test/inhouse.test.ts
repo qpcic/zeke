@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { generate, parseRole, ROLES, type InhousePlayer, type Role } from '../src/core/inhouse.ts';
+import { generate, parseRole, ratingChanges, ROLES, type InhousePlayer, type Role } from '../src/core/inhouse.ts';
 import { mulberry32 } from '../src/dev/mockRiot.ts';
 import { setup } from './helpers.ts';
 
@@ -8,6 +8,7 @@ const TIERS = ['GOLD', 'PLATINUM', 'EMERALD', 'DIAMOND'];
 const mk = (n: number, mains: Role[]): InhousePlayer[] => Array.from({ length: n }, (_, i) => ({
   puuid: `p${i}`, name: `P${i}`, tag: 'EUW', main: mains[i % mains.length]!,
   rank: i === 3 ? null : { tier: TIERS[i % 4]!, division: ['IV', 'II', 'I', 'III'][i % 4]!, lp: (i * 17) % 100 },
+  rating: 1000,
 }));
 const valid = (seats: { role: Role }[]) => assert.deepEqual(seats.map((s) => s.role), [...ROLES]);
 
@@ -49,7 +50,18 @@ test('5v5: needs 10, extra players sit out', () => {
   assert.equal(parseRole('kitten'), null);
 });
 
-test('$admin 5v5: list, pool, add/remove/clear, generate', async () => {
+test('5v5 rating: ±25 for even teams, half on your main role, upsets move more', () => {
+  const t = (r: number, main: boolean[]) => main.map((m, i) => ({ puuid: `${r}-${i}`, rating: r, onMain: m }));
+  const even = ratingChanges(t(1000, [true, false, false, false, false]), t(1000, [false, false, false, false, true]), 'blue');
+  assert.deepEqual(even.map((c) => c.delta), [13, 25, 25, 25, 25, -25, -25, -25, -25, -13]);
+  assert.deepEqual(even.map((c) => c.won), [true, true, true, true, true, false, false, false, false, false]);
+  const upset = ratingChanges(t(900, [false, false, false, false, false]), t(1100, [false, false, false, false, false]), 'blue');
+  assert.equal(upset[0]!.delta, 38);
+  const expected = ratingChanges(t(900, [false, false, false, false, false]), t(1100, [false, false, false, false, false]), 'red');
+  assert.equal(expected[0]!.delta, 12);
+});
+
+test('$admin 5v5: list, pool (max 10, menus), generate, winner, rating, undo', async () => {
   const { mock, service } = setup();
   const solo = (tier: string) => [{ queueType: 'RANKED_SOLO_5x5', tier, rank: 'II', lp: 40, wins: 10, losses: 10 }];
   const names = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Fox', 'Golf', 'Hotel', 'India', 'Juliet', 'Kilo'];
@@ -62,21 +74,52 @@ test('$admin 5v5: list, pool, add/remove/clear, generate', async () => {
   assert.match(r1.embed.description!, /Pool: \*\*2\/10\*\*/);
 
   const roles = ['jungle', 'adc', 'sup', 'top', 'mid', 'jg', 'bot', 'support', 'mid'];
-  await ih.add(names.slice(2).map((n, i) => `${n}#EUW euw ${roles[i]}`).join(', '));
-  assert.match(ih.pool().embed.title!, /11\/10/);
-  assert.match(ih.list().embed.description!, /`Mid    ` \*\*Alpha\*\*#EUW · Gold II 40 LP/);
+  const r2 = await ih.add(names.slice(2).map((n, i) => `${n}#EUW euw ${roles[i]}`).join(', '));
+  assert.match(r2.embed.description!, /Kilo\*\* is on the list now, but didn't fit: the pool is full \(10\/10\)/);
+  assert.match(ih.list().embed.description!, /`Mid    ` \*\*Alpha\*\*#EUW · Gold II 40 LP · \*\*1000\*\*/);
 
-  // short names for people on the list
-  assert.match((await ih.remove('kilo, juli')).embed.description!, /Kilo\n• Juliet[\s\S]*Pool: \*\*9\/10\*\*/);
-  await assert.rejects(ih.generate('tryhard'), /9\/10/);
-  assert.match(ih.pool().embed.fields![0]!.value, /Juliet/);
-  await ih.add('juliet');
+  // the panel: a menu with everyone, ticked = in the pool
+  let panel = ih.pool();
+  assert.match(panel.embed.title!, /10\/10/);
+  const menu = (panel.components![0] as { components: { custom_id: string; max_values: number; options: { value: string; default: boolean; label: string }[] }[] }).components[0]!;
+  assert.equal(menu.custom_id, 'ih:pool:0');
+  assert.equal(menu.max_values, 10);
+  assert.equal(menu.options.filter((o) => o.default).length, 10);
+  const kilo = menu.options.find((o) => o.label.startsWith('Kilo'))!.value;
+  const alpha = menu.options.find((o) => o.label.startsWith('Alpha'))!.value;
+  assert.throws(() => ih.setPoolFromMenu(0, menu.options.map((o) => o.value)), /11 players: the pool holds 10/);
+  panel = ih.setPoolFromMenu(0, menu.options.filter((o) => o.value !== alpha).map((o) => o.value));
+  assert.match(panel.embed.description!, /Kilo/);
+  assert.doesNotMatch(panel.embed.description!, /Alpha/);
+  void kilo;
+
+  await assert.rejects((async () => { await ih.remove('kilo'); return ih.generate('tryhard'); })(), /9\/10/);
+  await ih.add('alpha');
   assert.match((await ih.add('alpha jungle')).embed.description!, /Alpha \(main now Jungle\) \(already in\)/);
 
+  // generate → Blue won → ratings → switch to Red → undo
   const g = await ih.generate('offrole');
   assert.equal(g.files[0]!.name, '5v5.png');
-  assert.deepEqual((g.components![0] as { components: { custom_id: string }[] }).components.map((c) => c.custom_id), ['ih:tryhard', 'ih:random', 'ih:offrole']);
-  if (process.env.WRITE_PNG) (await import('node:fs')).writeFileSync('/tmp/5v5.png', g.files[0]!.data);
+  const rows = g.components as { components: { custom_id: string }[] }[];
+  const winBlue = rows[0]!.components[0]!.custom_id;
+  assert.match(winBlue, /^ih:win:\d+:blue$/);
+  assert.deepEqual(rows[1]!.components.map((c) => c.custom_id), ['ih:tryhard', 'ih:random', 'ih:offrole']);
+  const id = Number(winBlue.split(':')[2]);
+
+  const done = await ih.setWinner(id, 'blue');
+  if (process.env.WRITE_PNG) (await import('node:fs')).writeFileSync('/tmp/5v5-result.png', done.files[0]!.data);
+  assert.equal((done.components![0] as { components: { custom_id: string }[] }).components[0]!.custom_id, `ih:undo:${id}`);
+  const ratings = () => service.inhouse.top().embed.description!;
+  assert.match(ratings(), /\*\*1025\*\* · 1W 0L/); // off-role: full change
+  assert.match(ratings(), /\*\*975\*\* · 0W 1L/);
+
+  await ih.setWinner(id, 'red'); // pressed the wrong one
+  const after = service.inhouse.top().embed.description!;
+  assert.equal((after.match(/1W 0L/g) ?? []).length, 5);
+  assert.equal((after.match(/0W 1L/g) ?? []).length, 5);
+
+  await ih.undo(id);
+  assert.match(service.inhouse.top().embed.description!, /No games decided yet/);
 
   assert.match(ih.clear().embed.description!, /10 players removed/);
   assert.match((await ih.unlist('kilo')).embed.description!, /Kilo/);
