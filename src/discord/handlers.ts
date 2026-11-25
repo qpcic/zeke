@@ -14,6 +14,9 @@ import { LINK_PREFIX, onLinkComponent } from './linkComponents.ts';
 import { onRecapComponent } from './recapComponents.ts';
 import { membersOf } from './members.ts';
 import { BET_PREFIX } from '../core/bets.ts';
+import { parseMode } from '../core/inhouse.ts';
+import { INHOUSE_PREFIX } from '../core/inhouseAdmin.ts';
+import { config } from '../config.ts';
 import { onBetComponent } from './betComponents.ts';
 import { GLOG_PREFIX, RECAP_PREFIX } from './recapPanel.ts';
 
@@ -109,6 +112,22 @@ export function createInteractionHandler(service: Service, log: (m: string) => v
     }
     if ((i.isButton() || i.isChannelSelectMenu()) && (i.customId.startsWith(RECAP_PREFIX) || i.customId.startsWith(GLOG_PREFIX))) {
       await onRecapComponent(service, i, log, cmdLog);
+      return;
+    }
+    if (i.isButton() && i.customId.startsWith(INHOUSE_PREFIX)) {
+      // 5v5 rerolls: owner console only, like $admin
+      if (!config.ownerId || i.user.id !== config.ownerId || i.channelId !== config.adminChannelId) {
+        await i.reply({ content: 'Only the bot owner can generate 5v5 teams.', flags: MessageFlags.Ephemeral }).catch(() => {});
+        return;
+      }
+      try {
+        await i.deferUpdate();
+        const r = await service.inhouse.generate(parseMode(i.customId.slice(INHOUSE_PREFIX.length)) ?? 'tryhard');
+        await i.editReply(editPayload(r));
+      } catch (e) {
+        if (!(e instanceof UserError)) log(`5v5 reroll failed: ${(e as Error).stack}`);
+        await i.followUp({ embeds: [errorEmbed(e)], flags: MessageFlags.Ephemeral }).catch(() => {});
+      }
       return;
     }
     if ((i.isButton() || i.isModalSubmit()) && i.customId.startsWith(BET_PREFIX)) {

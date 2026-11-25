@@ -222,6 +222,18 @@ export const MIGRATIONS: string[] = [
   -- everyone in the game (JSON puuids): players can't bet on their own game
   ALTER TABLE bet_rounds ADD COLUMN participants TEXT NOT NULL DEFAULT '[]';
   `,
+  /* 14 */ `
+  -- in-house 5v5s (owner console): everyone who can play, and tonight's pool
+  CREATE TABLE inhouse_players (
+    puuid     TEXT PRIMARY KEY,
+    main_role TEXT NOT NULL,   -- TOP | JUNGLE | MIDDLE | BOTTOM | UTILITY
+    added_at  INTEGER NOT NULL
+  );
+  CREATE TABLE inhouse_pool (
+    puuid    TEXT PRIMARY KEY,
+    added_at INTEGER NOT NULL
+  );
+  `,
 ];
 
 export type DB = DatabaseSync;
