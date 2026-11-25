@@ -132,8 +132,8 @@ export class Repo {
   /** The 5v5 list (with player info), pool members flagged. */
   inhouseList() {
     return this.db.prepare(`
-      SELECT p.*, i.main_role, i.rating, i.wins, i.losses, (SELECT 1 FROM inhouse_pool q WHERE q.puuid = i.puuid) IS NOT NULL AS in_pool,
-        COALESCE((SELECT q.forced_roles FROM inhouse_pool q WHERE q.puuid = i.puuid), '') AS forced_roles
+      SELECT p.*, i.main_role, i.rating, i.wins, i.losses, i.forced_roles,
+        (SELECT 1 FROM inhouse_pool q WHERE q.puuid = i.puuid) IS NOT NULL AS in_pool
       FROM inhouse_players i JOIN players p ON p.puuid = i.puuid
       ORDER BY p.game_name COLLATE NOCASE
     `).all() as unknown as (PlayerRow & { main_role: string; in_pool: number; rating: number; wins: number; losses: number; forced_roles: string })[];
@@ -165,14 +165,16 @@ export class Repo {
       throw e;
     }
   }
-  /** Forced roles for someone in the pool ('' = any). False if they aren't in the pool. */
+  /** Forced roles for someone on the list ('' = any); kept until changed. False if not listed. */
   inhouseForce(puuid: string, roles: string[]): boolean {
-    return this.db.prepare('UPDATE inhouse_pool SET forced_roles = ? WHERE puuid = ?').run(roles.join(','), puuid).changes > 0;
+    return this.db.prepare('UPDATE inhouse_players SET forced_roles = ? WHERE puuid = ?').run(roles.join(','), puuid).changes > 0;
   }
-  inhouseForceClear() {
-    this.db.prepare("UPDATE inhouse_pool SET forced_roles = ''").run();
+  /** Clear forced roles for these people (default: everyone on the list). */
+  inhouseForceClear(puuids?: string[]) {
+    if (!puuids) return void this.db.prepare("UPDATE inhouse_players SET forced_roles = ''").run();
+    for (const p of puuids) this.db.prepare("UPDATE inhouse_players SET forced_roles = '' WHERE puuid = ?").run(p);
   }
-  /** The pool becomes exactly these people; those who stay keep their forced roles. */
+  /** The pool becomes exactly these people. */
   inhousePoolSet(puuids: string[], at: number) {
     this.db.exec('BEGIN IMMEDIATE');
     try {
