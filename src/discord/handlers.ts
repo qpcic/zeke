@@ -125,6 +125,15 @@ export function createInteractionHandler(service: Service, log: (m: string) => v
       try {
         if (i.isStringSelectMenu() && kind === 'pool') {
           await i.update(editPayload(ih.setPoolFromMenu(Number(a), i.values)));
+        } else if (i.isStringSelectMenu() && kind === 'fp') {
+          await i.update(editPayload(ih.forcePanel(i.values[0])));
+        } else if (i.isStringSelectMenu() && kind === 'fr') {
+          await i.update(editPayload(ih.setForce(a!, i.values)));
+        } else if (kind === 'fclear') {
+          await i.update(editPayload(ih.clearForces()));
+        } else if (kind === 'force') {
+          // from the pool panel: the force panel as a new message
+          await i.reply(payload(ih.forcePanel()));
         } else if (kind === 'clear') {
           ih.clear();
           await i.update(editPayload(ih.pool('Pool cleared.')));
