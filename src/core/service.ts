@@ -32,6 +32,7 @@ import { championName } from '../assets/ddragon.ts';
 import { performances } from './performance.ts';
 import { renderScoreboard } from '../render/image/scoreboard.ts';
 import { Bets } from './bets.ts';
+import { InhouseAdmin } from './inhouseAdmin.ts';
 import { renderLpCompare } from '../render/image/lpCompare.ts';
 import { renderRoles, ROLE_ORDER, type RoleChamp, type RoleRow } from '../render/image/roles.ts';
 import { pointsFromHistory, renderLpGraph } from '../render/image/lpGraph.ts';
@@ -134,6 +135,16 @@ export class Service {
    */
   private logPoster: LogPoster | null = null;
   private gameLogChannel: string | null = null;
+  /** Owner console 5v5s ($admin 5v5). */
+  private inhouseImpl: InhouseAdmin | null = null;
+  get inhouse(): InhouseAdmin {
+    this.inhouseImpl ??= new InhouseAdmin({ service: this, repo: this.repo, riot: this.riot, now: this.now, log: this.log });
+    return this.inhouseImpl;
+  }
+  assetSource() {
+    return this.assets;
+  }
+
   /** Bets on live games (posted with the same poster as game logs). */
   private betsImpl: Bets | null = null;
   get bets(): Bets {

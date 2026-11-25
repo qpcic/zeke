@@ -128,6 +128,34 @@ export class Repo {
       WHERE r.guild_id = ? AND b.user_id = ? AND r.status = 'settled' AND b.payout IS NOT NULL
     `).get(guildId, userId) as { won: number; lost: number; net: number };
   }
+  // ---- in-house 5v5 ----
+  /** The 5v5 list (with player info), pool members flagged. */
+  inhouseList() {
+    return this.db.prepare(`
+      SELECT p.*, i.main_role, (SELECT 1 FROM inhouse_pool q WHERE q.puuid = i.puuid) IS NOT NULL AS in_pool
+      FROM inhouse_players i JOIN players p ON p.puuid = i.puuid
+      ORDER BY p.game_name COLLATE NOCASE
+    `).all() as unknown as (PlayerRow & { main_role: string; in_pool: number })[];
+  }
+  inhouseSet(puuid: string, mainRole: string, at: number) {
+    this.db.prepare(`INSERT INTO inhouse_players (puuid, main_role, added_at) VALUES (?, ?, ?)
+      ON CONFLICT(puuid) DO UPDATE SET main_role = excluded.main_role`).run(puuid, mainRole, at);
+  }
+  inhouseUnlist(puuid: string): boolean {
+    this.db.prepare('DELETE FROM inhouse_pool WHERE puuid = ?').run(puuid);
+    return this.db.prepare('DELETE FROM inhouse_players WHERE puuid = ?').run(puuid).changes > 0;
+  }
+  /** False if already in the pool. */
+  inhousePoolAdd(puuid: string, at: number): boolean {
+    return this.db.prepare('INSERT OR IGNORE INTO inhouse_pool (puuid, added_at) VALUES (?, ?)').run(puuid, at).changes > 0;
+  }
+  inhousePoolRemove(puuid: string): boolean {
+    return this.db.prepare('DELETE FROM inhouse_pool WHERE puuid = ?').run(puuid).changes > 0;
+  }
+  inhousePoolClear(): number {
+    return Number(this.db.prepare('DELETE FROM inhouse_pool').run().changes);
+  }
+
   /** Discord users linked to an account. */
   usersLinkedTo(puuid: string): string[] {
     return (this.db.prepare('SELECT discord_user_id AS id FROM links WHERE puuid = ?').all(puuid) as { id: string }[]).map((r) => r.id);
@@ -368,7 +396,7 @@ export class Repo {
         INSERT OR IGNORE INTO players (puuid, platform, game_name, tag_line, last_match_check, last_rank_check, created_at, next_poll_at, last_game_at)
         SELECT ?, platform, game_name, tag_line, last_match_check, last_rank_check, created_at, 0, last_game_at FROM players WHERE puuid = ?
       `).run(newPuuid, oldPuuid);
-      for (const t of ['tracked', 'links', 'rank_snapshots', 'player_matches', 'lp_events', 'posts']) {
+      for (const t of ['tracked', 'links', 'rank_snapshots', 'player_matches', 'lp_events', 'posts', 'inhouse_players', 'inhouse_pool']) {
         this.db.prepare(`UPDATE OR IGNORE ${t} SET puuid = ? WHERE puuid = ?`).run(newPuuid, oldPuuid);
         this.db.prepare(`DELETE FROM ${t} WHERE puuid = ?`).run(oldPuuid); // leftovers that collided with existing rows
       }
@@ -478,7 +506,7 @@ export class Repo {
   purgePlayer(puuid: string) {
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      for (const t of ['player_matches', 'lp_events', 'rank_snapshots', 'links', 'tracked', 'posts']) {
+      for (const t of ['player_matches', 'lp_events', 'rank_snapshots', 'links', 'tracked', 'posts', 'inhouse_players', 'inhouse_pool']) {
         this.db.prepare(`DELETE FROM ${t} WHERE puuid = ?`).run(puuid);
       }
       this.db.prepare('DELETE FROM players WHERE puuid = ?').run(puuid);

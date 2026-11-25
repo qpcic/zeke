@@ -4,6 +4,7 @@ import { UserError, type Reply, type Service } from '../core/service.ts';
 import { runCommand, type CommandName, type CommandRequest } from './actions.ts';
 import type { CommandLogger } from './commandLog.ts';
 import { healthEmbed, parseStatsPeriod, statsEmbed } from './admin.ts';
+import { parseMode } from '../core/inhouse.ts';
 import { membersOf } from './members.ts';
 import { parsePlatform, PLATFORM_LABEL, type Platform } from '../riot/regions.ts';
 import { errorEmbed, payload } from './handlers.ts';
@@ -347,6 +348,46 @@ export function createPrefixHandler(
           await send(r.embed, r.files);
           return;
         }
+        case '5v5':
+        case 'inhouse':
+        case 'ih': {
+          const action = (rest[0] ?? '').toLowerCase();
+          const text = rest.slice(1).join(' ');
+          const ih = service.inhouse;
+          const r =
+            action === 'generate' || action === 'gen' || action === 'g' ? await ih.generate(parseMode(rest[1]) ?? 'tryhard')
+            : action === 'add' ? await ih.add(text)
+            : action === 'remove' || action === 'rm' || action === 'kick' ? await ih.remove(text)
+            : action === 'unlist' || action === 'delete' ? await ih.unlist(text)
+            : action === 'list' || action === 'all' ? ih.list()
+            : action === 'clear' || action === 'reset' ? ih.clear()
+            : action === 'pool' || action === '' ? ih.pool()
+            : null;
+          if (r) {
+            await msg.reply({ ...payload(r), allowedMentions: { parse: [], repliedUser: false } });
+            return;
+          }
+          await send({
+            title: '5v5',
+            color: COLORS.info,
+            description: [
+              `\`${prefix}admin 5v5 add <name> [role], …\` put people in the pool (a role the first time puts them on the list; on someone listed it changes their main)`,
+              `\`${prefix}admin 5v5 pool\` tonight's pool, and who else on the list can be added`,
+              `\`${prefix}admin 5v5 remove <name>, …\` take people out of the pool`,
+              `\`${prefix}admin 5v5 clear\` empty the pool`,
+              `\`${prefix}admin 5v5 list\` everyone on the list: main role and Solo/Duo rank`,
+              `\`${prefix}admin 5v5 unlist <name>\` take someone off the list`,
+              `\`${prefix}admin 5v5 generate [tryhard|random|offrole]\` two teams from the pool`,
+              '',
+              '**tryhard** as many people on their main role as possible, then the closest average rank',
+              '**random** random teams and roles',
+              '**offrole** nobody on their main role if it can be helped, then the closest average rank',
+              '',
+              'Names: part of a name works for people on the list; also `@user`, `Name#TAG` or `Name#TAG eune`. Roles: top, jungle/jg, mid, adc/bot, support/sup.',
+            ].join('\n'),
+          });
+          return;
+        }
         case 'globallb':
         case 'glb': {
           const words = rest.map((w) => w.toLowerCase());
@@ -367,6 +408,7 @@ export function createPrefixHandler(
               `\`${prefix}admin links [page]\` Discord → Riot links (10 per page)`,
               `\`${prefix}admin globallb [daily|weekly] [solo|flex|5s]\` leaderboard of every account`,
               `\`${prefix}admin remove <Name#TAG> [confirm]\` delete an account's games and links`,
+              `\`${prefix}admin 5v5\` in-house 5v5s: list, pool, team generator (tryhard / random / offrole)`,
             ].join('\n'),
             color: COLORS.info,
           });
