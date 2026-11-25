@@ -183,7 +183,7 @@ test('$admin 5v5 force: pick a player, tick roles, generate follows; forces stay
   assert.match(ih.clearForces().embed.description!, /Nobody has forced roles/);
 });
 
-test('$admin 5v5: rank is the highest of Solo/Duo, Flex and 5s', async () => {
+test('$admin 5v5: rank blends Solo/Duo with Flex and 5s at half weight', async () => {
   const { mock, service } = setup();
   mock.addAccount('Flexer', 'EUW', 'EUW1', [
     { queueType: 'RANKED_SOLO_5x5', tier: 'GOLD', rank: 'II', lp: 40, wins: 10, losses: 10 },
@@ -195,6 +195,11 @@ test('$admin 5v5: rank is the highest of Solo/Duo, Flex and 5s', async () => {
   ]);
   await service.inhouse.add('Flexer#EUW euw mid, Soloer#EUW euw top');
   const list = service.inhouse.list().embed.description!;
-  assert.match(list, /\*\*Flexer\*\*#EUW · Diamond IV 12 LP \(Flex\)/);
-  assert.match(list, /\*\*Soloer\*\*#EUW · Emerald I 70 LP · /);
+  // Gold II 40 (1440) ×1 + Diamond IV 12 (2412) ×½ → 1764 = Platinum III 64
+  assert.match(list, /\*\*Flexer\*\*#EUW · ≈ Platinum III 64 LP \(Solo Gold II · Flex Diamond IV\)/);
+  // Emerald I 70 (2370) ×1 + Silver I 5 (1105) ×½ → 1948 = Platinum I 48
+  assert.match(list, /\*\*Soloer\*\*#EUW · ≈ Platinum I 48 LP \(Solo Emerald I · Flex Silver I\)/);
+  mock.addAccount('Flexonly', 'EUW', 'EUW1', [{ queueType: 'RANKED_FLEX_SR', tier: 'DIAMOND', rank: 'II', lp: 3, wins: 1, losses: 1 }]);
+  await service.inhouse.add('Flexonly#EUW euw sup');
+  assert.match(service.inhouse.list().embed.description!, /\*\*Flexonly\*\*#EUW · Diamond II 3 LP \(Flex\)/);
 });

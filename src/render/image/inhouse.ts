@@ -109,8 +109,9 @@ function row(ctx: ReturnType<ReturnType<typeof createCanvas>['getContext']>, s: 
   ctx.fillText(fit(ctx, `#${s.player.tag}`, Math.max(0, nameMax - nw - 4)), x + 144 + nw + 4, mid - 3);
   ctx.fillStyle = C.sub;
   ctx.font = font(400, 14);
-  const q = s.player.rankQueue && s.player.rankQueue !== 'Solo' ? ` · ${s.player.rankQueue}` : '';
-  ctx.fillText(s.player.rank ? `${formatTierDiv(s.player.rank)} · ${s.player.rank.lp} LP${q}` : 'Unranked', x + 144, mid + 17);
+  const rq = s.player.rankQueue;
+  const q = rq === 'blend' ? ' · blended' : rq && rq !== 'Solo' ? ` · ${rq}` : '';
+  ctx.fillText(s.player.rank ? `${rq === 'blend' ? '≈ ' : ''}${formatTierDiv(s.player.rank)} · ${s.player.rank.lp} LP${q}` : 'Unranked', x + 144, mid + 17);
 
   // rating (and its change once the game is in)
   const CHIP_SLOT = 128; // widest chip ("main: Support"), so ratings line up

@@ -6,7 +6,7 @@ import { absoluteLp, formatRank, type Rank } from './rank.ts';
  *  - tryhard: as many people on their main role as possible, then the closest average rank
  *  - offrole: as few people on their main role as possible (ideally none), then closest rank
  *  - random:  random teams and roles
- * Rank is the highest of Solo/Duo, Flex and Ranked 5s. Within near-equal options the pick is random, so a reroll gives new teams.
+ * Rank blends Solo/Duo (full weight) with Flex and Ranked 5s (half weight each). Within near-equal options the pick is random, so a reroll gives new teams.
  */
 
 export const ROLES = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'] as const;
@@ -35,9 +35,9 @@ export interface InhousePlayer {
   name: string;
   tag: string;
   main: Role;
-  /** highest of Solo/Duo, Flex and 5s; null = unranked */
+  /** Solo/Duo blended with Flex and 5s at half weight; null = unranked */
   rank: Rank | null;
-  /** which queue that rank is from ("Solo", "Flex", "5s") */
+  /** where it's from: "Solo", "Flex", "5s", or "blend" (several queues) */
   rankQueue?: string;
   /** in-house rating */
   rating: number;
