@@ -360,6 +360,7 @@ export function createPrefixHandler(
             : action === 'remove' || action === 'rm' || action === 'kick' ? await ih.remove(text)
             : action === 'unlist' || action === 'delete' ? await ih.unlist(text)
             : action === 'list' || action === 'all' ? ih.list()
+            : action === 'top' || action === 'rating' || action === 'ratings' || action === 'lb' ? ih.top()
             : action === 'clear' || action === 'reset' ? ih.clear()
             : action === 'pool' || action === '' ? ih.pool()
             : null;
@@ -372,12 +373,13 @@ export function createPrefixHandler(
             color: COLORS.info,
             description: [
               `\`${prefix}admin 5v5 add <name> [role], …\` put people in the pool (a role the first time puts them on the list; on someone listed it changes their main)`,
-              `\`${prefix}admin 5v5 pool\` tonight's pool, and who else on the list can be added`,
+              `\`${prefix}admin 5v5 pool\` who's playing now (max 10): pick from the list in menus, generate from there`,
               `\`${prefix}admin 5v5 remove <name>, …\` take people out of the pool`,
               `\`${prefix}admin 5v5 clear\` empty the pool`,
               `\`${prefix}admin 5v5 list\` everyone on the list: main role and Solo/Duo rank`,
               `\`${prefix}admin 5v5 unlist <name>\` take someone off the list`,
-              `\`${prefix}admin 5v5 generate [tryhard|random|offrole]\` two teams from the pool`,
+              `\`${prefix}admin 5v5 generate [tryhard|random|offrole]\` two teams from the pool, then **Blue won** / **Red won** for rating`,
+              `\`${prefix}admin 5v5 top\` rating table (everyone starts at 1000; ±25 for even teams, half on your main role)`,
               '',
               '**tryhard** as many people on their main role as possible, then the closest average rank',
               '**random** random teams and roles',

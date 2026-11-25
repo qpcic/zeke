@@ -37,6 +37,8 @@ export interface InhousePlayer {
   main: Role;
   /** Solo/Duo; null = unranked */
   rank: Rank | null;
+  /** in-house rating */
+  rating: number;
 }
 export interface Seat { player: InhousePlayer; role: Role }
 export interface Matchup {
@@ -139,6 +141,28 @@ function shuffle<T>(a: T[], rng: () => number): T[] {
     [a[i], a[j]] = [a[j]!, a[i]!];
   }
   return a;
+}
+
+// ---------- in-house rating ----------
+
+export const START_RATING = 1000;
+/** Even teams: ±K/2 (25). Upsets move more, expected wins less (Elo on the team averages). */
+export const RATING_K = 50;
+/** Played your main role: half the change, win or lose (off-role is the harder job). */
+export const MAIN_ROLE_FACTOR = 0.5;
+
+export interface RatingChange { puuid: string; delta: number; won: boolean }
+
+export function ratingChanges(blue: { puuid: string; rating: number; onMain: boolean }[], red: { puuid: string; rating: number; onMain: boolean }[], winner: 'blue' | 'red'): RatingChange[] {
+  const avg = (t: { rating: number }[]) => t.reduce((s, p) => s + p.rating, 0) / t.length;
+  const [w, l] = winner === 'blue' ? [blue, red] : [red, blue];
+  const expected = 1 / (1 + 10 ** ((avg(l) - avg(w)) / 400));
+  const base = Math.max(1, Math.round(RATING_K * (1 - expected)));
+  const amount = (onMain: boolean) => Math.max(1, Math.round(base * (onMain ? MAIN_ROLE_FACTOR : 1)));
+  return [
+    ...w.map((p) => ({ puuid: p.puuid, delta: amount(p.onMain), won: true })),
+    ...l.map((p) => ({ puuid: p.puuid, delta: -amount(p.onMain), won: false })),
+  ];
 }
 
 export const rankText = (r: Rank | null) => formatRank(r);

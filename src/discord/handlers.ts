@@ -114,19 +114,36 @@ export function createInteractionHandler(service: Service, log: (m: string) => v
       await onRecapComponent(service, i, log, cmdLog);
       return;
     }
-    if (i.isButton() && i.customId.startsWith(INHOUSE_PREFIX)) {
-      // 5v5 rerolls: owner console only, like $admin
+    if ((i.isButton() || i.isStringSelectMenu()) && i.customId.startsWith(INHOUSE_PREFIX)) {
+      // 5v5: owner console only, like $admin
       if (!config.ownerId || i.user.id !== config.ownerId || i.channelId !== config.adminChannelId) {
-        await i.reply({ content: 'Only the bot owner can generate 5v5 teams.', flags: MessageFlags.Ephemeral }).catch(() => {});
+        await i.reply({ content: 'Only the bot owner can run 5v5s.', flags: MessageFlags.Ephemeral }).catch(() => {});
         return;
       }
+      const [kind, a, b] = i.customId.slice(INHOUSE_PREFIX.length).split(':');
+      const ih = service.inhouse;
       try {
-        await i.deferUpdate();
-        const r = await service.inhouse.generate(parseMode(i.customId.slice(INHOUSE_PREFIX.length)) ?? 'tryhard');
-        await i.editReply(editPayload(r));
+        if (i.isStringSelectMenu() && kind === 'pool') {
+          await i.update(editPayload(ih.setPoolFromMenu(Number(a), i.values)));
+        } else if (kind === 'clear') {
+          ih.clear();
+          await i.update(editPayload(ih.pool('Pool cleared.')));
+        } else if (kind === 'new') {
+          // from the pool panel or a finished game: teams in a new message
+          await i.deferReply();
+          await i.editReply(payload(await ih.generate(parseMode(a) ?? 'tryhard')));
+        } else {
+          await i.deferUpdate();
+          const r = kind === 'win' ? await ih.setWinner(Number(a), b === 'red' ? 'red' : 'blue')
+            : kind === 'undo' ? await ih.undo(Number(a))
+            : await ih.generate(parseMode(kind) ?? 'tryhard'); // reroll in place
+          await i.editReply(editPayload(r));
+        }
       } catch (e) {
-        if (!(e instanceof UserError)) log(`5v5 reroll failed: ${(e as Error).stack}`);
-        await i.followUp({ embeds: [errorEmbed(e)], flags: MessageFlags.Ephemeral }).catch(() => {});
+        if (!(e instanceof UserError)) log(`5v5 ${i.customId} failed: ${(e as Error).stack}`);
+        const r = { embeds: [errorEmbed(e)], flags: MessageFlags.Ephemeral } as const;
+        if (i.deferred || i.replied) await i.followUp(r).catch(() => {});
+        else await i.reply(r).catch(() => {});
       }
       return;
     }
