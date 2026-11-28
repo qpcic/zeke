@@ -32,7 +32,7 @@ profiles, scoreboards, daily and weekly recaps, LP graphs, server leaderboards a
 - **Peak rank:** `/peak` shows the highest rank in each queue since tracking started.
 - **Server ladder:** `/ladder` lists everyone in the server by current rank, alts included.
 - **Game log and rank posts:** every game of the tracked accounts is posted as a scoreboard the moment it's spotted and updated when the LP comes in, plus a post for every promotion and demotion.
-- **Bets:** when a tracked player starts a ranked game, Zeke posts the draft with **Bet Win** / **Bet Lose** buttons. Points aren't real; `/points` has the server's richest.
+- **Bets:** when a tracked player starts a ranked game, Zeke posts the draft (like `/live`: ranks, premades, who they've played with and against) with **Bet Win** / **Bet Lose** buttons. Points aren't real; `/points` has the server's richest.
 - **Short names:** accounts Zeke already knows work with part of the name: `$r kitten` finds `ferks kitten#retro`.
 - **Solo/Duo, Flex and Ranked 5s kept separate**, and every command also works with a `$` prefix (`$p`, `$rs`, `$lb`…).
 
@@ -91,6 +91,7 @@ Every command works as a slash command and as a message with the `$` prefix. Wit
 | `/graph [@user \| Name#TAG] [games] [solo\|flex\|5s]` | LP graph over recorded games · `$g` |
 | `/graph compare:@a, kitten [days]` | LP race: up to 6 players on one chart over the last 14 days (or `days`), with each player's net LP and W/L · `$graph @a @b`, `$graph kitten, mapet 30`, `$graph vs @a` (you vs them) |
 | `/roles [@user \| Name#TAG] [solo\|flex\|5s]` | Winrate, KDA, CS/min and top champions per position over the last 50 ranked games, best and worst role marked · `$roles`, `$pos` |
+| `/mmr [@user \| Name#TAG] [games] [solo\|flex\|5s]` | Average current rank of the enemies and teammates in your last 10 (up to 20) games, next to your own rank: a hint whether your hidden MMR is above or below it · `$mmr`, `$lobby` |
 | `/scout <Name#TAG> [region] [player_2…5]` | One player: scout their usual Ranked 5s / Flex team from the last 30 games (Ranked 5s first). Up to 5 players: scout each one from their own last 30 ranked games (Ranked 5s first, then the most recent Flex or Solo/Duo), with roles fitted across them and how often they queue together. Roles, best champs, bans · `$scout fram#polar Mapet#MR10 eune` |
 
 ### Server

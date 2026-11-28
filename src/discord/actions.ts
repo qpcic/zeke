@@ -11,7 +11,7 @@ import type { LeagueEntryDto } from '../riot/types.ts';
  * Transport-agnostic command logic. Slash commands and $prefix messages both
  * parse into a CommandRequest and render the returned Reply.
  */
-export type CommandName = 'zeke' | 'ladder' | 'champ' | 'peak' | 'duo' | 'rivals' | 'roles' | 'bets' | 'points' | 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'recap' | 'log' | 'server' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
+export type CommandName = 'zeke' | 'ladder' | 'champ' | 'peak' | 'duo' | 'rivals' | 'roles' | 'bets' | 'points' | 'mmr' | 'link' | 'unlink' | 'mode' | 'profile' | 'recent' | 'live' | 'recap' | 'log' | 'server' | 'graph' | 'daily' | 'weekly' | 'leaderboard' | 'track' | 'scout' | 'help';
 
 export interface CommandRequest {
   name: CommandName;
@@ -162,6 +162,7 @@ export function helpEmbed(p: string): Embed {
           `${c('peak')} highest rank in each queue since tracking started`,
           `${c('duo @friend')} your record together · ${c('rivals @friend')} head-to-head`,
           `${c('roles')} winrate, KDA and best champs per position`,
+          `${c('mmr [games]')} average rank of your recent lobbies: is your MMR above or below your rank?`,
         ].join('\n'),
       },
       {
@@ -249,6 +250,9 @@ export async function runCommand(service: Service, req: CommandRequest): Promise
 
     case 'profile':
       return withNote(await service.profile(await target()));
+
+    case 'mmr':
+      return withNote(await service.mmr(await target(), req.queue, req.games));
 
     case 'roles':
       // like /champ: all ranked queues unless one is named

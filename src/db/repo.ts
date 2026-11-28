@@ -9,7 +9,7 @@ export interface GuildRow {
 export interface BetRoundRow {
   id: number; guild_id: string; match_id: string; puuid: string; team_id: number; queue_id: number;
   players: string; opponents: string; channel_id: string; message_id: string | null;
-  opened_at: number; closes_at: number; status: 'open' | 'locked' | 'settled' | 'void'; result: 'win' | 'loss' | 'remake' | null; has_draft: number; participants: string;
+  opened_at: number; closes_at: number; status: 'open' | 'locked' | 'settled' | 'void'; result: 'win' | 'loss' | 'remake' | null; has_draft: number; participants: string; history?: string | null;
 }
 export interface BetRow { round_id: number; user_id: string; side: 'win' | 'loss'; amount: number; payout: number | null; placed_at: number }
 export interface PlayerRow {
@@ -410,6 +410,25 @@ export class Repo {
   deleteSnapshots(queueType: string) {
     this.db.prepare('DELETE FROM rank_snapshots WHERE queue_type = ?').run(queueType);
   }
+  /** Cached ranks (any account) newer than `since`, by puuid. */
+  rankCache(puuids: string[], queueType: string, since: number) {
+    const out = new Map<string, { tier: string; division: string; lp: number }>();
+    const st = this.db.prepare('SELECT tier, division, lp FROM rank_cache WHERE puuid = ? AND queue_type = ? AND fetched_at >= ?');
+    for (const p of puuids) {
+      const r = st.get(p, queueType, since) as { tier: string; division: string; lp: number } | undefined;
+      if (r) out.set(p, r);
+    }
+    return out;
+  }
+  putRankCache(puuid: string, queueType: string, r: { tier: string; division: string; lp: number } | null, at: number) {
+    this.db.prepare(`INSERT INTO rank_cache (puuid, queue_type, tier, division, lp, fetched_at) VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(puuid, queue_type) DO UPDATE SET tier = excluded.tier, division = excluded.division, lp = excluded.lp, fetched_at = excluded.fetched_at`)
+      .run(puuid, queueType, r?.tier ?? 'UNRANKED', r?.division ?? '', r?.lp ?? 0, at);
+  }
+  setBetRoundHistory(id: number, history: string | null) {
+    this.db.prepare('UPDATE bet_rounds SET history = ? WHERE id = ?').run(history, id);
+  }
+
   putSnapshot(s: SnapshotRow) {
     this.db.prepare(`
       INSERT INTO rank_snapshots (puuid, queue_type, tier, division, lp, wins, losses, taken_at)

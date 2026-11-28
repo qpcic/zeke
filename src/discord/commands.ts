@@ -39,6 +39,10 @@ export const commands: RESTPostAPIChatInputApplicationCommandsJSONBody[] = [
   userOpt(new SlashCommandBuilder().setName('duo').setDescription('Your record playing together with someone, and your best champion pairs'))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 
+  queueOpt(userOpt(new SlashCommandBuilder().setName('mmr').setDescription('Average rank of your recent lobbies: is your MMR above or below your rank?')))
+    .addIntegerOption((o) => o.setName('games').setDescription('How many recent games (default 10)').setMinValue(3).setMaxValue(20))
+    .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
+
   queueOpt(userOpt(new SlashCommandBuilder().setName('roles').setDescription('Winrate, KDA and best champions per position')))
     .setIntegrationTypes(EVERYWHERE.integrations).setContexts(EVERYWHERE.contexts).toJSON(),
 

@@ -12,7 +12,7 @@ import { renderLeaderboard, type LeaderboardRow } from '../render/image/leaderbo
 import { renderRecap, type RecapGame, type RecapHeader } from '../render/image/recap.ts';
 import { renderBanPlan } from '../render/image/banplan.ts';
 import { renderProfile, type ProfileData, type QueueCard } from '../render/image/profile.ts';
-import { compareDivision, formatTierDiv, isApex, winsToNext, type Rank } from './rank.ts';
+import { absoluteLp, compareDivision, formatTierDiv, isApex, winsToNext, type Rank } from './rank.ts';
 import { discoverFivesQueue, scoutPlayers, scoutTeam } from './scout.ts';
 import { saveFivesQueue } from './queues.ts';
 import { renderLive, type LivePlayer } from '../render/image/live.ts';
@@ -34,6 +34,7 @@ import { renderScoreboard } from '../render/image/scoreboard.ts';
 import { Bets } from './bets.ts';
 import { InhouseAdmin } from './inhouseAdmin.ts';
 import { renderLpCompare } from '../render/image/lpCompare.ts';
+import { rankAt as rankAtAbs } from '../render/image/lpGraph.ts';
 import { renderRoles, ROLE_ORDER, type RoleChamp, type RoleRow } from '../render/image/roles.ts';
 import { pointsFromHistory, renderLpGraph } from '../render/image/lpGraph.ts';
 import { QUEUE_LABEL } from '../riot/types.ts';
@@ -114,6 +115,13 @@ const DIGEST_CATCHUP_HOURS = 6;
  */
 const SCOUT_QUIET_MS = 2 * 60_000;
 export const MAX_COMPARE = 6;
+/** Ranks of other players are reused this long before asking Riot again. */
+export const RANK_CACHE_MS = 12 * 3_600_000;
+const RANK_QUEUES = ['RANKED_SOLO_5x5', 'RANKED_FLEX_SR', 'RANKED_PREMADE_5x5'];
+export const MMR_GAMES = 10;
+export const MMR_MAX_GAMES = 20;
+/** league-v4 calls one $mmr may make (platform limit, shared with polling). */
+export const MMR_MAX_LOOKUPS = 60;
 
 export class Service {
   constructor(
@@ -151,7 +159,7 @@ export class Service {
     this.betsImpl ??= new Bets(this.repo, this.now, this.log, this.assets, () => {
       const fives = Number(this.repo.getKv('ranked5s_queue_id'));
       return [420, 440, ...(fives ? [fives] : [])];
-    }, (player, game) => this.liveImage(player, game, { parties: false }));
+    }, async (player, game) => ({ png: await this.liveImage(player, game), history: this.lobbyHistory(player, game) }));
     return this.betsImpl;
   }
   setBetChannel(guildId: string, channelId: string | null) {
@@ -414,6 +422,105 @@ export class Service {
           { name: 'Most played against each other', value: `${myName}: ${top((g) => g.me.championName)}\n${theirName}: ${top((g) => g.them.championName)}`, inline: false },
         ],
         footer: { text: 'From games Zeke has seen (tracked accounts, /recent, /scout …) · all linked accounts count' },
+      },
+      files: [],
+    };
+  }
+
+  private cacheEntries(puuid: string, es: LeagueEntryDto[]) {
+    const at = this.now();
+    for (const qt of RANK_QUEUES) {
+      const e = es.find((x) => x.queueType === qt);
+      this.repo.putRankCache(puuid, qt, e ? { tier: e.tier, division: e.rank, lp: e.leaguePoints } : null, at);
+    }
+  }
+
+  /**
+   * Current ranks in one queue for anyone: tracked players' snapshots, then the rank cache
+   * (RANK_CACHE_MS), then league-v4 for the rest, at most `maxLookups` calls. Null = unranked;
+   * missing = not looked up (over the cap or the call failed).
+   */
+  async ranksFor(platform: Platform, puuids: string[], queueType: string, maxLookups: number): Promise<{ ranks: Map<string, Rank | null>; looked: number }> {
+    const out = new Map<string, Rank | null>();
+    const fresh = this.now() - RANK_CACHE_MS;
+    const todo: string[] = [];
+    const cached = this.repo.rankCache(puuids, queueType, fresh);
+    for (const p of new Set(puuids)) {
+      const s = this.repo.getPlayer(p) ? this.repo.getSnapshot(p, queueType) : undefined;
+      if (s && s.taken_at >= fresh) { out.set(p, s.tier === 'UNRANKED' ? null : { tier: s.tier, division: s.division, lp: s.lp } as Rank); continue; }
+      const c = cached.get(p);
+      if (c) { out.set(p, c.tier === 'UNRANKED' ? null : c as Rank); continue; }
+      todo.push(p);
+    }
+    const batch = todo.slice(0, maxLookups);
+    await Promise.all(batch.map(async (p) => {
+      try {
+        const es = await this.riot.getLeagueEntries(platform, p);
+        this.cacheEntries(p, es);
+        const e = es.find((x) => x.queueType === queueType);
+        out.set(p, e ? { tier: e.tier, division: e.rank, lp: e.leaguePoints } as Rank : null);
+      } catch { /* leave it out */ }
+    }));
+    return { ranks: out, looked: batch.length };
+  }
+
+  /**
+   * $mmr: the average current rank of the people in your last N cached games of a queue
+   * (enemies and teammates). Riot has no public MMR; the lobbies you get are the closest hint.
+   */
+  async mmr(player: PlayerRow, queueId: number | undefined, games = MMR_GAMES): Promise<Reply> {
+    const q = await this.resolveQueue(queueId ?? SOLO, player);
+    const n = Math.min(MMR_MAX_GAMES, Math.max(3, games));
+    const qt = q === FLEX ? 'RANKED_FLEX_SR' : isFivesQueue(q) ? 'RANKED_PREMADE_5x5' : 'RANKED_SOLO_5x5';
+    const label = QUEUE_LABEL[q] ?? 'Ranked';
+    const ms = this.repo.cachedMatchesWith(player.puuid)
+      .filter((m) => m.info.queueId === q && m.info.gameDuration > 300)
+      .sort((a, b) => (b.info.gameEndTimestamp ?? 0) - (a.info.gameEndTimestamp ?? 0))
+      .slice(0, n);
+    if (!ms.length) throw new UserError(`No ${label} games of **${player.game_name}** stored yet. Play a few (or run \`/recent\`) first.`);
+    const rows = ms.map((m) => {
+      const me = m.info.participants.find((x) => x.puuid === player.puuid)!;
+      return { m, me, enemies: m.info.participants.filter((x) => x.teamId !== me.teamId), allies: m.info.participants.filter((x) => x.teamId === me.teamId && x.puuid !== me.puuid) };
+    });
+    const all = rows.flatMap((r) => [...r.enemies, ...r.allies].map((x) => x.puuid)).filter(Boolean);
+    const { ranks } = await this.ranksFor(player.platform, all, qt, MMR_MAX_LOOKUPS);
+    const value = (puuid: string) => { const r = ranks.get(puuid); return r ? absoluteLp(r) : null; };
+    const avgOf = (ps: ParticipantDto[]) => { const v = ps.map((x) => value(x.puuid)).filter((x): x is number => x !== null); return { avg: v.length ? v.reduce((s, x) => s + x, 0) / v.length : null, n: v.length }; };
+    const enemy = avgOf(rows.flatMap((r) => r.enemies));
+    const ally = avgOf(rows.flatMap((r) => r.allies));
+    if (enemy.avg === null) throw new UserError(`Couldn't get ranks for the people in those games yet. Try again in a minute.`);
+    const mineSnap = this.repo.getSnapshot(player.puuid, qt);
+    const mine = mineSnap && mineSnap.tier !== 'UNRANKED' ? { tier: mineSnap.tier, division: mineSnap.division, lp: mineSnap.lp } as Rank : null;
+    const fmtAbs = (v: number) => formatRank(rankAtAbs(Math.round(v)));
+    const lobby = (enemy.avg + (ally.avg ?? enemy.avg)) / 2;
+    let verdict = '';
+    if (mine) {
+      const diff = lobby - absoluteLp(mine);
+      const divs = Math.abs(diff) / 100;
+      verdict = Math.abs(diff) < 50
+        ? 'Your lobbies are right around your rank: your MMR looks about where your rank is.'
+        : diff > 0
+          ? `Your lobbies are **~${divs.toFixed(1)} division${divs >= 1.5 ? 's' : ''} above** your rank: your MMR is probably higher than your rank (bigger LP gains, smaller losses).`
+          : `Your lobbies are **~${divs.toFixed(1)} division${divs >= 1.5 ? 's' : ''} below** your rank: your MMR is probably lower than your rank (smaller LP gains, bigger losses).`;
+    }
+    const total = rows.reduce((s, r) => s + r.enemies.length + r.allies.length, 0);
+    const known = enemy.n + ally.n;
+    const lines = rows.slice(0, 10).map((r) => {
+      const e = avgOf(r.enemies).avg;
+      return `${r.me.win ? '🟩' : '🟥'} ${r.me.championName} · enemies ${e === null ? '?' : `≈ ${formatTierDiv(rankAtAbs(Math.round(e)))}`} · <t:${Math.floor((r.m.info.gameEndTimestamp ?? r.m.info.gameStartTimestamp) / 1000)}:R>`;
+    });
+    return {
+      embed: {
+        title: `🎯 ${player.game_name}'s lobbies · ${label}`,
+        color: 0x8b97ff,
+        description: [
+          `Average enemy: **≈ ${fmtAbs(enemy.avg)}**`,
+          ally.avg !== null ? `Average teammate: **≈ ${fmtAbs(ally.avg)}**` : '',
+          `Your rank: **${formatRank(mine)}**`,
+          verdict ? `\n${verdict}` : '',
+        ].filter(Boolean).join('\n'),
+        fields: [{ name: `Last ${rows.length} game${rows.length === 1 ? '' : 's'}`, value: lines.join('\n'), inline: false }],
+        footer: { text: `Current ranks of ${known} of ${total} players (unranked left out) · Riot doesn't show MMR, this is an estimate` },
       },
       files: [],
     };
@@ -1211,13 +1318,15 @@ export class Service {
 
   /**
    * The /live draft image: both teams with champions, ranks, spells and runes. Ranks are
-   * league-v4 (platform host); premade icons need match-v5, so bets leave them out.
+   * league-v4 (platform host); premade icons come from the players' recent games (match-v5).
    */
   async liveImage(player: PlayerRow, g: CurrentGameInfo, opts: { parties?: boolean } = {}): Promise<Buffer> {
     if (!this.assets) throw new UserError('Live games need images, which are turned off on this bot.');
     // Ranks for everyone (hidden players and bots have no PUUID to look up).
     const entries = await Promise.all(g.participants.map((p) =>
       p.puuid && !p.bot ? this.riot.getLeagueEntries(player.platform, p.puuid).catch(() => [] as LeagueEntryDto[]) : Promise.resolve([] as LeagueEntryDto[])));
+    // keep them: $mmr reads the same ranks later without asking Riot again
+    g.participants.forEach((p, i) => { if (p.puuid && !p.bot) this.cacheEntries(p.puuid, entries[i]!); });
     const rank = (es: LeagueEntryDto[], q: string) => {
       const e = es.find((x) => x.queueType === q);
       return e ? { tier: e.tier, division: e.rank, lp: e.leaguePoints, wins: e.wins, losses: e.losses } : null;
@@ -1256,7 +1365,7 @@ export class Service {
    * /live lobby history: who in this game the player has met before (cached games), as
    * teammate or opponent, with the player's W/L in those games.
    */
-  private lobbyHistory(player: PlayerRow, g: CurrentGameInfo): string | null {
+  lobbyHistory(player: PlayerRow, g: CurrentGameInfo): string | null {
     const others = g.participants.filter((p) => p.puuid && p.puuid !== player.puuid);
     if (!others.length) return null;
     const stats = new Map<string, { withW: number; withL: number; vsW: number; vsL: number }>();

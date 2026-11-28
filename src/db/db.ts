@@ -259,6 +259,20 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE inhouse_players ADD COLUMN forced_roles TEXT NOT NULL DEFAULT '';
   UPDATE inhouse_players SET forced_roles = COALESCE((SELECT q.forced_roles FROM inhouse_pool q WHERE q.puuid = inhouse_players.puuid), '');
   `,
+  /* 18 */ `
+  -- ranks of anyone (not just tracked players): /live, bets and $mmr look them up; tier UNRANKED = none
+  CREATE TABLE rank_cache (
+    puuid      TEXT NOT NULL,
+    queue_type TEXT NOT NULL,
+    tier       TEXT NOT NULL,
+    division   TEXT NOT NULL,
+    lp         INTEGER NOT NULL,
+    fetched_at INTEGER NOT NULL,
+    PRIMARY KEY (puuid, queue_type)
+  );
+  -- the bet post's "played with / against" lines (shown while the game runs)
+  ALTER TABLE bet_rounds ADD COLUMN history TEXT;
+  `,
 ];
 
 export type DB = DatabaseSync;
