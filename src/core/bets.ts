@@ -37,8 +37,8 @@ export class Bets {
     private readonly log: (m: string) => void,
     private readonly assets: AssetSource | null,
     private readonly rankedQueues: () => number[],
-    /** The /live draft image for a round post (both teams, champions, ranks). */
-    private readonly draft?: (player: PlayerRow, game: CurrentGameInfo) => Promise<Buffer>,
+    /** What /live shows for the game: the draft image and the "played with / against" lines. */
+    private readonly draft?: (player: PlayerRow, game: CurrentGameInfo) => Promise<{ png: Buffer; history: string | null }>,
   ) {}
 
   private poster: LogPoster | null = null;
@@ -51,7 +51,7 @@ export class Bets {
     if (!this.poster || !live.length) return;
     const ranked = this.rankedQueues();
     const sd = this.assets ? await this.assets.staticData('').catch(() => null) : null;
-    const drafts = new Map<number, Promise<Buffer | null>>(); // one render per game, shared by servers
+    const drafts = new Map<number, Promise<{ png: Buffer; history: string | null } | null>>(); // one render per game, shared by servers
     for (const { player, game } of live) {
       const queueId = game.gameQueueConfigId ?? 0;
       if (!ranked.includes(queueId)) continue;
@@ -83,7 +83,9 @@ export class Bets {
               return null;
             }) : Promise.resolve(null));
           }
-          const png = await drafts.get(game.gameId)!;
+          const d = await drafts.get(game.gameId)!;
+          const png = d?.png ?? null;
+          if (d?.history) this.repo.setBetRoundHistory(id, d.history);
           const reply = this.roundReply(this.repo.getBetRound(id)!);
           if (png) {
             reply.embed.image = { url: `attachment://${DRAFT_FILE}` };
@@ -220,7 +222,7 @@ export class Bets {
       embed: {
         title,
         color: r.status === 'settled' ? (r.result === 'win' ? 0x3fb950 : 0xf85149) : r.status === 'void' ? 0x8b949e : 0xf5c542,
-        description: `${head}\n${status}`,
+        description: `${head}\n${status}${live && r.history ? `\n\n${r.history}` : ''}`,
         fields: [
           { name: `🟩 Win · ${sum(win)} pts`, value: list(win), inline: true },
           { name: `🟥 Lose · ${sum(loss)} pts`, value: list(loss), inline: true },

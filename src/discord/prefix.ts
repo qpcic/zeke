@@ -27,6 +27,7 @@ const ALIASES: Record<string, CommandName> = {
   peak: 'peak', best: 'peak', highest: 'peak',
   duo: 'duo', together: 'duo',
   roles: 'roles', role: 'roles', positions: 'roles', pos: 'roles',
+  mmr: 'mmr', lobby: 'mmr', lobbies: 'mmr', elo: 'mmr',
   rivals: 'rivals', rival: 'rivals', vs: 'rivals', h2h: 'rivals',
   champ: 'champ', c: 'champ', champion: 'champ',
   log: 'log', gamelog: 'log',
@@ -120,7 +121,7 @@ export function parsePrefix(
   let words = rest.filter(Boolean);
 
   // Queue is always the LAST argument ("$daily @friend flex", "$lb week flex"); default Solo/Duo.
-  if (name === 'recent' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'leaderboard' || name === 'mode' || name === 'ladder' || name === 'champ' || name === 'roles') {
+  if (name === 'recent' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'leaderboard' || name === 'mode' || name === 'ladder' || name === 'champ' || name === 'roles' || name === 'mmr') {
     const last = words[words.length - 1]?.toLowerCase();
     if (last && last in QUEUE_WORDS) {
       req.queue = QUEUE_WORDS[last];
@@ -160,7 +161,7 @@ export function parsePrefix(
   }
 
   // Target lookups: "$graph ferks kitten#retro eune flex 30"
-  if (name === 'recent' || name === 'live' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'profile' || name === 'champ' || name === 'peak' || name === 'duo' || name === 'rivals' || name === 'roles') {
+  if (name === 'recent' || name === 'live' || name === 'graph' || name === 'daily' || name === 'weekly' || name === 'profile' || name === 'champ' || name === 'peak' || name === 'duo' || name === 'rivals' || name === 'roles' || name === 'mmr') {
     const ex = extractRiotId(words);
     if (ex.riotId) {
       req.riotId = ex.riotId;
@@ -213,7 +214,8 @@ export function parsePrefix(
     case 'unlink':
       req.account = words.join(' ') || undefined;
       break;
-    case 'graph': {
+    case 'graph':
+    case 'mmr': {
       const n = words.find((w) => /^\d+$/.test(w));
       if (n) req.games = Number(n);
       break;

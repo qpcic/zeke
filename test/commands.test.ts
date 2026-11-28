@@ -11,7 +11,7 @@ const ranks = (tier: string, rank: string, lp: number) => [{ queueType: 'RANKED_
 
 test('command definitions are valid and scoped right', () => {
   const names = commands.map((c) => c.name).sort();
-  assert.deepEqual(names, ['bets', 'champ', 'daily', 'duo', 'graph', 'help', 'ladder', 'leaderboard', 'link', 'live', 'log', 'mode', 'peak', 'points', 'profile', 'recap', 'recent', 'rivals', 'roles', 'scout', 'server', 'track', 'unlink', 'weekly', 'zeke']);
+  assert.deepEqual(names, ['bets', 'champ', 'daily', 'duo', 'graph', 'help', 'ladder', 'leaderboard', 'link', 'live', 'log', 'mmr', 'mode', 'peak', 'points', 'profile', 'recap', 'recent', 'rivals', 'roles', 'scout', 'server', 'track', 'unlink', 'weekly', 'zeke']);
   const byName = Object.fromEntries(commands.map((c) => [c.name, c]));
   assert.deepEqual(byName.link!.integration_types, [0, 1]);
   assert.deepEqual(byName.recent!.contexts, [0, 1, 2]);

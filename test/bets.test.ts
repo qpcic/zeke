@@ -26,6 +26,11 @@ test('bets: round opens when a tracked player is in a ranked game, locks, pays 2
   await assert.rejects(runCommand(service, { ...base, callerId: 'x', canManageGuild: false, name: 'bets', channelId: '777' }), /Manage Server/);
   await runCommand(service, { ...base, callerId: 'admin', name: 'bets', channelId: '777' });
   await service.tick();
+  // they've played together before: the post says so, like /live
+  clock.advance(40 * MIN);
+  mock.play({ players: [{ puuid: a.puuid, team: 100 }, { puuid: b.puuid, team: 100 }], winner: 100 });
+  await service.tick();
+  clock.advance(20 * MIN);
 
   // both tracked players in the same game, same team: one round
   const g = mock.startLive({ players: [{ puuid: a.puuid, team: 100, championId: 103 }, { puuid: b.puuid, team: 100, championId: 64 }] });
@@ -36,6 +41,7 @@ test('bets: round opens when a tracked player is in a ranked game, locks, pays 2
   const round = posts[0]!;
   assert.match(round.reply.embed.title!, /Bets open/);
   assert.match(round.reply.embed.description!, /\*\*Kitten\*\*.*\*\*Mapet\*\*.*are in a Ranked Solo\/Duo game/);
+  assert.match(round.reply.embed.description!, /🤝 Played with \*\*Mapet\*\* 1× \(1W 0L\)/);
   const roundId = Number((round.reply.components![0] as any).components[0].custom_id.split(':')[2]);
   assert.equal(round.reply.files[0]?.name, 'draft.png', 'draft image like /live');
   assert.equal(round.reply.embed.image?.url, 'attachment://draft.png');
